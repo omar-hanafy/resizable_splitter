@@ -1,0 +1,32 @@
+name: resizable_splitter
+description: "Accessible splitter widget for Flutter layouts that need drag-to-resize panels."
+version: 1.0.0
+
+homepage: https://github.com/omar-hanafy/resizable_splitter
+repository: https://github.com/omar-hanafy/resizable_splitter
+issue_tracker: https://github.com/omar-hanafy/resizable_splitter/issues
+documentation: https://github.com/omar-hanafy/resizable_splitter#readme
+
+topics:
+  - layout
+  - divider
+  - split-view
+  - drag
+  - resize
+
+environment:
+  sdk: ">=3.9.2 <4.0.0"
+  flutter: ">=3.22.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  fake_async: ^1.3.3
+  very_good_analysis: ^10.0.0
+
+flutter:
+  uses-material-design: true
