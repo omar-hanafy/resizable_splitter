@@ -294,6 +294,9 @@ class ResizableSplitter extends StatefulWidget {
     this.snapPoints,
     this.snapTolerance = 0.02,
     this.handleBuilder,
+    this.holdScrollWhileDragging = false,
+    this.handleHitSlop = 0.0,
+    this.doubleTapResetTo,
   }) : assert(
          initialRatio >= 0.0 && initialRatio <= 1.0,
          'initialRatio must be between 0.0 and 1.0',
@@ -306,7 +309,13 @@ class ResizableSplitter extends StatefulWidget {
          maxRatio >= 0.0 && maxRatio <= 1.0,
          'maxRatio must be between 0.0 and 1.0',
        ),
-       assert(minRatio < maxRatio, 'minRatio must be less than maxRatio');
+       assert(minRatio < maxRatio, 'minRatio must be less than maxRatio'),
+       assert(handleHitSlop >= 0, 'handleHitSlop must be non-negative'),
+       assert(
+         doubleTapResetTo == null ||
+             (doubleTapResetTo >= 0.0 && doubleTapResetTo <= 1.0),
+         'doubleTapResetTo must be between 0.0 and 1.0',
+       );
 
   /// The widget to display in the start position (left/top).
   final Widget startPanel;
@@ -392,6 +401,15 @@ class ResizableSplitter extends StatefulWidget {
 
   /// Custom handle builder to replace the inner “grip” UI.
   final Widget Function(BuildContext, SplitterHandleDetails)? handleBuilder;
+
+  /// Whether to temporarily hold the nearest Scrollable's position while dragging.
+  final bool holdScrollWhileDragging;
+
+  /// Extra, invisible padding around the handle to make it easier to grab.
+  final double handleHitSlop;
+
+  /// Optional ratio to jump to on double-tap.
+  final double? doubleTapResetTo;
 
   @override
   State<ResizableSplitter> createState() => _ResizableSplitterState();
@@ -514,6 +532,9 @@ class _ResizableSplitterState extends State<ResizableSplitter> {
                   snapPoints: widget.snapPoints,
                   snapTolerance: widget.snapTolerance,
                   handleBuilder: widget.handleBuilder,
+                  holdScrollWhileDragging: widget.holdScrollWhileDragging,
+                  handleHitSlop: widget.handleHitSlop,
+                  doubleTapResetTo: widget.doubleTapResetTo,
                 ),
                 SizedBox(
                   width: widget.axis.isH ? second : null,
@@ -556,6 +577,9 @@ class _DividerHandle extends StatefulWidget {
     required this.snapPoints,
     required this.snapTolerance,
     required this.handleBuilder,
+    required this.holdScrollWhileDragging,
+    required this.handleHitSlop,
+    required this.doubleTapResetTo,
   });
 
   final Axis axis;
@@ -582,6 +606,9 @@ class _DividerHandle extends StatefulWidget {
   final List<double>? snapPoints;
   final double snapTolerance;
   final Widget Function(BuildContext, SplitterHandleDetails)? handleBuilder;
+  final bool holdScrollWhileDragging;
+  final double handleHitSlop;
+  final double? doubleTapResetTo;
 
   @override
   State<_DividerHandle> createState() => _DividerHandleState();
@@ -594,6 +621,7 @@ class _DividerHandleState extends State<_DividerHandle> {
   double? _dragStartRatio;
   OverlayEntry? _dragOverlay;
   int? _activePointer;
+  ScrollHoldController? _scrollHold;
 
   late BoxDecoration _idleDecoration;
   late BoxDecoration _hoverDecoration;
@@ -623,6 +651,8 @@ class _DividerHandleState extends State<_DividerHandle> {
     }
     widget.controller._setDragCallback(null);
     _removeOverlay();
+    _scrollHold?.cancel();
+    _scrollHold = null;
     super.dispose();
   }
 
@@ -665,6 +695,11 @@ class _DividerHandleState extends State<_DividerHandle> {
     );
     widget.controller._setDragCallback(_stopDrag);
 
+    if (widget.holdScrollWhileDragging) {
+      _scrollHold?.cancel();
+      _scrollHold = Scrollable.maybeOf(context)?.position.hold(() {});
+    }
+
     if (widget.overlayEnabled) _insertOverlay();
 
     unawaited(HapticFeedback.selectionClick());
@@ -685,6 +720,8 @@ class _DividerHandleState extends State<_DividerHandle> {
     widget.controller._setDragCallback(null);
     SplitterController._globalRouter.setDragging(null);
     _removeOverlay();
+    _scrollHold?.cancel();
+    _scrollHold = null;
 
     _dragStartPosition = null;
     _dragStartRatio = null;
@@ -778,6 +815,12 @@ class _DividerHandleState extends State<_DividerHandle> {
     widget.onRatioChanged?.call(widget.controller.value);
   }
 
+  void _endGestureDrag() {
+    if (_isDragging) {
+      _stopDrag();
+    }
+  }
+
   void _nudge(double delta) {
     final newRatio = (widget.controller.value + delta).clamp(
       widget.minRatio,
@@ -835,21 +878,52 @@ class _DividerHandleState extends State<_DividerHandle> {
       handle = SizedBox(height: widget.thickness, child: handle);
     }
 
-    Widget divider = MouseRegion(
-      cursor: widget.axis.cursor,
-      onEnter: (_) => setState(() => _isHovering = true),
-      onExit: (_) => setState(() => _isHovering = false),
-      child: Listener(
-        behavior: HitTestBehavior.opaque,
-        onPointerDown: _startDrag,
-        onPointerMove: (details) {
-          if (_isDragging) {
-            _updateDrag(details);
-          }
-        },
-        child: handle,
+    Widget divider = GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      dragStartBehavior: DragStartBehavior.down,
+      onHorizontalDragStart: widget.axis.isH ? (_) {} : null,
+      onHorizontalDragUpdate: widget.axis.isH ? (_) {} : null,
+      onHorizontalDragEnd: widget.axis.isH ? (_) => _endGestureDrag() : null,
+      onHorizontalDragCancel: widget.axis.isH ? _endGestureDrag : null,
+      onVerticalDragStart: widget.axis.isH ? null : (_) {},
+      onVerticalDragUpdate: widget.axis.isH ? null : (_) {},
+      onVerticalDragEnd: widget.axis.isH ? null : (_) => _endGestureDrag(),
+      onVerticalDragCancel: widget.axis.isH ? null : _endGestureDrag,
+      onDoubleTap: widget.doubleTapResetTo == null
+          ? null
+          : () {
+              final target = widget.doubleTapResetTo!;
+              unawaited(
+                widget.controller.animateTo(target).then((_) {
+                  widget.onRatioChanged?.call(widget.controller.value);
+                }),
+              );
+            },
+      child: MouseRegion(
+        cursor: widget.axis.cursor,
+        onEnter: (_) => setState(() => _isHovering = true),
+        onExit: (_) => setState(() => _isHovering = false),
+        child: Listener(
+          behavior: HitTestBehavior.opaque,
+          onPointerDown: _startDrag,
+          onPointerMove: (details) {
+            if (_isDragging) {
+              _updateDrag(details);
+            }
+          },
+          child: handle,
+        ),
       ),
     );
+
+    if (widget.handleHitSlop > 0) {
+      final lr = widget.axis.isH ? 0.0 : widget.handleHitSlop;
+      final tb = widget.axis.isH ? widget.handleHitSlop : 0.0;
+      divider = Padding(
+        padding: EdgeInsets.fromLTRB(lr, tb, lr, tb),
+        child: divider,
+      );
+    }
 
     String formatPercent(double ratio) {
       final clamped = ratio

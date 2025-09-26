@@ -951,14 +951,32 @@ class _NavigationListPreview extends StatelessWidget {
       padding: const EdgeInsets.all(8),
       itemCount: itemCount,
       itemBuilder: (context, index) {
-        return Card(
-          elevation: 0,
-          child: ListTile(
-            dense: true,
-            leading: CircleAvatar(child: Text('${index + 1}')),
-            title: Text('Item ${index + 1}'),
-            subtitle: const Text('Preview'),
-          ),
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final isCompact = constraints.maxWidth < 96;
+            return Card(
+              elevation: 0,
+              child: ListTile(
+                dense: true,
+                minLeadingWidth: isCompact ? 0 : null,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
+                leading: isCompact
+                    ? null
+                    : SizedBox.square(
+                        dimension: 32,
+                        child: CircleAvatar(child: Text('${index + 1}')),
+                      ),
+                title: Text(
+                  'Item ${index + 1}',
+                  overflow: TextOverflow.ellipsis,
+                ),
+                subtitle: isCompact ? null : const Text('Preview', maxLines: 1),
+              ),
+            );
+          },
         );
       },
     );
