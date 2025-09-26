@@ -709,7 +709,7 @@ class _DividerHandleState extends State<_DividerHandle> {
       (1.0 - widget.minEnd / widget.maxSize).clamp(0.0, 1.0),
     );
 
-    double nearest = value;
+    var nearest = value;
     var bestDist = double.infinity;
     for (final p in points) {
       final d = (value - p).abs();

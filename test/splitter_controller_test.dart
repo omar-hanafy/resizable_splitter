@@ -20,7 +20,7 @@ void main() {
     });
 
     test('updateRatio respects threshold and clamps to [0,1]', () {
-      final controller = SplitterController(initialRatio: 0.5);
+      final controller = SplitterController();
       final changes = <double>[];
       controller
         ..addListener(() => changes.add(controller.value))

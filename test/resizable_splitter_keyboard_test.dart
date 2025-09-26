@@ -17,18 +17,14 @@ void main() {
   testWidgets('keyboard shortcuts adjust ratio respecting bounds', (
     tester,
   ) async {
-    final controller = SplitterController(initialRatio: 0.5);
+    final controller = SplitterController();
 
     await tester.pumpWidget(
       host(
         ResizableSplitter(
-          axis: Axis.horizontal,
           controller: controller,
           semanticsLabel: 'handle',
           dividerThickness: 8,
-          enableKeyboard: true,
-          keyboardStep: 0.01,
-          pageStep: 0.1,
           minRatio: 0.2,
           maxRatio: 0.8,
           startPanel: const SizedBox(),

@@ -27,9 +27,7 @@ void main() {
 
     await tester.pumpWidget(
       frame(
-        width: totalWidth,
         child: ResizableSplitter(
-          axis: Axis.horizontal,
           initialRatio: 0.1,
           dividerThickness: dividerThickness,
           minStartPanelSize: 200,
@@ -56,9 +54,7 @@ void main() {
 
     await tester.pumpWidget(
       frame(
-        width: totalWidth,
         child: ResizableSplitter(
-          axis: Axis.horizontal,
           initialRatio: 0.8,
           dividerThickness: dividerThickness,
           minStartPanelSize: 200,
@@ -142,11 +138,9 @@ void main() {
     await tester.pumpWidget(
       frame(
         child: ResizableSplitter(
-          axis: Axis.horizontal,
           semanticsLabel: 'handle',
           startPanel: const SizedBox(),
           endPanel: const SizedBox(),
-          dividerThickness: 6,
           handleBuilder: (_, details) {
             expect(details.thickness, 6.0);
             expect(details.axis, Axis.horizontal);

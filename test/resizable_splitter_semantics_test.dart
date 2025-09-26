@@ -19,9 +19,6 @@ void main() {
     await tester.pumpWidget(
       host(
         const ResizableSplitter(
-          axis: Axis.horizontal,
-          initialRatio: 0.5,
-          keyboardStep: 0.01,
           dividerThickness: 8,
           startPanel: SizedBox(),
           endPanel: SizedBox(),

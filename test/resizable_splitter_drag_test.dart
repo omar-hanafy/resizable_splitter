@@ -24,7 +24,7 @@ void main() {
     (tester) async {
       const dividerThickness = 10.0;
       const totalWidth = 400.0;
-      final controller = SplitterController(initialRatio: 0.5);
+      final controller = SplitterController();
 
       double? dragStart;
       double? dragEnd;
@@ -33,12 +33,10 @@ void main() {
       await tester.pumpWidget(
         host(
           child: ResizableSplitter(
-            axis: Axis.horizontal,
             controller: controller,
             dividerThickness: dividerThickness,
             semanticsLabel: 'handle',
             minPanelSize: 0,
-            overlayEnabled: true,
             blockerColor: Colors.green,
             snapPoints: const [0.25, 0.75],
             snapTolerance: 0.1,
@@ -92,7 +90,6 @@ void main() {
       host(
         width: totalWidth,
         child: ResizableSplitter(
-          axis: Axis.horizontal,
           controller: controller,
           dividerThickness: dividerThickness,
           semanticsLabel: 'handle',
@@ -116,7 +113,7 @@ void main() {
   });
 
   testWidgets('controller exposes dragging listenable updates', (tester) async {
-    final controller = SplitterController(initialRatio: 0.5);
+    final controller = SplitterController();
     final draggingStates = <bool>[];
     controller.isDraggingListenable.addListener(() {
       draggingStates.add(controller.isDragging);
@@ -125,7 +122,6 @@ void main() {
     await tester.pumpWidget(
       host(
         child: ResizableSplitter(
-          axis: Axis.horizontal,
           controller: controller,
           dividerThickness: 8,
           semanticsLabel: 'handle',
@@ -156,7 +152,6 @@ void main() {
       host(
         width: totalWidth,
         child: ResizableSplitter(
-          axis: Axis.horizontal,
           controller: controller,
           dividerThickness: dividerThickness,
           semanticsLabel: 'handle',
@@ -221,7 +216,7 @@ void main() {
   testWidgets('controller.isDragging resets when handle is disposed mid-drag', (
     tester,
   ) async {
-    final controller = SplitterController(initialRatio: 0.5);
+    final controller = SplitterController();
     var showSplitter = true;
     late StateSetter setState;
 
@@ -232,7 +227,6 @@ void main() {
           return host(
             child: showSplitter
                 ? ResizableSplitter(
-                    axis: Axis.horizontal,
                     controller: controller,
                     dividerThickness: 10,
                     semanticsLabel: 'handle',
