@@ -7,9 +7,7 @@ void main() {
 
   Widget host(Widget child) => MaterialApp(
     home: Scaffold(
-      body: Center(
-        child: SizedBox(width: 400, height: 240, child: child),
-      ),
+      body: Center(child: SizedBox(width: 400, height: 240, child: child)),
     ),
   );
 

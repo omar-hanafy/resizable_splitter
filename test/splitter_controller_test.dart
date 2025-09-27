@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:fake_async/fake_async.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:resizable_splitter/resizable_splitter.dart';
 
@@ -63,5 +64,62 @@ void main() {
         expect(completed, isTrue);
       });
     });
+
+    testWidgets(
+      'controller asserts when attached to multiple splitters simultaneously',
+      (tester) async {
+        final controller = SplitterController();
+        var showSecond = false;
+        late StateSetter setState;
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: SizedBox(
+                width: 400,
+                height: 400,
+                child: StatefulBuilder(
+                  builder: (context, innerSetState) {
+                    setState = innerSetState;
+                    return Column(
+                      children: [
+                        Expanded(
+                          child: ResizableSplitter(
+                            controller: controller,
+                            semanticsLabel: 'first',
+                            startPanel: const SizedBox(),
+                            endPanel: const SizedBox(),
+                          ),
+                        ),
+                        if (showSecond)
+                          Expanded(
+                            child: ResizableSplitter(
+                              controller: controller,
+                              semanticsLabel: 'second',
+                              startPanel: const SizedBox(),
+                              endPanel: const SizedBox(),
+                            ),
+                          ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ),
+          ),
+        );
+
+        expect(tester.takeException(), isNull);
+
+        setState(() => showSecond = true);
+        await tester.pump();
+
+        final error = tester.takeException();
+        expect(error, isFlutterError);
+        expect('$error', contains('already attached'));
+
+        expect(tester.takeException(), isNull);
+      },
+    );
   });
 }

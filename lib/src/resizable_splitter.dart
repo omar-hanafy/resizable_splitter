@@ -9,6 +9,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:resizable_splitter/src/resizable_splitter_theme.dart';
 
 /// Re-export for clean imports when only Axis is needed.
 export 'package:flutter/material.dart' show Axis;
@@ -69,6 +70,10 @@ class SplitterController extends ValueNotifier<double> {
 
   static final _globalRouter = _GlobalPointerRouter();
 
+  static const String _multiAttachErrorMessage =
+      'SplitterController is already attached to another ResizableSplitter.\n'
+      'A controller must not be shared across multiple ResizableSplitter instances simultaneously.';
+
   /// Emits `true` while the user is dragging the handle.
   ValueListenable<bool> get isDraggingListenable => _isDragging;
 
@@ -77,6 +82,27 @@ class SplitterController extends ValueNotifier<double> {
   final _isDragging = ValueNotifier<bool>(false);
   Timer? _animationTimer;
   Completer<void>? _animationCompleter;
+  Object? _owner;
+
+  /// Exposes the widget currently owning this controller in debug/test builds.
+  @visibleForTesting
+  Object? get debugOwner => _owner;
+
+  void _attach(Object owner) {
+    assert(() {
+      if (_owner != null && !identical(_owner, owner)) {
+        throw FlutterError(_multiAttachErrorMessage);
+      }
+      return true;
+    }(), _multiAttachErrorMessage);
+    _owner = owner;
+  }
+
+  void _detach(Object owner) {
+    if (identical(_owner, owner)) {
+      _owner = null;
+    }
+  }
 
   @override
   void dispose() {
@@ -260,10 +286,18 @@ class _GlobalPointerRouter {
 ///   to stop pointer events from being stolen.
 /// - Extensive customization via colors and a custom [handleBuilder].
 ///
-/// If the incoming constraints along [axis] are unbounded or zero,
-/// the splitter falls back to two [Expanded] children without the divider
-/// so layout remains valid. In these cases, provide a bounded parent (e.g.
-/// [SizedBox], [Expanded], or [SliverFillRemaining]) to restore the handle.
+/// If the incoming constraints along [axis] are unbounded or zero, the
+/// splitter defaults to two [Expanded] children without the divider. Opt into
+/// [UnboundedBehavior.limitedBox] (via [ResizableSplitterTheme] or the
+/// constructor) to give the handle a finite sandbox while preserving side
+/// panels.
+///
+/// Theme precedence: explicit constructor values override
+/// [ResizableSplitterTheme], which in turn overrides
+/// `Theme.of(context).extension<ResizableSplitterThemeOverrides>()`. When no
+/// overrides are provided, colors fall back to the ambient [ThemeData]
+/// (via [ColorScheme]) and numeric values fall back to the defaults documented
+/// on each parameter.
 class ResizableSplitter extends StatefulWidget {
   /// Builds a resizable splitter with the provided panels and configuration.
   const ResizableSplitter({
@@ -278,26 +312,52 @@ class ResizableSplitter extends StatefulWidget {
     this.minPanelSize = 100.0,
     this.minStartPanelSize,
     this.minEndPanelSize,
-    this.dividerThickness = 6.0,
+    double? dividerThickness,
     this.dividerColor,
     this.dividerHoverColor,
     this.dividerActiveColor,
     this.onRatioChanged,
     this.onDragStart,
     this.onDragEnd,
-    this.enableKeyboard = true,
-    this.keyboardStep = 0.01,
-    this.pageStep = 0.1,
+    bool? enableKeyboard,
+    double? keyboardStep,
+    double? pageStep,
     this.semanticsLabel,
     this.blockerColor,
-    this.overlayEnabled = true,
+    bool? overlayEnabled,
     this.snapPoints,
     this.snapTolerance = 0.02,
     this.handleBuilder,
     this.holdScrollWhileDragging = false,
-    this.handleHitSlop = 0.0,
+    double? handleHitSlop,
     this.doubleTapResetTo,
-  }) : assert(
+    this.resizable = true,
+    this.onHandleTap,
+    this.onHandleDoubleTap,
+    this.crampedBehavior = CrampedBehavior.favorStart,
+    UnboundedBehavior? unboundedBehavior,
+    double? fallbackMainAxisExtent,
+    bool? antiAliasingWorkaround,
+  }) : enableKeyboard = enableKeyboard ?? true,
+       _enableKeyboardExplicit = enableKeyboard != null,
+       overlayEnabled = overlayEnabled ?? true,
+       _overlayEnabledExplicit = overlayEnabled != null,
+       unboundedBehavior = unboundedBehavior ?? UnboundedBehavior.flexExpand,
+       _unboundedBehaviorExplicit = unboundedBehavior != null,
+       antiAliasingWorkaround = antiAliasingWorkaround ?? false,
+       _antiAliasingWorkaroundExplicit = antiAliasingWorkaround != null,
+       dividerThickness = dividerThickness ?? _defaultDividerThickness,
+       _dividerThicknessExplicit = dividerThickness != null,
+       keyboardStep = keyboardStep ?? _defaultKeyboardStep,
+       _keyboardStepExplicit = keyboardStep != null,
+       pageStep = pageStep ?? _defaultPageStep,
+       _pageStepExplicit = pageStep != null,
+       handleHitSlop = handleHitSlop ?? _defaultHandleHitSlop,
+       _handleHitSlopExplicit = handleHitSlop != null,
+       fallbackMainAxisExtent =
+           fallbackMainAxisExtent ?? _defaultFallbackMainAxisExtent,
+       _fallbackExtentExplicit = fallbackMainAxisExtent != null,
+       assert(
          initialRatio >= 0.0 && initialRatio <= 1.0,
          'initialRatio must be between 0.0 and 1.0',
        ),
@@ -310,12 +370,24 @@ class ResizableSplitter extends StatefulWidget {
          'maxRatio must be between 0.0 and 1.0',
        ),
        assert(minRatio < maxRatio, 'minRatio must be less than maxRatio'),
-       assert(handleHitSlop >= 0, 'handleHitSlop must be non-negative'),
+       assert(
+         handleHitSlop == null || handleHitSlop >= 0,
+         'handleHitSlop must be non-negative',
+       ),
        assert(
          doubleTapResetTo == null ||
              (doubleTapResetTo >= 0.0 && doubleTapResetTo <= 1.0),
          'doubleTapResetTo must be between 0.0 and 1.0',
+       ),
+       assert(
+         fallbackMainAxisExtent == null || fallbackMainAxisExtent > 0,
+         'fallbackMainAxisExtent must be greater than zero',
        );
+  static const double _defaultDividerThickness = 6;
+  static const double _defaultKeyboardStep = 0.01;
+  static const double _defaultPageStep = 0.1;
+  static const double _defaultHandleHitSlop = 0;
+  static const double _defaultFallbackMainAxisExtent = 500;
 
   /// The widget to display in the start position (left/top).
   final Widget startPanel;
@@ -356,6 +428,7 @@ class ResizableSplitter extends StatefulWidget {
 
   /// Thickness of the divider handle in pixels.
   final double dividerThickness;
+  final bool _dividerThicknessExplicit;
 
   /// Color of the divider in its idle state.
   final Color? dividerColor;
@@ -377,12 +450,15 @@ class ResizableSplitter extends StatefulWidget {
 
   /// Whether to enable keyboard navigation with arrow keys.
   final bool enableKeyboard;
+  final bool _enableKeyboardExplicit;
 
   /// Step applied with Arrow keys (e.g., 0.01 = 1%).
   final double keyboardStep;
+  final bool _keyboardStepExplicit;
 
   /// Step applied with PageUp/PageDown keys (e.g., 0.1 = 10%).
   final double pageStep;
+  final bool _pageStepExplicit;
 
   /// Accessibility label for the divider.
   final String? semanticsLabel;
@@ -392,6 +468,7 @@ class ResizableSplitter extends StatefulWidget {
 
   /// Whether the protective overlay is used while dragging.
   final bool overlayEnabled;
+  final bool _overlayEnabledExplicit;
 
   /// Optional snap points (0–1). If close on drag end, snaps to the nearest.
   final List<double>? snapPoints;
@@ -407,9 +484,34 @@ class ResizableSplitter extends StatefulWidget {
 
   /// Extra, invisible padding around the handle to make it easier to grab.
   final double handleHitSlop;
+  final bool _handleHitSlopExplicit;
 
   /// Optional ratio to jump to on double-tap.
   final double? doubleTapResetTo;
+
+  /// Whether the divider responds to drag gestures.
+  final bool resizable;
+
+  /// Called when the divider is tapped.
+  final VoidCallback? onHandleTap;
+
+  /// Called when the divider is double-tapped.
+  final VoidCallback? onHandleDoubleTap;
+
+  /// Policy for distributing space when both panels cannot meet their minimums.
+  final CrampedBehavior crampedBehavior;
+
+  /// Fallback layout behavior when constraints are unbounded along the main axis.
+  final UnboundedBehavior unboundedBehavior;
+  final bool _unboundedBehaviorExplicit;
+
+  /// Extent in pixels to use when [unboundedBehavior] is [UnboundedBehavior.limitedBox].
+  final double fallbackMainAxisExtent;
+  final bool _fallbackExtentExplicit;
+
+  /// Floors the leading panel size to whole pixels to avoid anti-alias gaps.
+  final bool antiAliasingWorkaround;
+  final bool _antiAliasingWorkaroundExplicit;
 
   @override
   State<ResizableSplitter> createState() => _ResizableSplitterState();
@@ -418,6 +520,7 @@ class ResizableSplitter extends StatefulWidget {
 class _ResizableSplitterState extends State<ResizableSplitter> {
   late final FocusNode _focusNode;
   SplitterController? _internalController;
+  SplitterController? _attachedController;
 
   SplitterController get _effectiveController =>
       widget.controller ??
@@ -429,19 +532,36 @@ class _ResizableSplitterState extends State<ResizableSplitter> {
   void initState() {
     super.initState();
     _focusNode = FocusNode(debugLabel: 'ResizableSplitterHandle');
+    final controller = _effectiveController.._attach(this);
+    _attachedController = controller;
   }
 
   @override
   void didUpdateWidget(ResizableSplitter oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.controller == null && widget.controller != null) {
-      _internalController?.dispose();
-      _internalController = null;
+
+    final newController =
+        widget.controller ??
+        (_internalController ??= SplitterController(
+          initialRatio: widget.initialRatio,
+        ));
+
+    if (!identical(_attachedController, newController)) {
+      _attachedController?._detach(this);
+
+      if (oldWidget.controller == null && widget.controller != null) {
+        _internalController?.dispose();
+        _internalController = null;
+      }
+
+      newController._attach(this);
+      _attachedController = newController;
     }
   }
 
   @override
   void dispose() {
+    _attachedController?._detach(this);
     _focusNode.dispose();
     _internalController?.dispose();
     super.dispose();
@@ -449,11 +569,102 @@ class _ResizableSplitterState extends State<ResizableSplitter> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = ResizableSplitterTheme.of(context);
+
+    final dividerThickness = widget._dividerThicknessExplicit
+        ? widget.dividerThickness
+        : theme.dividerThickness;
+
+    final keyboardStep = widget._keyboardStepExplicit
+        ? widget.keyboardStep
+        : theme.keyboardStep;
+
+    final pageStep = widget._pageStepExplicit
+        ? widget.pageStep
+        : theme.pageStep;
+
+    final handleHitSlop = widget._handleHitSlopExplicit
+        ? widget.handleHitSlop
+        : theme.handleHitSlop;
+
+    final overlayEnabled = widget._overlayEnabledExplicit
+        ? widget.overlayEnabled
+        : theme.overlayEnabled;
+    final enableKeyboard = widget._enableKeyboardExplicit
+        ? widget.enableKeyboard
+        : theme.enableKeyboard;
+
+    final blockerColor = widget.blockerColor ?? theme.blockerColor;
+    final dividerColor = widget.dividerColor ?? theme.dividerColor;
+    final dividerHoverColor =
+        widget.dividerHoverColor ?? theme.dividerHoverColor;
+    final dividerActiveColor =
+        widget.dividerActiveColor ?? theme.dividerActiveColor;
+
+    final unboundedBehavior = widget._unboundedBehaviorExplicit
+        ? widget.unboundedBehavior
+        : theme.unboundedBehavior;
+
+    final fallbackExtent = widget._fallbackExtentExplicit
+        ? widget.fallbackMainAxisExtent
+        : theme.fallbackMainAxisExtent;
+
+    final antiAliasingWorkaround = widget._antiAliasingWorkaroundExplicit
+        ? widget.antiAliasingWorkaround
+        : theme.antiAliasingWorkaround;
+
+    final controller = _attachedController ?? _effectiveController;
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final maxSize = widget.axis.size(constraints.biggest);
 
         if (!maxSize.isFinite || maxSize <= 0) {
+          if (unboundedBehavior == UnboundedBehavior.limitedBox) {
+            return LimitedBox(
+              maxWidth: widget.axis.isH ? fallbackExtent : double.infinity,
+              maxHeight: widget.axis.isH ? double.infinity : fallbackExtent,
+              child: LayoutBuilder(
+                builder: (context, bounded) {
+                  final boundedMax = widget.axis.size(bounded.biggest);
+                  if (!boundedMax.isFinite || boundedMax <= 0) {
+                    return Flex(
+                      direction: widget.axis,
+                      children: [
+                        Expanded(child: widget.startPanel),
+                        Expanded(child: widget.endPanel),
+                      ],
+                    );
+                  }
+
+                  return ValueListenableBuilder<double>(
+                    valueListenable: controller,
+                    builder: (_, ratio, _) {
+                      final availableSize = (boundedMax - dividerThickness)
+                          .clamp(0.0, double.infinity);
+                      return _buildBounded(
+                        ratio: ratio,
+                        availableSize: availableSize,
+                        dividerThickness: dividerThickness,
+                        enableKeyboard: enableKeyboard,
+                        keyboardStep: keyboardStep,
+                        pageStep: pageStep,
+                        overlayEnabled: overlayEnabled,
+                        handleHitSlop: handleHitSlop,
+                        blockerColor: blockerColor,
+                        dividerColor: dividerColor,
+                        dividerHoverColor: dividerHoverColor,
+                        dividerActiveColor: dividerActiveColor,
+                        antiAliasingWorkaround: antiAliasingWorkaround,
+                        controller: controller,
+                      );
+                    },
+                  );
+                },
+              ),
+            );
+          }
+
           return Flex(
             direction: widget.axis,
             children: [
@@ -464,88 +675,139 @@ class _ResizableSplitterState extends State<ResizableSplitter> {
         }
 
         return ValueListenableBuilder<double>(
-          valueListenable: _effectiveController,
+          valueListenable: controller,
           builder: (_, ratio, _) {
-            final availableSize = (maxSize - widget.dividerThickness).clamp(
+            final availableSize = (maxSize - dividerThickness).clamp(
               0.0,
               double.infinity,
             );
 
-            final minStart = (widget.minStartPanelSize ?? widget.minPanelSize)
-                .clamp(0.0, availableSize);
-            final minEnd = (widget.minEndPanelSize ?? widget.minPanelSize)
-                .clamp(0.0, availableSize);
-
-            double first;
-            double second;
-
-            if (availableSize <= 0) {
-              first = 0;
-              second = 0;
-            } else {
-              final pixelMinRatio = (minStart / availableSize).clamp(0.0, 1.0);
-              final pixelMaxRatio = (1.0 - minEnd / availableSize).clamp(
-                0.0,
-                1.0,
-              );
-              final minR = math.max(widget.minRatio, pixelMinRatio);
-              final maxR = math.min(widget.maxRatio, pixelMaxRatio);
-
-              final effectiveRatio = minR <= maxR
-                  ? ratio.clamp(minR, maxR)
-                  : minR;
-
-              first = availableSize * effectiveRatio;
-              second = availableSize - first;
-            }
-
-            return Flex(
-              direction: widget.axis,
-              children: [
-                SizedBox(
-                  width: widget.axis.isH ? first : null,
-                  height: widget.axis.isH ? null : first,
-                  child: widget.startPanel,
-                ),
-                _DividerHandle(
-                  axis: widget.axis,
-                  controller: _effectiveController,
-                  thickness: widget.dividerThickness,
-                  minRatio: widget.minRatio,
-                  maxRatio: widget.maxRatio,
-                  minStart: minStart,
-                  minEnd: minEnd,
-                  maxSize: availableSize,
-                  blockerColor: widget.blockerColor,
-                  dividerColor: widget.dividerColor,
-                  dividerHoverColor: widget.dividerHoverColor,
-                  dividerActiveColor: widget.dividerActiveColor,
-                  onRatioChanged: widget.onRatioChanged,
-                  onDragStart: widget.onDragStart,
-                  onDragEnd: widget.onDragEnd,
-                  enableKeyboard: widget.enableKeyboard,
-                  keyboardStep: widget.keyboardStep,
-                  pageStep: widget.pageStep,
-                  focusNode: _focusNode,
-                  semanticsLabel: widget.semanticsLabel,
-                  overlayEnabled: widget.overlayEnabled,
-                  snapPoints: widget.snapPoints,
-                  snapTolerance: widget.snapTolerance,
-                  handleBuilder: widget.handleBuilder,
-                  holdScrollWhileDragging: widget.holdScrollWhileDragging,
-                  handleHitSlop: widget.handleHitSlop,
-                  doubleTapResetTo: widget.doubleTapResetTo,
-                ),
-                SizedBox(
-                  width: widget.axis.isH ? second : null,
-                  height: widget.axis.isH ? null : second,
-                  child: widget.endPanel,
-                ),
-              ],
+            return _buildBounded(
+              ratio: ratio,
+              availableSize: availableSize,
+              dividerThickness: dividerThickness,
+              enableKeyboard: enableKeyboard,
+              keyboardStep: keyboardStep,
+              pageStep: pageStep,
+              overlayEnabled: overlayEnabled,
+              handleHitSlop: handleHitSlop,
+              blockerColor: blockerColor,
+              dividerColor: dividerColor,
+              dividerHoverColor: dividerHoverColor,
+              dividerActiveColor: dividerActiveColor,
+              antiAliasingWorkaround: antiAliasingWorkaround,
+              controller: controller,
             );
           },
         );
       },
+    );
+  }
+
+  Widget _buildBounded({
+    required double ratio,
+    required double availableSize,
+    required double dividerThickness,
+    required bool enableKeyboard,
+    required double keyboardStep,
+    required double pageStep,
+    required bool overlayEnabled,
+    required double handleHitSlop,
+    required Color? blockerColor,
+    required Color? dividerColor,
+    required Color? dividerHoverColor,
+    required Color? dividerActiveColor,
+    required bool antiAliasingWorkaround,
+    required SplitterController controller,
+  }) {
+    final minStart = (widget.minStartPanelSize ?? widget.minPanelSize).clamp(
+      0.0,
+      availableSize,
+    );
+    final minEnd = (widget.minEndPanelSize ?? widget.minPanelSize).clamp(
+      0.0,
+      availableSize,
+    );
+
+    double first;
+    double second;
+
+    if (availableSize <= 0) {
+      first = 0;
+      second = 0;
+    } else {
+      final pixelMinRatio = (minStart / availableSize).clamp(0.0, 1.0);
+      final pixelMaxRatio = (1.0 - minEnd / availableSize).clamp(0.0, 1.0);
+      final minR = math.max(widget.minRatio, pixelMinRatio);
+      final maxR = math.min(widget.maxRatio, pixelMaxRatio);
+
+      double effectiveRatio;
+      if (minR <= maxR) {
+        effectiveRatio = ratio.clamp(minR, maxR);
+      } else {
+        final sum = minStart + minEnd;
+        effectiveRatio = switch (widget.crampedBehavior) {
+          CrampedBehavior.favorStart => minR,
+          CrampedBehavior.favorEnd => maxR,
+          CrampedBehavior.proportionallyClamp =>
+            sum <= 0 ? 0.5 : (minStart / sum).clamp(0.0, 1.0),
+        };
+      }
+
+      first = availableSize * effectiveRatio;
+      if (antiAliasingWorkaround) {
+        first = first.floorToDouble();
+      }
+      second = (availableSize - first).clamp(0.0, availableSize);
+    }
+
+    return Flex(
+      direction: widget.axis,
+      children: [
+        SizedBox(
+          width: widget.axis.isH ? first : null,
+          height: widget.axis.isH ? null : first,
+          child: widget.startPanel,
+        ),
+        _DividerHandle(
+          axis: widget.axis,
+          controller: controller,
+          thickness: dividerThickness,
+          minRatio: widget.minRatio,
+          maxRatio: widget.maxRatio,
+          minStart: minStart,
+          minEnd: minEnd,
+          maxSize: availableSize,
+          blockerColor: blockerColor,
+          dividerColor: dividerColor,
+          dividerHoverColor: dividerHoverColor,
+          dividerActiveColor: dividerActiveColor,
+          onRatioChanged: widget.onRatioChanged,
+          onDragStart: widget.onDragStart,
+          onDragEnd: widget.onDragEnd,
+          enableKeyboard: enableKeyboard && widget.resizable,
+          keyboardStep: keyboardStep,
+          pageStep: pageStep,
+          focusNode: _focusNode,
+          semanticsLabel: widget.semanticsLabel,
+          overlayEnabled: overlayEnabled && widget.resizable,
+          snapPoints: widget.snapPoints,
+          snapTolerance: widget.snapTolerance,
+          handleBuilder: widget.handleBuilder,
+          holdScrollWhileDragging:
+              widget.holdScrollWhileDragging && widget.resizable,
+          handleHitSlop: handleHitSlop,
+          doubleTapResetTo: widget.doubleTapResetTo,
+          resizable: widget.resizable,
+          onTap: widget.onHandleTap,
+          onDoubleTap: widget.onHandleDoubleTap,
+        ),
+        SizedBox(
+          width: widget.axis.isH ? second : null,
+          height: widget.axis.isH ? null : second,
+          child: widget.endPanel,
+        ),
+      ],
     );
   }
 }
@@ -580,6 +842,9 @@ class _DividerHandle extends StatefulWidget {
     required this.holdScrollWhileDragging,
     required this.handleHitSlop,
     required this.doubleTapResetTo,
+    required this.resizable,
+    this.onTap,
+    this.onDoubleTap,
   });
 
   final Axis axis;
@@ -609,6 +874,9 @@ class _DividerHandle extends StatefulWidget {
   final bool holdScrollWhileDragging;
   final double handleHitSlop;
   final double? doubleTapResetTo;
+  final bool resizable;
+  final VoidCallback? onTap;
+  final VoidCallback? onDoubleTap;
 
   @override
   State<_DividerHandle> createState() => _DividerHandleState();
@@ -658,10 +926,18 @@ class _DividerHandleState extends State<_DividerHandle> {
 
   void _updateDecorations() {
     final cs = Theme.of(context).colorScheme;
-    // Calm splitter colors derived from the theme.
-    final baseColor = widget.dividerColor ?? cs.outlineVariant;
-    final hoverColor = widget.dividerHoverColor ?? cs.onSurface.withAlpha(20);
-    final activeColor = widget.dividerActiveColor ?? cs.onSurface.withAlpha(31);
+    final theme = ResizableSplitterTheme.of(context);
+    // Calm splitter colors derived from the surrounding theme unless overridden.
+    final baseColor =
+        widget.dividerColor ?? theme.dividerColor ?? cs.outlineVariant;
+    final hoverColor =
+        widget.dividerHoverColor ??
+        theme.dividerHoverColor ??
+        cs.onSurface.withAlpha(20);
+    final activeColor =
+        widget.dividerActiveColor ??
+        theme.dividerActiveColor ??
+        cs.onSurface.withAlpha(31);
 
     _idleDecoration = BoxDecoration(color: baseColor);
     _hoverDecoration = BoxDecoration(color: hoverColor);
@@ -669,6 +945,8 @@ class _DividerHandleState extends State<_DividerHandle> {
   }
 
   void _startDrag(PointerDownEvent event) {
+    if (!widget.resizable) return;
+
     final isPrimaryMouse =
         event.kind == PointerDeviceKind.mouse &&
         event.buttons == kPrimaryMouseButton;
@@ -815,13 +1093,9 @@ class _DividerHandleState extends State<_DividerHandle> {
     widget.onRatioChanged?.call(widget.controller.value);
   }
 
-  void _endGestureDrag() {
-    if (_isDragging) {
-      _stopDrag();
-    }
-  }
-
   void _nudge(double delta) {
+    if (!widget.resizable) return;
+
     final newRatio = (widget.controller.value + delta).clamp(
       widget.minRatio,
       widget.maxRatio,
@@ -858,9 +1132,7 @@ class _DividerHandleState extends State<_DividerHandle> {
             width: widget.axis.isH ? 2 : 24,
             height: widget.axis.isH ? 24 : 2,
             decoration: BoxDecoration(
-              color: Theme.of(
-                context,
-              ).colorScheme.onSurface.withAlpha(77),
+              color: Theme.of(context).colorScheme.onSurface.withAlpha(77),
               borderRadius: BorderRadius.circular(1),
             ),
           ),
@@ -881,26 +1153,25 @@ class _DividerHandleState extends State<_DividerHandle> {
     Widget divider = GestureDetector(
       behavior: HitTestBehavior.translucent,
       dragStartBehavior: DragStartBehavior.down,
-      onHorizontalDragStart: widget.axis.isH ? (_) {} : null,
-      onHorizontalDragUpdate: widget.axis.isH ? (_) {} : null,
-      onHorizontalDragEnd: widget.axis.isH ? (_) => _endGestureDrag() : null,
-      onHorizontalDragCancel: widget.axis.isH ? _endGestureDrag : null,
-      onVerticalDragStart: widget.axis.isH ? null : (_) {},
-      onVerticalDragUpdate: widget.axis.isH ? null : (_) {},
-      onVerticalDragEnd: widget.axis.isH ? null : (_) => _endGestureDrag(),
-      onVerticalDragCancel: widget.axis.isH ? null : _endGestureDrag,
-      onDoubleTap: widget.doubleTapResetTo == null
-          ? null
-          : () {
-              final target = widget.doubleTapResetTo!;
-              unawaited(
-                widget.controller.animateTo(target).then((_) {
-                  widget.onRatioChanged?.call(widget.controller.value);
-                }),
-              );
-            },
+      onTap: widget.onTap,
+      onDoubleTap:
+          (widget.onDoubleTap != null || widget.doubleTapResetTo != null)
+          ? () {
+              widget.onDoubleTap?.call();
+              if (widget.doubleTapResetTo != null && widget.resizable) {
+                final target = widget.doubleTapResetTo!;
+                unawaited(
+                  widget.controller.animateTo(target).then((_) {
+                    widget.onRatioChanged?.call(widget.controller.value);
+                  }),
+                );
+              }
+            }
+          : null,
       child: MouseRegion(
-        cursor: widget.axis.cursor,
+        cursor: widget.resizable
+            ? widget.axis.cursor
+            : SystemMouseCursors.basic,
         onEnter: (_) => setState(() => _isHovering = true),
         onExit: (_) => setState(() => _isHovering = false),
         child: Listener(
@@ -935,6 +1206,8 @@ class _DividerHandleState extends State<_DividerHandle> {
     final currentRatio = widget.controller.value;
 
     // Screen reader actions & value.
+    final allowSemanticAdjust = widget.resizable && widget.enableKeyboard;
+
     divider = Semantics(
       label:
           widget.semanticsLabel ??
@@ -942,14 +1215,22 @@ class _DividerHandleState extends State<_DividerHandle> {
               ? 'Drag to resize left and right panels.'
               : 'Drag to resize top and bottom panels.'),
       value: formatPercent(currentRatio),
-      increasedValue: formatPercent(currentRatio + widget.keyboardStep),
-      decreasedValue: formatPercent(currentRatio - widget.keyboardStep),
-      onIncrease: () => _nudge(widget.keyboardStep),
-      onDecrease: () => _nudge(-widget.keyboardStep),
+      increasedValue: allowSemanticAdjust
+          ? formatPercent(currentRatio + widget.keyboardStep)
+          : null,
+      decreasedValue: allowSemanticAdjust
+          ? formatPercent(currentRatio - widget.keyboardStep)
+          : null,
+      onIncrease: allowSemanticAdjust
+          ? () => _nudge(widget.keyboardStep)
+          : null,
+      onDecrease: allowSemanticAdjust
+          ? () => _nudge(-widget.keyboardStep)
+          : null,
       child: divider,
     );
 
-    if (widget.enableKeyboard) {
+    if (widget.enableKeyboard && widget.resizable) {
       divider = FocusableActionDetector(
         focusNode: widget.focusNode,
         shortcuts: <LogicalKeySet, Intent>{

@@ -175,10 +175,7 @@ void main() {
     await gesture.up();
     await tester.pumpAndSettle();
 
-    expect(
-      controller.value,
-      closeTo(130 / availableWidth, 1e-6),
-    );
+    expect(controller.value, closeTo(130 / availableWidth, 1e-6));
   });
 
   testWidgets('vertical drags respect pixel minimums', (tester) async {
@@ -256,5 +253,190 @@ void main() {
 
     await gesture.up();
     await tester.pumpAndSettle();
+  });
+
+  testWidgets('resizable false keeps ratio unchanged on drag attempts', (
+    tester,
+  ) async {
+    final controller = SplitterController(initialRatio: 0.45);
+
+    await tester.pumpWidget(
+      host(
+        child: ResizableSplitter(
+          controller: controller,
+          resizable: false,
+          semanticsLabel: 'handle',
+          startPanel: const SizedBox(),
+          endPanel: const SizedBox(),
+        ),
+      ),
+    );
+
+    final handle = find.bySemanticsLabel('handle');
+    final gesture = await tester.startGesture(tester.getCenter(handle));
+    await gesture.moveBy(const Offset(80, 0));
+    await gesture.up();
+    await tester.pump();
+
+    expect(controller.value, 0.45);
+    expect(controller.isDragging, isFalse);
+  });
+
+  testWidgets('handle tap callback fires even when not dragging', (
+    tester,
+  ) async {
+    var tapCount = 0;
+
+    await tester.pumpWidget(
+      host(
+        child: ResizableSplitter(
+          semanticsLabel: 'handle',
+          onHandleTap: () => tapCount++,
+          startPanel: const SizedBox(),
+          endPanel: const SizedBox(),
+        ),
+      ),
+    );
+
+    final handle = find.bySemanticsLabel('handle');
+    await tester.tap(handle);
+    await tester.pump();
+
+    expect(tapCount, 1);
+  });
+
+  testWidgets('double-tap callback fires and ratio resets when configured', (
+    tester,
+  ) async {
+    final controller = SplitterController(initialRatio: 0.3);
+    var doubleTapCount = 0;
+
+    await tester.pumpWidget(
+      host(
+        child: ResizableSplitter(
+          controller: controller,
+          semanticsLabel: 'handle',
+          doubleTapResetTo: 0.75,
+          onHandleDoubleTap: () => doubleTapCount++,
+          startPanel: const SizedBox(),
+          endPanel: const SizedBox(),
+        ),
+      ),
+    );
+
+    final handle = find.bySemanticsLabel('handle');
+    final center = tester.getCenter(handle);
+
+    final firstTap = await tester.startGesture(center);
+    await tester.pump(const Duration(milliseconds: 10));
+    await firstTap.up();
+    await tester.pump(const Duration(milliseconds: 40));
+
+    final secondTap = await tester.startGesture(center);
+    await tester.pump(const Duration(milliseconds: 10));
+    await secondTap.up();
+    await tester.pumpAndSettle();
+
+    expect(doubleTapCount, 1);
+    expect(controller.value, closeTo(0.75, 1e-6));
+  });
+
+  testWidgets('theme extension disables drag overlay when requested', (
+    tester,
+  ) async {
+    final controller = SplitterController();
+
+    final theme = ThemeData.light().copyWith(
+      extensions: const <ThemeExtension<dynamic>>[
+        ResizableSplitterThemeOverrides(overlayEnabled: false),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: theme,
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 360,
+              height: 220,
+              child: ResizableSplitter(
+                controller: controller,
+                blockerColor: Colors.red,
+                semanticsLabel: 'handle',
+                startPanel: const SizedBox(),
+                endPanel: const SizedBox(),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final handle = find.bySemanticsLabel('handle');
+    final gesture = await tester.startGesture(tester.getCenter(handle));
+    await tester.pump();
+
+    expect(
+      find.byWidgetPredicate(
+        (widget) => widget is ColoredBox && widget.color == Colors.red,
+      ),
+      findsNothing,
+    );
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(controller.isDragging, isFalse);
+  });
+
+  testWidgets('widget override re-enables overlay when theme disables it', (
+    tester,
+  ) async {
+    final controller = SplitterController();
+
+    final theme = ThemeData.light().copyWith(
+      extensions: const <ThemeExtension<dynamic>>[
+        ResizableSplitterThemeOverrides(overlayEnabled: false),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: theme,
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 360,
+              height: 220,
+              child: ResizableSplitter(
+                controller: controller,
+                overlayEnabled: true,
+                blockerColor: Colors.red,
+                semanticsLabel: 'handle',
+                startPanel: const SizedBox(),
+                endPanel: const SizedBox(),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final handle = find.bySemanticsLabel('handle');
+    final gesture = await tester.startGesture(tester.getCenter(handle));
+    await tester.pump();
+
+    expect(
+      find.byWidgetPredicate(
+        (widget) => widget is ColoredBox && widget.color == Colors.red,
+      ),
+      findsOneWidget,
+    );
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(controller.isDragging, isFalse);
   });
 }

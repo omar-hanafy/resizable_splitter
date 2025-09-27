@@ -16,7 +16,8 @@ Test it in the browser: [resizable-splitter demo](https://omar-hanafy.github.io/
 - Built-in snapping via `snapPoints` + `snapTolerance`, so handles land exactly on your breakpoints.
 - First-class keyboard support (Arrow/Page/Home/End) with semantics describing the current ratio, next/previous values, and how to interact.
 - Flexible layout constraints: `minRatio`, asymmetric `minStartPanelSize`/`minEndPanelSize`, and a safe default `minPanelSize` fallback.
-- Theming-friendly handle: provide colors or a fully custom `handleBuilder`, and react to `SplitterHandleDetails` for hover/drag states.
+- Theme once, reuse everywhere via `ResizableSplitterTheme` or the `ResizableSplitterThemeOverrides` `ThemeExtension`.
+- Opt-in policies for unbounded layouts (`UnboundedBehavior` + `fallbackMainAxisExtent`), anti-aliasing, and cramped minima (`CrampedBehavior`).
 
 ## Installation
 
@@ -24,7 +25,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  resizable_splitter: ^1.0.0
+  resizable_splitter: ^1.1.0
 ```
 
 Then fetch packages:
@@ -138,8 +139,16 @@ ResizableSplitter(
   semanticsLabel: 'Resize panels',     // screen-reader label
   blockerColor: Colors.black12,        // overlay tint during drag
   overlayEnabled: true,                // shield platform views
+  unboundedBehavior: UnboundedBehavior.flexExpand, // LimitedBox fallback via .limitedBox
+  fallbackMainAxisExtent: 420,        // used when unboundedBehavior == limitedBox
+  antiAliasingWorkaround: false,      // floor start panel to whole pixels
+  crampedBehavior: CrampedBehavior.favorStart, // pick who keeps their minimum first
   snapPoints: const [0.25, 0.5, 0.75], // optional ratio targets
   snapTolerance: 0.03,                 // how close before snapping
+  resizable: true,                     // disable to render a static divider
+  onHandleTap: () => logTap(),         // tap without dragging
+  onHandleDoubleTap: () => logDoubleTap(), // fires before optional reset
+  doubleTapResetTo: 0.5,               // animate back to mid on double tap
   handleBuilder: (context, details) {
     final color = details.isDragging ? Colors.blue : Colors.grey;
     return Center(
@@ -173,6 +182,64 @@ handleBuilder: (context, details) {
 ```
 
 Callbacks receive the live ratio so you can store it, pause work, or react to snapping. Keyboard shortcuts honor `enableKeyboard`, `keyboardStep`, and `pageStep`, and semantics read out `semanticsLabel` plus the percentage.
+
+## Theming
+
+Wrap a subtree with `ResizableSplitterTheme` when you want bespoke styling:
+
+```dart
+ResizableSplitterTheme(
+  data: const ResizableSplitterThemeData(
+    dividerThickness: 8,
+    dividerHoverColor: Colors.indigoAccent,
+    overlayEnabled: false,
+    unboundedBehavior: UnboundedBehavior.limitedBox,
+    fallbackMainAxisExtent: 360,
+  ),
+  child: const ResizableSplitter(
+    startPanel: NavPane(),
+    endPanel: ContentPane(),
+  ),
+);
+```
+
+For app-wide overrides hook into Material theming via the provided `ThemeExtension`:
+
+```dart
+final theme = ThemeData.light().copyWith(
+  extensions: const [
+    ResizableSplitterThemeOverrides(
+      keyboardStep: 0.2,
+      pageStep: 0.4,
+      handleHitSlop: 8,
+      overlayEnabled: false,
+    ),
+  ],
+);
+
+return MaterialApp(theme: theme, home: const SplitterShowcase());
+```
+
+Precedence: explicit widget parameters → `ResizableSplitterTheme` → `ThemeData.extension<ResizableSplitterThemeOverrides>()` → derived Material defaults.
+
+## Unbounded constraints
+
+If your splitter lives inside an unbounded constraint (e.g. `UnconstrainedBox`), opt into the `LimitedBox` fallback:
+
+```dart
+ResizableSplitterTheme(
+  data: const ResizableSplitterThemeData(
+    unboundedBehavior: UnboundedBehavior.limitedBox,
+    fallbackMainAxisExtent: 420,
+  ),
+  child: const ResizableSplitter(
+    startPanel: LeftPane(),
+    endPanel: RightPane(),
+  ),
+);
+```
+
+The legacy `flexExpand` behavior is still the default so existing layouts keep working.
 
 ## Example App
 

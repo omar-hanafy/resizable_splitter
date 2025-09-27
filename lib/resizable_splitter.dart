@@ -10,3 +10,4 @@
 library;
 
 export 'src/resizable_splitter.dart';
+export 'src/resizable_splitter_theme.dart';
