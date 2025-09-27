@@ -18,8 +18,6 @@ export 'package:flutter/material.dart' show Axis;
 extension _AxisHelpers on Axis {
   bool get isH => this == Axis.horizontal;
 
-  double pos(Offset o) => isH ? o.dx : o.dy;
-
   double size(Size s) => isH ? s.width : s.height;
 
   SystemMouseCursor get cursor =>
@@ -244,6 +242,7 @@ class _GlobalPointerRouter {
     if (isUp &&
         _currentlyDragging != null &&
         _activePointer != null &&
+        _activePointer! >= 0 &&
         event.pointer == _activePointer) {
       _currentlyDragging?._stopDrag();
       _currentlyDragging = null;
@@ -373,6 +372,27 @@ class ResizableSplitter extends StatefulWidget {
        assert(
          handleHitSlop == null || handleHitSlop >= 0,
          'handleHitSlop must be non-negative',
+       ),
+       assert(
+         dividerThickness == null || dividerThickness >= 0,
+         'dividerThickness must be non-negative',
+       ),
+       assert(minPanelSize >= 0, 'minPanelSize must be non-negative'),
+       assert(
+         minStartPanelSize == null || minStartPanelSize >= 0,
+         'minStartPanelSize must be non-negative',
+       ),
+       assert(
+         minEndPanelSize == null || minEndPanelSize >= 0,
+         'minEndPanelSize must be non-negative',
+       ),
+       assert(
+         keyboardStep == null || keyboardStep >= 0,
+         'keyboardStep must be non-negative',
+       ),
+       assert(
+         pageStep == null || pageStep >= 0,
+         'pageStep must be non-negative',
        ),
        assert(
          doubleTapResetTo == null ||
@@ -757,6 +777,21 @@ class _ResizableSplitterState extends State<ResizableSplitter> {
       first = availableSize * effectiveRatio;
       if (antiAliasingWorkaround) {
         first = first.floorToDouble();
+        final maxAllowed = (availableSize - minEnd).clamp(0.0, availableSize);
+        if (minStart <= maxAllowed) {
+          first = first.clamp(minStart, maxAllowed);
+        } else {
+          first = switch (widget.crampedBehavior) {
+            CrampedBehavior.favorStart => minStart,
+            CrampedBehavior.favorEnd => maxAllowed,
+            CrampedBehavior.proportionallyClamp =>
+              (availableSize *
+                      (minStart + minEnd <= 0
+                          ? 0.5
+                          : (minStart / (minStart + minEnd)).clamp(0.0, 1.0)))
+                  .clamp(0.0, availableSize),
+          };
+        }
       }
       second = (availableSize - first).clamp(0.0, availableSize);
     }
@@ -778,6 +813,7 @@ class _ResizableSplitterState extends State<ResizableSplitter> {
           minStart: minStart,
           minEnd: minEnd,
           maxSize: availableSize,
+          crampedBehavior: widget.crampedBehavior,
           blockerColor: blockerColor,
           dividerColor: dividerColor,
           dividerHoverColor: dividerHoverColor,
@@ -823,6 +859,7 @@ class _DividerHandle extends StatefulWidget {
     required this.minStart,
     required this.minEnd,
     required this.maxSize,
+    required this.crampedBehavior,
     required this.dividerColor,
     required this.blockerColor,
     required this.dividerHoverColor,
@@ -855,6 +892,7 @@ class _DividerHandle extends StatefulWidget {
   final double minStart;
   final double minEnd;
   final double maxSize;
+  final CrampedBehavior crampedBehavior;
   final Color? dividerColor;
   final Color? blockerColor;
   final Color? dividerHoverColor;
@@ -890,6 +928,7 @@ class _DividerHandleState extends State<_DividerHandle> {
   OverlayEntry? _dragOverlay;
   int? _activePointer;
   ScrollHoldController? _scrollHold;
+  final List<_PendingPointer> _pendingPointers = <_PendingPointer>[];
 
   late BoxDecoration _idleDecoration;
   late BoxDecoration _hoverDecoration;
@@ -921,6 +960,7 @@ class _DividerHandleState extends State<_DividerHandle> {
     _removeOverlay();
     _scrollHold?.cancel();
     _scrollHold = null;
+    _pendingPointers.clear();
     super.dispose();
   }
 
@@ -944,33 +984,22 @@ class _DividerHandleState extends State<_DividerHandle> {
     _activeDecoration = BoxDecoration(color: activeColor);
   }
 
-  void _startDrag(PointerDownEvent event) {
-    if (!widget.resizable) return;
-
-    final isPrimaryMouse =
-        event.kind == PointerDeviceKind.mouse &&
-        event.buttons == kPrimaryMouseButton;
-    final isTouchLike =
-        event.kind == PointerDeviceKind.touch ||
-        event.kind == PointerDeviceKind.stylus ||
-        event.kind == PointerDeviceKind.invertedStylus ||
-        event.kind == PointerDeviceKind.trackpad ||
-        event.kind == PointerDeviceKind.unknown;
-
-    if (!isPrimaryMouse && !isTouchLike) return;
-    if (_isDragging) return;
+  void _onDragStart(DragStartDetails details) {
+    if (!widget.resizable || _isDragging) return;
+    if (!_isSupportedPointerKind(details.kind)) return;
 
     setState(() => _isDragging = true);
     widget.controller._setDragging(true);
 
-    _activePointer = event.pointer;
     _dragStartRatio = widget.controller.value;
-    _dragStartPosition = widget.axis.pos(event.position);
+    _dragStartPosition = widget.axis.isH
+        ? details.globalPosition.dx
+        : details.globalPosition.dy;
 
-    SplitterController._globalRouter.setDragging(
-      widget.controller,
-      event.pointer,
-    );
+    final pointerId = _takePendingPointer(details.globalPosition) ?? -1;
+    _activePointer = pointerId;
+
+    SplitterController._globalRouter.setDragging(widget.controller, pointerId);
     widget.controller._setDragCallback(_stopDrag);
 
     if (widget.holdScrollWhileDragging) {
@@ -983,6 +1012,48 @@ class _DividerHandleState extends State<_DividerHandle> {
     unawaited(HapticFeedback.selectionClick());
     widget.focusNode.requestFocus();
     widget.onDragStart?.call(widget.controller.value);
+  }
+
+  void _onDragUpdate(DragUpdateDetails details) {
+    if (!_isDragging ||
+        _dragStartPosition == null ||
+        _dragStartRatio == null ||
+        widget.maxSize <= 0) {
+      return;
+    }
+
+    final currentPos = widget.axis.isH
+        ? details.globalPosition.dx
+        : details.globalPosition.dy;
+    final delta = currentPos - _dragStartPosition!;
+    final deltaRatio = delta / widget.maxSize;
+
+    var newRatio = _dragStartRatio! + deltaRatio;
+
+    final minR = math.max(
+      widget.minRatio,
+      (widget.minStart / widget.maxSize).clamp(0.0, 1.0),
+    );
+    final maxR = math.min(
+      widget.maxRatio,
+      (1.0 - widget.minEnd / widget.maxSize).clamp(0.0, 1.0),
+    );
+
+    newRatio = newRatio.clamp(minR, maxR);
+
+    final previous = widget.controller.value;
+    widget.controller.updateRatio(newRatio);
+    if ((widget.controller.value - previous).abs() > 1e-9) {
+      widget.onRatioChanged?.call(widget.controller.value);
+    }
+  }
+
+  void _onDragEnd(DragEndDetails details) {
+    _stopDrag();
+  }
+
+  void _onDragCancel() {
+    _stopDrag();
   }
 
   void _stopDrag() {
@@ -1003,6 +1074,10 @@ class _DividerHandleState extends State<_DividerHandle> {
 
     _dragStartPosition = null;
     _dragStartRatio = null;
+
+    if (_activePointer != null && _activePointer! >= 0) {
+      _pendingPointers.removeWhere((pointer) => pointer.id == _activePointer);
+    }
     _activePointer = null;
 
     if (mounted) {
@@ -1036,8 +1111,11 @@ class _DividerHandleState extends State<_DividerHandle> {
     if (bestDist <= widget.snapTolerance) {
       final bounded = minR <= maxR ? nearest.clamp(minR, maxR) : minR;
       if ((bounded - widget.controller.value).abs() > 1e-9) {
+        final previous = widget.controller.value;
         widget.controller.updateRatio(bounded, threshold: 0);
-        widget.onRatioChanged?.call(bounded);
+        if ((widget.controller.value - previous).abs() > 1e-9) {
+          widget.onRatioChanged?.call(widget.controller.value);
+        }
       }
       return bounded;
     }
@@ -1063,45 +1141,116 @@ class _DividerHandleState extends State<_DividerHandle> {
     _dragOverlay = null;
   }
 
-  void _updateDrag(PointerMoveEvent event) {
-    if (!_isDragging ||
-        _activePointer != event.pointer ||
-        _dragStartPosition == null ||
-        _dragStartRatio == null ||
-        widget.maxSize <= 0) {
-      return;
+  void _rememberPointer(PointerDownEvent event) {
+    if (!widget.resizable || _isDragging) return;
+
+    final isPrimaryMouse =
+        event.kind == PointerDeviceKind.mouse &&
+        event.buttons == kPrimaryMouseButton;
+    final isTouchLike =
+        event.kind == PointerDeviceKind.touch ||
+        event.kind == PointerDeviceKind.stylus ||
+        event.kind == PointerDeviceKind.invertedStylus ||
+        event.kind == PointerDeviceKind.trackpad ||
+        event.kind == PointerDeviceKind.unknown;
+
+    if (!isPrimaryMouse && !isTouchLike) return;
+
+    _pendingPointers.removeWhere((pointer) => pointer.id == event.pointer);
+    _pendingPointers.add(_PendingPointer(event.pointer, event.position));
+  }
+
+  void _handlePointerMove(PointerMoveEvent event) {
+    if (_isDragging) return;
+
+    for (final pointer in _pendingPointers) {
+      if (pointer.id == event.pointer) {
+        pointer.position = event.position;
+        break;
+      }
+    }
+  }
+
+  void _handlePointerEnd(PointerEvent event) {
+    _pendingPointers.removeWhere((pointer) => pointer.id == event.pointer);
+  }
+
+  int? _takePendingPointer(Offset globalPosition) {
+    if (_pendingPointers.isEmpty) return null;
+
+    const double toleranceSquared = 16.0;
+    _PendingPointer? match;
+    var matchIndex = -1;
+
+    for (var i = _pendingPointers.length - 1; i >= 0; i--) {
+      final candidate = _pendingPointers[i];
+      final diff = candidate.position - globalPosition;
+      if (diff.distanceSquared <= toleranceSquared) {
+        match = candidate;
+        matchIndex = i;
+        break;
+      }
     }
 
-    final currentPos = widget.axis.pos(event.position);
-    final delta = currentPos - _dragStartPosition!;
-    final deltaRatio = delta / widget.maxSize;
+    match ??= _pendingPointers.first;
+    matchIndex = matchIndex >= 0 ? matchIndex : 0;
+    _pendingPointers.removeAt(matchIndex);
+    return match.id;
+  }
 
-    var newRatio = _dragStartRatio! + deltaRatio;
+  bool _isSupportedPointerKind(PointerDeviceKind? kind) {
+    if (kind == null) return true;
+    return kind == PointerDeviceKind.touch ||
+        kind == PointerDeviceKind.mouse ||
+        kind == PointerDeviceKind.stylus ||
+        kind == PointerDeviceKind.invertedStylus ||
+        kind == PointerDeviceKind.trackpad ||
+        kind == PointerDeviceKind.unknown;
+  }
 
-    // Convert asymmetric pixel mins to ratio bounds.
-    final minR = math.max(
-      widget.minRatio,
-      (widget.minStart / widget.maxSize).clamp(0.0, 1.0),
+  double _effectiveRatio(double ratio) {
+    if (widget.maxSize <= 0) {
+      return ratio.clamp(widget.minRatio, widget.maxRatio).clamp(0.0, 1.0);
+    }
+
+    final pixelMinRatio = (widget.minStart / widget.maxSize).clamp(0.0, 1.0);
+    final pixelMaxRatio = (1.0 - widget.minEnd / widget.maxSize).clamp(
+      0.0,
+      1.0,
     );
-    final maxR = math.min(
-      widget.maxRatio,
-      (1.0 - widget.minEnd / widget.maxSize).clamp(0.0, 1.0),
-    );
+    final minR = math.max(widget.minRatio, pixelMinRatio);
+    final maxR = math.min(widget.maxRatio, pixelMaxRatio);
 
-    newRatio = newRatio.clamp(minR, maxR);
-    widget.controller.updateRatio(newRatio);
-    widget.onRatioChanged?.call(widget.controller.value);
+    if (minR <= maxR) {
+      return ratio.clamp(minR, maxR).clamp(0.0, 1.0);
+    }
+
+    final minClamped = minR.clamp(0.0, 1.0);
+    final maxClamped = maxR.clamp(0.0, 1.0);
+
+    switch (widget.crampedBehavior) {
+      case CrampedBehavior.favorStart:
+        return minClamped;
+      case CrampedBehavior.favorEnd:
+        return maxClamped;
+      case CrampedBehavior.proportionallyClamp:
+        final sum = widget.minStart + widget.minEnd;
+        final fallback = sum <= 0
+            ? 0.5
+            : (widget.minStart / sum).clamp(0.0, 1.0);
+        return fallback;
+    }
   }
 
   void _nudge(double delta) {
     if (!widget.resizable) return;
 
-    final newRatio = (widget.controller.value + delta).clamp(
-      widget.minRatio,
-      widget.maxRatio,
-    );
+    final previous = widget.controller.value;
+    final newRatio = (previous + delta).clamp(widget.minRatio, widget.maxRatio);
     widget.controller.value = newRatio;
-    widget.onRatioChanged?.call(newRatio);
+    if ((widget.controller.value - previous).abs() > 1e-9) {
+      widget.onRatioChanged?.call(widget.controller.value);
+    }
     unawaited(HapticFeedback.selectionClick());
   }
 
@@ -1153,6 +1302,15 @@ class _DividerHandleState extends State<_DividerHandle> {
     Widget divider = GestureDetector(
       behavior: HitTestBehavior.translucent,
       dragStartBehavior: DragStartBehavior.down,
+      excludeFromSemantics: true,
+      onHorizontalDragStart: widget.axis.isH ? _onDragStart : null,
+      onHorizontalDragUpdate: widget.axis.isH ? _onDragUpdate : null,
+      onHorizontalDragEnd: widget.axis.isH ? _onDragEnd : null,
+      onHorizontalDragCancel: widget.axis.isH ? _onDragCancel : null,
+      onVerticalDragStart: widget.axis.isH ? null : _onDragStart,
+      onVerticalDragUpdate: widget.axis.isH ? null : _onDragUpdate,
+      onVerticalDragEnd: widget.axis.isH ? null : _onDragEnd,
+      onVerticalDragCancel: widget.axis.isH ? null : _onDragCancel,
       onTap: widget.onTap,
       onDoubleTap:
           (widget.onDoubleTap != null || widget.doubleTapResetTo != null)
@@ -1160,9 +1318,13 @@ class _DividerHandleState extends State<_DividerHandle> {
               widget.onDoubleTap?.call();
               if (widget.doubleTapResetTo != null && widget.resizable) {
                 final target = widget.doubleTapResetTo!;
+                final startValue = widget.controller.value;
                 unawaited(
                   widget.controller.animateTo(target).then((_) {
-                    widget.onRatioChanged?.call(widget.controller.value);
+                    final updated = widget.controller.value;
+                    if ((updated - startValue).abs() > 1e-9) {
+                      widget.onRatioChanged?.call(updated);
+                    }
                   }),
                 );
               }
@@ -1176,12 +1338,10 @@ class _DividerHandleState extends State<_DividerHandle> {
         onExit: (_) => setState(() => _isHovering = false),
         child: Listener(
           behavior: HitTestBehavior.opaque,
-          onPointerDown: _startDrag,
-          onPointerMove: (details) {
-            if (_isDragging) {
-              _updateDrag(details);
-            }
-          },
+          onPointerDown: _rememberPointer,
+          onPointerMove: _handlePointerMove,
+          onPointerUp: _handlePointerEnd,
+          onPointerCancel: _handlePointerEnd,
           child: handle,
         ),
       ),
@@ -1197,10 +1357,8 @@ class _DividerHandleState extends State<_DividerHandle> {
     }
 
     String formatPercent(double ratio) {
-      final clamped = ratio
-          .clamp(widget.minRatio, widget.maxRatio)
-          .clamp(0.0, 1.0);
-      return '${(clamped * 100).round()}%';
+      final effective = _effectiveRatio(ratio).clamp(0.0, 1.0);
+      return '${(effective * 100).round()}%';
     }
 
     final currentRatio = widget.controller.value;
@@ -1263,21 +1421,27 @@ class _DividerHandleState extends State<_DividerHandle> {
         actions: <Type, Action<Intent>>{
           _AdjustIntent: CallbackAction<_AdjustIntent>(
             onInvoke: (intent) {
-              final newRatio = (widget.controller.value + intent.delta).clamp(
+              final previous = widget.controller.value;
+              final newRatio = (previous + intent.delta).clamp(
                 widget.minRatio,
                 widget.maxRatio,
               );
               widget.controller.value = newRatio;
-              widget.onRatioChanged?.call(newRatio);
+              if ((widget.controller.value - previous).abs() > 1e-9) {
+                widget.onRatioChanged?.call(widget.controller.value);
+              }
               unawaited(HapticFeedback.selectionClick());
               return null;
             },
           ),
           _JumpIntent: CallbackAction<_JumpIntent>(
             onInvoke: (intent) {
+              final previous = widget.controller.value;
               final dest = intent.toMin ? widget.minRatio : widget.maxRatio;
               widget.controller.value = dest;
-              widget.onRatioChanged?.call(dest);
+              if ((widget.controller.value - previous).abs() > 1e-9) {
+                widget.onRatioChanged?.call(widget.controller.value);
+              }
               unawaited(HapticFeedback.selectionClick());
               return null;
             },
@@ -1289,6 +1453,13 @@ class _DividerHandleState extends State<_DividerHandle> {
 
     return divider;
   }
+}
+
+class _PendingPointer {
+  _PendingPointer(this.id, this.position);
+
+  final int id;
+  Offset position;
 }
 
 /// An invisible overlay that acts as a shield to block pointer events

@@ -79,6 +79,64 @@ void main() {
     },
   );
 
+  testWidgets(
+    'dragging the handle inside a scrollable does not move the scroll offset',
+    (tester) async {
+      final controller = SplitterController();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              height: 400,
+              child: SingleChildScrollView(
+                child: Column(
+                  children: [
+                    const SizedBox(height: 120),
+                    SizedBox(
+                      height: 260,
+                      child: ResizableSplitter(
+                        axis: Axis.vertical,
+                        controller: controller,
+                        dividerThickness: 12,
+                        semanticsLabel: 'handle',
+                        startPanel: Container(color: Colors.orange),
+                        endPanel: Container(color: Colors.blue),
+                      ),
+                    ),
+                    const SizedBox(height: 800),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final scrollableFinder = find.byType(Scrollable);
+      expect(scrollableFinder, findsOneWidget);
+      final scrollState = tester.state<ScrollableState>(scrollableFinder);
+      final initialOffset = scrollState.position.pixels;
+      final initialRatio = controller.value;
+
+      final handle = find.bySemanticsLabel('handle');
+      expect(handle, findsOneWidget);
+
+      final gesture = await tester.startGesture(tester.getCenter(handle));
+      await tester.pump();
+
+      await gesture.moveBy(const Offset(0, -100));
+      await tester.pump();
+
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      expect(scrollState.position.pixels, closeTo(initialOffset, 1e-6));
+      expect(controller.value, isNot(closeTo(initialRatio, 1e-6)));
+    },
+  );
+
   testWidgets('drag is clamped by ratio bounds and pixel minimums', (
     tester,
   ) async {
@@ -336,9 +394,47 @@ void main() {
     await tester.pump(const Duration(milliseconds: 10));
     await secondTap.up();
     await tester.pumpAndSettle();
+    // Allow the controller's timer-driven animation to reach the target.
+    await tester.pump(const Duration(milliseconds: 200));
 
     expect(doubleTapCount, 1);
     expect(controller.value, closeTo(0.75, 1e-6));
+  });
+
+  testWidgets('double-tap reset skips onRatioChanged when already at target', (
+    tester,
+  ) async {
+    final controller = SplitterController(initialRatio: 0.75);
+    var ratioChangedCount = 0;
+
+    await tester.pumpWidget(
+      host(
+        child: ResizableSplitter(
+          controller: controller,
+          semanticsLabel: 'handle',
+          doubleTapResetTo: 0.75,
+          onRatioChanged: (_) => ratioChangedCount++,
+          startPanel: const SizedBox(),
+          endPanel: const SizedBox(),
+        ),
+      ),
+    );
+
+    final handle = find.bySemanticsLabel('handle');
+    final center = tester.getCenter(handle);
+
+    final firstTap = await tester.startGesture(center);
+    await tester.pump(const Duration(milliseconds: 10));
+    await firstTap.up();
+    await tester.pump(const Duration(milliseconds: 40));
+
+    final secondTap = await tester.startGesture(center);
+    await tester.pump(const Duration(milliseconds: 10));
+    await secondTap.up();
+    await tester.pumpAndSettle();
+
+    expect(controller.value, closeTo(0.75, 1e-6));
+    expect(ratioChangedCount, 0);
   });
 
   testWidgets('theme extension disables drag overlay when requested', (

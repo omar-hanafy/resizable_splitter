@@ -25,7 +25,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  resizable_splitter: ^1.1.0
+  resizable_splitter: ^1.1.1
 ```
 
 Then fetch packages:

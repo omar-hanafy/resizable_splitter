@@ -1,6 +1,6 @@
 name: resizable_splitter
 description: "Accessible splitter widget for Flutter layouts that need drag-to-resize panels."
-version: 1.1.0
+version: 1.1.1
 
 homepage: https://github.com/omar-hanafy/resizable_splitter
 repository: https://github.com/omar-hanafy/resizable_splitter

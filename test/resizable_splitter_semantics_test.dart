@@ -45,4 +45,43 @@ void main() {
       semanticsHandle.dispose();
     }
   });
+
+  testWidgets('semantics value reflects effective ratio with pixel minimums', (
+    tester,
+  ) async {
+    final controller = SplitterController(initialRatio: 0.1);
+
+    await tester.pumpWidget(
+      host(
+        ResizableSplitter(
+          controller: controller,
+          minStartPanelSize: 240,
+          minEndPanelSize: 120,
+          startPanel: const SizedBox(),
+          endPanel: const SizedBox(),
+        ),
+      ),
+    );
+
+    final semanticsHandle = tester.ensureSemantics();
+    try {
+      expect(
+        tester.getSemantics(
+          find.bySemanticsLabel('Drag to resize left and right panels.'),
+        ),
+        matchesSemantics(
+          label: 'Drag to resize left and right panels.',
+          value: '61%',
+          increasedValue: '61%',
+          decreasedValue: '61%',
+          isFocusable: true,
+          hasFocusAction: true,
+          hasIncreaseAction: true,
+          hasDecreaseAction: true,
+        ),
+      );
+    } finally {
+      semanticsHandle.dispose();
+    }
+  });
 }
