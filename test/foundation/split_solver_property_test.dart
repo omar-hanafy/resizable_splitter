@@ -58,6 +58,8 @@ void main() {
       final startCollapsed = r.nextInt(8) == 0;
       final endCollapsed = !startCollapsed && r.nextInt(8) == 0;
 
+      final dpr = dprs[r.nextInt(dprs.length)];
+      final snap = r.nextBool();
       final solver = SplitterSolver(
         available: available,
         start: randConstraints(),
@@ -67,15 +69,11 @@ void main() {
         policy: policy,
         startCollapsed: startCollapsed,
         endCollapsed: endCollapsed,
-      );
-
-      final dpr = dprs[r.nextInt(dprs.length)];
-      final snap = r.nextBool();
-      final sol = solver.solve(
-        randPosition(),
         devicePixelRatio: dpr,
         snapToDevicePixels: snap,
       );
+
+      final sol = solver.solve(randPosition());
 
       final expectedAvailable = available > 0 ? available : 0.0;
       final reason = 'case $i (available=$available, policy=$policy)';

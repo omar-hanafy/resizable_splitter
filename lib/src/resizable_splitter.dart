@@ -1088,6 +1088,10 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     // the handle, so the two can never disagree on the legal bounds, and an
     // inverted clamp (the historic cramped-drag crash) is impossible.
     final collapsedPane = controller.value.collapsedPane;
+    // The pixel-snap config lives on the solver, so every solve() it performs -
+    // here for layout, and inside the handle for drag/keyboard/snap/semantics/
+    // preview - snaps identically. The callbacks can never report a position the
+    // layout did not actually draw.
     final solver = SplitterSolver(
       available: availableSize,
       start: widget.startConstraints,
@@ -1097,13 +1101,11 @@ class _ResizableSplitterState extends State<ResizableSplitter>
       policy: widget.constraintPolicy,
       startCollapsed: collapsedPane == SplitterPane.start,
       endCollapsed: collapsedPane == SplitterPane.end,
-    );
-
-    final solution = solver.solve(
-      position,
       devicePixelRatio: MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0,
       snapToDevicePixels: antiAliasingWorkaround,
     );
+
+    final solution = solver.solve(position);
 
     // Publish the resolved geometry to the controller (after the frame, so the
     // notification never fires mid-build). This is the on-screen read-out and

@@ -82,6 +82,8 @@ class SplitterSolver {
     this.policy = SplitterConstraintPolicy.favorStart,
     this.startCollapsed = false,
     this.endCollapsed = false,
+    this.devicePixelRatio = 1.0,
+    this.snapToDevicePixels = false,
   });
 
   /// Space shared by the two panes, in logical pixels.
@@ -108,16 +110,23 @@ class SplitterSolver {
   /// Whether the end pane is collapsed.
   final bool endCollapsed;
 
+  /// The device pixel ratio used when [snapToDevicePixels] is set.
+  final double devicePixelRatio;
+
+  /// Whether to snap the start extent to a whole physical pixel (removing
+  /// sub-pixel anti-aliasing seams between the panes).
+  ///
+  /// Carried on the solver rather than passed per-call so that every [solve]
+  /// from this instance - layout, drag, snapping, semantics, preview - is
+  /// pixel-consistent: the callbacks and the drawn extents can never disagree.
+  final bool snapToDevicePixels;
+
   /// Resolves [requested] into legal extents.
   ///
   /// When [snapToDevicePixels] is set, the start extent is snapped to a whole
   /// physical pixel for [devicePixelRatio] (then re-clamped into the legal
   /// range), which removes sub-pixel anti-aliasing seams between the panes.
-  SplitterSolution solve(
-    SplitterPosition requested, {
-    double devicePixelRatio = 1.0,
-    bool snapToDevicePixels = false,
-  }) {
+  SplitterSolution solve(SplitterPosition requested) {
     final available = (this.available.isFinite && this.available > 0)
         ? this.available
         : 0.0;

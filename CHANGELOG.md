@@ -92,6 +92,11 @@ so the stored value can no longer disagree with what is drawn.
   the original controller instead of stranding it flagged as dragging.
 - The drag shield degrades gracefully when there is no `Overlay` ancestor
   (the drag still works) instead of throwing from a reusable layout primitive.
+- Physical-pixel snapping (`antiAliasingWorkaround`) now applies to every solve -
+  drag, keyboard, snap matching, semantics, deferred preview, and the published
+  layout - not just the initial layout, so callbacks can no longer report an
+  extent the layout never drew. The snap config moved from a per-`solve` argument
+  onto `SplitterSolver` itself.
 - Drag is measured in local space (correct under `Transform`); the stuck-drag
   router is keyed by pointer id (independent concurrent drags).
 - Slider semantics: role, enabled/disabled state, focus, text direction, and

@@ -107,12 +107,10 @@ void main() {
         available: 1000,
         start: SplitterPaneConstraints(),
         end: SplitterPaneConstraints(),
-      );
-      final sol = solver.solve(
-        const SplitterPosition.fraction(0.3337),
         devicePixelRatio: 1.5,
         snapToDevicePixels: true,
       );
+      final sol = solver.solve(const SplitterPosition.fraction(0.3337));
       final physical = sol.startExtent * 1.5;
       expect((physical - physical.roundToDouble()).abs(), lessThan(1e-9));
     });
