@@ -13,7 +13,7 @@ void main() {
       final pinned = SplitterController(
         initialPosition: const SplitterPosition.startPixels(280),
       );
-      expect(pinned.value, const SplitterPosition.startPixels(280));
+      expect(pinned.value.position, const SplitterPosition.startPixels(280));
       // A pixel request has no fraction until it is laid out: the cache seeds to
       // 0 and the attached splitter fills it in on the first solve.
       expect(pinned.effectiveFraction, 0);
@@ -52,11 +52,11 @@ void main() {
     test('out-of-range and non-finite fractions resolve into [0, 1]', () {
       final controller = SplitterController(
         initialPosition: const SplitterPosition.fraction(0.4),
-      )..value = const SplitterPosition.fraction(2.0);
+      )..jumpTo(const SplitterPosition.fraction(2.0));
       expect(controller.effectiveFraction, 1.0);
-      controller.value = const SplitterPosition.fraction(-3.0);
+      controller.jumpTo(const SplitterPosition.fraction(-3.0));
       expect(controller.effectiveFraction, 0.0);
-      controller.value = const SplitterPosition.fraction(double.nan);
+      controller.jumpTo(const SplitterPosition.fraction(double.nan));
       expect(controller.effectiveFraction, 0.0);
       expect(controller.effectiveFraction.isFinite, isTrue);
     });
@@ -69,6 +69,42 @@ void main() {
       // immediately and the future resolves.
       await controller.animateTo(0.9);
       expect(controller.effectiveFraction, closeTo(0.9, 1e-6));
+    });
+
+    test('collapse is atomic: an equal-value write neither clears it nor '
+        'notifies (review issue #1)', () {
+      final controller = SplitterController();
+      var notifications = 0;
+      controller.addListener(() => notifications++);
+
+      controller.collapse(SplitterPane.start);
+      expect(controller.isCollapsed, isTrue);
+      expect(notifications, 1);
+
+      // Re-assigning the identical value must not clear the collapse, and must
+      // not notify - nothing changed. (The historic setter mutated the collapse
+      // flag before the equality check, desyncing state from the UI.)
+      controller.value = controller.value;
+      expect(controller.isCollapsed, isTrue);
+      expect(notifications, 1);
+
+      // A redundant collapse onto the same pane is likewise a no-op.
+      controller.collapse(SplitterPane.start);
+      expect(notifications, 1);
+
+      // Expanding changes the state and notifies exactly once.
+      controller.expand();
+      expect(controller.isCollapsed, isFalse);
+      expect(notifications, 2);
+    });
+
+    test('jumpTo writes the position and clears any collapse', () {
+      final controller = SplitterController()..collapse(SplitterPane.end);
+      expect(controller.isCollapsed, isTrue);
+
+      controller.jumpTo(const SplitterPosition.startPixels(120));
+      expect(controller.value.position, const SplitterPosition.startPixels(120));
+      expect(controller.isCollapsed, isFalse);
     });
 
     testWidgets(

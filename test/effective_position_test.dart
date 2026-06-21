@@ -100,13 +100,13 @@ void main() {
 
     await tester.pumpWidget(host(controller: controller));
 
-    // Bypassing updateRatio's clamp by writing the ValueNotifier directly used
-    // to be able to push NaN into a SizedBox. The solver sanitizes it now.
-    controller.value = const SplitterPosition.fraction(double.nan);
+    // Bypassing updateRatio's clamp with a raw jumpTo used to be able to push
+    // NaN into a SizedBox. The solver sanitizes it now.
+    controller.jumpTo(const SplitterPosition.fraction(double.nan));
     await tester.pump();
     expect(tester.takeException(), isNull);
 
-    controller.value = const SplitterPosition.fraction(-100);
+    controller.jumpTo(const SplitterPosition.fraction(-100));
     await tester.pump();
     expect(tester.takeException(), isNull);
   });

@@ -90,7 +90,7 @@ void main() {
     expect(startWidth(tester), closeTo(120, 1e-6));
     expect(controller.collapsedPane, isNull);
     expect(controller.isCollapsed, isFalse);
-    expect(controller.value, const SplitterPosition.fraction(0.3));
+    expect(controller.value.position, const SplitterPosition.fraction(0.3));
   });
 
   testWidgets('toggleCollapse collapses then expands the same pane', (
@@ -133,7 +133,7 @@ void main() {
     );
   });
 
-  testWidgets('a direct position write clears a collapse', (tester) async {
+  testWidgets('jumpTo clears a collapse', (tester) async {
     final controller = SplitterController();
     await tester.pumpWidget(host(controller: controller));
 
@@ -141,10 +141,35 @@ void main() {
     await tester.pump();
     expect(controller.isCollapsed, isTrue);
 
-    controller.value = const SplitterPosition.fraction(0.25);
+    controller.jumpTo(const SplitterPosition.fraction(0.25));
     await tester.pump();
 
     expect(controller.isCollapsed, isFalse);
     expect(startWidth(tester), closeTo(100, 1e-6)); // 0.25 * 400
+  });
+
+  testWidgets('an equal-value write while collapsed stays collapsed (no desync)', (
+    tester,
+  ) async {
+    // The historic bug (review issue #1): the value setter mutated the collapse
+    // flag before the ValueNotifier equality check, so re-assigning the current
+    // value cleared the collapse with no notification - the controller reported
+    // expanded while the UI stayed collapsed. With collapse folded into the
+    // atomic SplitterState, an equal write changes nothing.
+    final controller = SplitterController();
+    await tester.pumpWidget(host(controller: controller));
+
+    controller.collapse(SplitterPane.start);
+    await tester.pump();
+    expect(controller.isCollapsed, isTrue);
+    expect(startWidth(tester), closeTo(0, 1e-6));
+
+    // Re-assign the identical state.
+    controller.value = controller.value;
+    await tester.pump();
+
+    expect(controller.isCollapsed, isTrue);
+    expect(controller.collapsedPane, SplitterPane.start);
+    expect(startWidth(tester), closeTo(0, 1e-6));
   });
 }

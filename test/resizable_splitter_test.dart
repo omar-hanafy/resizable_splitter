@@ -22,7 +22,7 @@ void main() {
 
     expect(find.byType(ResizableSplitter), findsOneWidget);
 
-    controller.value = const SplitterPosition.fraction(0.6);
+    controller.jumpTo(const SplitterPosition.fraction(0.6));
     await tester.pump();
 
     expect(controller.effectiveFraction, equals(0.6));

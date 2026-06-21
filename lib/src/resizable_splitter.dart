@@ -14,6 +14,7 @@ import 'package:resizable_splitter/src/split_pane_constraints.dart';
 import 'package:resizable_splitter/src/split_position.dart';
 import 'package:resizable_splitter/src/split_snap_behavior.dart';
 import 'package:resizable_splitter/src/split_solver.dart';
+import 'package:resizable_splitter/src/split_state.dart';
 import 'package:resizable_splitter/src/split_view_value.dart';
 
 /// Axis helpers to eliminate H/V duplication.
@@ -36,7 +37,7 @@ extension _AxisHelpers on Axis {
 /// available, so controllers created in pure Dart tests or before `runApp`
 /// stay functional - the enhanced drag cleanup simply activates once Flutter is
 /// initialized.
-class SplitterController extends ValueNotifier<SplitterPosition> {
+class SplitterController extends ValueNotifier<SplitterState> {
   /// Creates a splitter controller at [initialPosition] (default: centered).
   ///
   /// The controller stores the requested [SplitterPosition]; the splitter
@@ -47,7 +48,7 @@ class SplitterController extends ValueNotifier<SplitterPosition> {
   SplitterController({
     SplitterPosition initialPosition = const SplitterPosition.fraction(0.5),
   }) : _effectiveFraction = initialPosition.resolveFraction(0),
-       super(initialPosition);
+       super(SplitterState(position: initialPosition));
 
   static final _globalRouter = _GlobalPointerRouter();
 
@@ -102,79 +103,76 @@ class SplitterController extends ValueNotifier<SplitterPosition> {
   double get effectiveFraction => _effectiveFraction;
   double _effectiveFraction;
 
-  // Which pane is collapsed (null = neither). Collapse is a flag, not a value
-  // write: a collapsed pane bypasses its minimum via the solver while the
-  // request in [value] is left untouched, so expanding restores the prior
-  // position for free with no remembered copy to keep in sync.
-  SplitterPane? _collapsedPane;
-
   // Updated by the attached splitter after each solve so [effectiveFraction]
   // tracks the constrained, on-screen ratio. Not a notification source: the
   // request in [value] is canonical and already drives rebuilds.
   void _setEffectiveFraction(double fraction) => _effectiveFraction = fraction;
 
-  /// Sets the requested [SplitterPosition]. The solver sanitizes it at layout,
-  /// so a malformed request (for example a non-finite fraction) can never
-  /// corrupt the layout. A write that is not an animation tick (a drag, key
-  /// press, reset, or direct assignment) takes over from a running animation.
+  /// The requested position (a fraction or pixel pin); shorthand for
+  /// `value.position`.
+  SplitterPosition get position => value.position;
+
+  /// Sets the requested [SplitterState]. The solver sanitizes the position at
+  /// layout, so a malformed request (for example a non-finite fraction) can
+  /// never corrupt the layout. A write that *changes* the state and is not an
+  /// animation tick (a drag, key press, reset, collapse, or direct assignment)
+  /// takes over from a running animation.
   @override
-  set value(SplitterPosition newValue) {
-    if (!_isAnimationTick) {
-      _animator?.cancel();
-      // A direct position write is a fresh intent that supersedes a collapse:
-      // drop the flag so the new position takes effect immediately.
-      _collapsedPane = null;
-    }
+  set value(SplitterState newValue) {
+    // No-op writes change nothing observable, so they neither notify nor cancel
+    // a running animation. Crucially, nothing mutates before this equality gate,
+    // so a collapse (which lives inside the value) can never change without a
+    // matching notification - the historic collapse/equal-write desync is gone.
+    if (newValue == value) return;
+    if (!_isAnimationTick) _animator?.cancel();
     // A fractional request resolves without the layout, so refresh the cache
     // eagerly; the splitter overwrites it with the constrained value on layout.
-    if (newValue is FractionSplitterPosition) {
-      _effectiveFraction = newValue.resolveFraction(0);
+    final position = newValue.position;
+    if (position is FractionSplitterPosition) {
+      _effectiveFraction = position.resolveFraction(0);
     }
     super.value = newValue;
   }
+
+  /// Requests [position] as a fresh intent: clears any collapse and supersedes a
+  /// running animation. The on-screen result is still clamped by the solver.
+  void jumpTo(SplitterPosition position) =>
+      value = SplitterState(position: position);
 
   /// Updates to a fractional position, with an optional threshold to prevent
   /// chatty updates. The threshold is compared against [effectiveFraction].
   void updateRatio(double newRatio, {double threshold = 0.002}) {
     final clamped = newRatio.clamp(0.0, 1.0).toDouble();
     if ((clamped - effectiveFraction).abs() > threshold) {
-      value = SplitterPosition.fraction(clamped);
+      jumpTo(SplitterPosition.fraction(clamped));
     }
   }
 
   /// Resets the splitter to a fractional position, defaulting to center.
   void reset([double to = 0.5]) {
     assert(to >= 0.0 && to <= 1.0, 'to must be between 0.0 and 1.0');
-    value = SplitterPosition.fraction(to);
+    jumpTo(SplitterPosition.fraction(to));
   }
 
   /// Which pane, if any, is currently collapsed; null when neither is.
-  SplitterPane? get collapsedPane => _collapsedPane;
+  SplitterPane? get collapsedPane => value.collapsedPane;
 
   /// Whether either pane is currently collapsed.
-  bool get isCollapsed => _collapsedPane != null;
+  bool get isCollapsed => value.isCollapsed;
 
   /// Collapses [pane] to its [SplitterPaneConstraints.collapsedExtent],
-  /// bypassing that pane's minimum. The request in [value] is left untouched, so
+  /// bypassing that pane's minimum. The position in [value] is left untouched, so
   /// [expand] restores the prior position. Collapsing the already-collapsed pane
   /// is a no-op; collapsing the other pane just moves the collapse across.
-  void collapse(SplitterPane pane) {
-    if (_collapsedPane == pane) return;
-    _collapsedPane = pane;
-    notifyListeners();
-  }
+  void collapse(SplitterPane pane) => value = value.collapse(pane);
 
   /// Expands a collapsed pane, restoring the position held before it collapsed
-  /// (the untouched [value]). A no-op when neither pane is collapsed.
-  void expand() {
-    if (_collapsedPane == null) return;
-    _collapsedPane = null;
-    notifyListeners();
-  }
+  /// (the untouched position). A no-op when neither pane is collapsed.
+  void expand() => value = value.expand();
 
   /// Collapses [pane] if it is not already collapsed, otherwise expands.
   void toggleCollapse(SplitterPane pane) =>
-      _collapsedPane == pane ? expand() : collapse(pane);
+      collapsedPane == pane ? expand() : collapse(pane);
 
   /// Animates the split ratio to [target].
   ///
@@ -189,12 +187,12 @@ class SplitterController extends ValueNotifier<SplitterPosition> {
   }) {
     final goal = target.clamp(0.0, 1.0).toDouble();
     if ((goal - effectiveFraction).abs() < 1e-7) {
-      value = SplitterPosition.fraction(goal);
+      jumpTo(SplitterPosition.fraction(goal));
       return Future<void>.value();
     }
     final animator = _animator;
     if (animator == null) {
-      value = SplitterPosition.fraction(goal);
+      jumpTo(SplitterPosition.fraction(goal));
       return Future<void>.value();
     }
     return animator.animateTo(goal, duration, curve);
@@ -207,6 +205,14 @@ class SplitterController extends ValueNotifier<SplitterPosition> {
   }
 
   void _cancelAnimation() => _animator?.cancel();
+
+  // Writes an animated position, preserving any collapse and without cancelling
+  // the run (an animation tick is not a fresh user intent superseding it).
+  void _setAnimatedPosition(SplitterPosition position) {
+    _isAnimationTick = true;
+    value = value.copyWith(position: position);
+    _isAnimationTick = false;
+  }
 
   // Internal methods for global router
   void _stopDrag() {
@@ -565,7 +571,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
   // controller); only a genuine restore overrides it.
   late final _RestorableSplitterPosition _restorablePosition =
       _RestorableSplitterPosition(
-        () => (_attachedController ?? _effectiveController).value,
+        () => (_attachedController ?? _effectiveController).value.position,
       );
   bool _restorationReady = false;
 
@@ -592,8 +598,9 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     // every fresh State, including after a restart, so it cannot be used to gate
     // this; instead the restorable defaults to the controller's current value,
     // making a no-saved-state run a no-op while a real restore overrides it.
-    (_attachedController ?? _effectiveController).value =
-        _restorablePosition.value;
+    (_attachedController ?? _effectiveController).jumpTo(
+      _restorablePosition.value,
+    );
   }
 
   // Updates the deferred-drag preview line (the panes stay put until release).
@@ -617,7 +624,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
   void _handlePositionChanged() {
     if (!_restorationReady) return;
     final controller = _attachedController;
-    if (controller != null) _restorablePosition.value = controller.value;
+    if (controller != null) _restorablePosition.value = controller.value.position;
   }
 
   @override
@@ -644,7 +651,8 @@ class _ResizableSplitterState extends State<ResizableSplitter>
         widget.controller == null &&
         _internalController == null) {
       _internalController = SplitterController(
-        initialPosition: (_attachedController ?? oldWidget.controller!).value,
+        initialPosition:
+            (_attachedController ?? oldWidget.controller!).value.position,
       );
     }
 
@@ -672,7 +680,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
       _attachedController = newController;
       // Sync to the incoming controller so a swap does not fire a phantom
       // collapse/restore for state that was never this controller's.
-      _reportedCollapsePane = newController._collapsedPane;
+      _reportedCollapsePane = newController.value.collapsedPane;
     }
   }
 
@@ -695,7 +703,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     final controller = _attachedController ?? _effectiveController;
     if (disable || duration <= Duration.zero) {
       _completeAnimation();
-      controller.value = SplitterPosition.fraction(target);
+      controller.jumpTo(SplitterPosition.fraction(target));
       return Future<void>.value();
     }
     _animBegin = controller.effectiveFraction;
@@ -724,9 +732,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
 
   void _setAnimatedValue(double value) {
     final controller = _attachedController ?? _effectiveController;
-    controller._isAnimationTick = true;
-    controller.value = SplitterPosition.fraction(value);
-    controller._isAnimationTick = false;
+    controller._setAnimatedPosition(SplitterPosition.fraction(value));
   }
 
   void _onAnimationTick() {
@@ -749,7 +755,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     SplitterSolver solver,
     SplitterSolution solution,
   ) {
-    final pane = controller._collapsedPane;
+    final pane = controller.value.collapsedPane;
     if (pane == _reportedCollapsePane) return;
     final source = pane != null
         ? SplitterChangeSource.collapse
@@ -758,7 +764,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     final onChanged = widget.onChanged;
     if (onChanged == null) return;
     final details = SplitterChangeDetails(
-      requestedPosition: controller.value,
+      requestedPosition: controller.value.position,
       effectiveFraction: solution.effectiveFraction,
       startExtent: solution.startExtent,
       endExtent: solution.endExtent,
@@ -849,9 +855,9 @@ class _ResizableSplitterState extends State<ResizableSplitter>
                     );
                   }
 
-                  return ValueListenableBuilder<SplitterPosition>(
+                  return ValueListenableBuilder<SplitterState>(
                     valueListenable: controller,
-                    builder: (_, position, _) {
+                    builder: (_, state, _) {
                       // Clamp the divider to the container so it can never make
                       // the Flex overflow; the panes share whatever is left.
                       final effectiveThickness = dividerThickness.clamp(
@@ -860,7 +866,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
                       );
                       final availableSize = boundedMax - effectiveThickness;
                       return _buildBounded(
-                        position: position,
+                        position: state.position,
                         availableSize: availableSize,
                         dividerThickness: effectiveThickness,
                         enableKeyboard: enableKeyboard,
@@ -897,16 +903,16 @@ class _ResizableSplitterState extends State<ResizableSplitter>
           );
         }
 
-        return ValueListenableBuilder<SplitterPosition>(
+        return ValueListenableBuilder<SplitterState>(
           valueListenable: controller,
-          builder: (_, position, _) {
+          builder: (_, state, _) {
             // Clamp the divider to the container so it can never make the Flex
             // overflow; the panes share whatever is left.
             final effectiveThickness = dividerThickness.clamp(0.0, maxSize);
             final availableSize = maxSize - effectiveThickness;
 
             return _buildBounded(
-              position: position,
+              position: state.position,
               availableSize: availableSize,
               dividerThickness: effectiveThickness,
               enableKeyboard: enableKeyboard,
@@ -950,7 +956,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     // One solver drives both the layout here and every ratio decision inside
     // the handle, so the two can never disagree on the legal bounds, and an
     // inverted clamp (the historic cramped-drag crash) is impossible.
-    final collapsedPane = controller._collapsedPane;
+    final collapsedPane = controller.value.collapsedPane;
     final solver = SplitterSolver(
       available: availableSize,
       start: widget.startConstraints,
@@ -1214,7 +1220,7 @@ class _DividerHandleState extends State<_DividerHandle> {
   /// controller's requested position so synchronous adjustments accumulate
   /// against what is actually shown (not a stale build-time solution).
   double get _effective =>
-      widget.solver.solve(widget.controller.value).effectiveFraction;
+      widget.solver.solve(widget.controller.value.position).effectiveFraction;
 
   @override
   void dispose() {
@@ -1550,7 +1556,7 @@ class _DividerHandleState extends State<_DividerHandle> {
     final newRatio = widget.solver
         .solve(SplitterPosition.fraction(base + delta))
         .effectiveFraction;
-    widget.controller.value = SplitterPosition.fraction(newRatio);
+    widget.controller.jumpTo(SplitterPosition.fraction(newRatio));
     final current = _effective;
     if ((current - base).abs() > 1e-9) {
       widget.onChanged?.call(_changeDetails(current, source));
@@ -1754,7 +1760,7 @@ class _DividerHandleState extends State<_DividerHandle> {
                   : widget.solver
                         .solve(const SplitterPosition.fraction(1))
                         .effectiveFraction;
-              widget.controller.value = SplitterPosition.fraction(dest);
+              widget.controller.jumpTo(SplitterPosition.fraction(dest));
               final current = _effective;
               if ((current - previous).abs() > 1e-9) {
                 widget.onChanged?.call(

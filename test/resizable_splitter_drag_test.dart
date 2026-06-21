@@ -383,6 +383,8 @@ void main() {
 
     await tester.pumpWidget(
       host(
+        // 594px available so a 0.75 reset is feasible (both panes >= 100px min).
+        width: 600,
         child: ResizableSplitter(
           controller: controller,
           semanticsLabel: 'handle',
@@ -423,6 +425,9 @@ void main() {
 
     await tester.pumpWidget(
       host(
+        // 594px available so 0.75 is feasible; the controller starts exactly at
+        // the target, so the reset is a true no-op (no onChanged).
+        width: 600,
         child: ResizableSplitter(
           controller: controller,
           semanticsLabel: 'handle',

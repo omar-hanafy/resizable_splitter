@@ -384,7 +384,7 @@ class _VerticalDemoState extends State<_VerticalDemo> {
           child: _VerticalWorkspacePreview(controller: _controller),
         ),
         const SizedBox(height: 16),
-        ValueListenableBuilder<SplitterPosition>(
+        ValueListenableBuilder<SplitterState>(
           valueListenable: _controller,
           builder: (context, _, _) {
             final topPercent = (_controller.effectiveFraction * 100).round();
@@ -696,7 +696,7 @@ class _OverviewExampleState extends State<_OverviewExample> {
             ),
           ),
           const SizedBox(height: 12),
-          ValueListenableBuilder<SplitterPosition>(
+          ValueListenableBuilder<SplitterState>(
             valueListenable: _controller,
             builder: (context, _, _) => Text(
               'Current ratio: ${(_controller.effectiveFraction * 100).round()}%',
@@ -852,7 +852,7 @@ class _KeyboardExampleState extends State<_KeyboardExample> {
             ),
           ),
           const SizedBox(height: 12),
-          ValueListenableBuilder<SplitterPosition>(
+          ValueListenableBuilder<SplitterState>(
             valueListenable: _controller,
             builder: (context, _, _) => Text(
               'Arrow/Page keys adjust ratio · Current '

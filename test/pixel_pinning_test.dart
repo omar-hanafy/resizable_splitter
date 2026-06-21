@@ -87,10 +87,10 @@ void main() {
     await tester.pumpWidget(host(width: 600, controller: controller));
     expect(startWidth(tester), closeTo((600 - 8) / 2, 1e-6));
 
-    controller.value = const SplitterPosition.startPixels(150);
+    controller.jumpTo(const SplitterPosition.startPixels(150));
     await tester.pump();
     expect(startWidth(tester), closeTo(150, 1e-6));
-    expect(controller.value, const SplitterPosition.startPixels(150));
+    expect(controller.value.position, const SplitterPosition.startPixels(150));
   });
 
   testWidgets('a drag releases the pixel pin to a fraction', (tester) async {
@@ -99,7 +99,7 @@ void main() {
     );
     await tester.pumpWidget(host(width: 600, controller: controller));
     expect(startWidth(tester), closeTo(200, 1e-6));
-    expect(controller.value, isA<StartPixelsSplitterPosition>());
+    expect(controller.value.position, isA<StartPixelsSplitterPosition>());
 
     final handle = find.bySemanticsLabel('handle');
     final gesture = await tester.startGesture(tester.getCenter(handle));
@@ -109,7 +109,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // The pin is gone: the request is now a fraction near (200 + 40) / 592.
-    expect(controller.value, isA<FractionSplitterPosition>());
+    expect(controller.value.position, isA<FractionSplitterPosition>());
     expect(controller.effectiveFraction, closeTo(240 / 592, 1e-6));
   });
 }
