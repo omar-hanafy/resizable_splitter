@@ -13,4 +13,5 @@ export 'src/resizable_splitter.dart';
 export 'src/resizable_splitter_theme.dart';
 export 'src/split_pane_constraints.dart';
 export 'src/split_position.dart';
+export 'src/split_snap_behavior.dart';
 export 'src/split_view_value.dart';

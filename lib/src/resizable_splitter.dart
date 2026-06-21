@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:resizable_splitter/src/resizable_splitter_theme.dart';
 import 'package:resizable_splitter/src/split_pane_constraints.dart';
 import 'package:resizable_splitter/src/split_position.dart';
+import 'package:resizable_splitter/src/split_snap_behavior.dart';
 import 'package:resizable_splitter/src/split_solver.dart';
 
 /// Re-export for clean imports when only Axis is needed.
@@ -329,8 +330,7 @@ class ResizableSplitter extends StatefulWidget {
     this.semanticsLabel,
     this.blockerColor,
     bool? overlayEnabled,
-    this.snapPoints,
-    this.snapTolerance = 0.02,
+    this.snap,
     this.handleBuilder,
     this.holdScrollWhileDragging = false,
     double? handleHitSlop,
@@ -495,11 +495,8 @@ class ResizableSplitter extends StatefulWidget {
   final bool overlayEnabled;
   final bool _overlayEnabledExplicit;
 
-  /// Optional snap points (0–1). If close on drag end, snaps to the nearest.
-  final List<double>? snapPoints;
-
-  /// Max distance to snap to a snap point (0–1 range).
-  final double snapTolerance;
+  /// Optional snap points; a drag settles onto the nearest within tolerance.
+  final SplitterSnapBehavior? snap;
 
   /// Custom handle builder to replace the inner “grip” UI.
   final Widget Function(BuildContext, SplitterHandleDetails)? handleBuilder;
@@ -795,10 +792,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
           return Flex(
             direction: widget.axis,
             children: bounded
-                ? [
-                    Expanded(child: widget.start),
-                    Expanded(child: widget.end),
-                  ]
+                ? [Expanded(child: widget.start), Expanded(child: widget.end)]
                 : [widget.start, widget.end],
           );
         }
@@ -903,8 +897,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
           focusNode: _focusNode,
           semanticsLabel: widget.semanticsLabel,
           overlayEnabled: overlayEnabled && widget.resizable,
-          snapPoints: widget.snapPoints,
-          snapTolerance: widget.snapTolerance,
+          snap: widget.snap,
           handleBuilder: widget.handleBuilder,
           holdScrollWhileDragging:
               widget.holdScrollWhileDragging && widget.resizable,
@@ -946,8 +939,7 @@ class _DividerHandle extends StatefulWidget {
     required this.focusNode,
     required this.semanticsLabel,
     required this.overlayEnabled,
-    required this.snapPoints,
-    required this.snapTolerance,
+    required this.snap,
     required this.handleBuilder,
     required this.holdScrollWhileDragging,
     required this.handleHitSlop,
@@ -976,8 +968,7 @@ class _DividerHandle extends StatefulWidget {
   final FocusNode focusNode;
   final String? semanticsLabel;
   final bool overlayEnabled;
-  final List<double>? snapPoints;
-  final double snapTolerance;
+  final SplitterSnapBehavior? snap;
   final Widget Function(BuildContext, SplitterHandleDetails)? handleBuilder;
   final bool holdScrollWhileDragging;
   final double handleHitSlop;
@@ -1175,8 +1166,9 @@ class _DividerHandleState extends State<_DividerHandle> {
   }
 
   double? _maybeSnap(double value) {
-    final points = widget.snapPoints;
-    if (points == null || points.isEmpty) return null;
+    final snap = widget.snap;
+    final points = snap?.points;
+    if (snap == null || points == null || points.isEmpty) return null;
     if (widget.solver.available <= 0) return null;
 
     // Compare in effective space: a snap point that constraints push aside is
@@ -1193,7 +1185,7 @@ class _DividerHandleState extends State<_DividerHandle> {
         nearest = resolved;
       }
     }
-    if (bestDist <= widget.snapTolerance) {
+    if (bestDist <= snap.tolerance) {
       if ((nearest - widget.controller.value).abs() > 1e-9) {
         final previous = widget.controller.value;
         widget.controller.updateRatio(nearest, threshold: 0);
