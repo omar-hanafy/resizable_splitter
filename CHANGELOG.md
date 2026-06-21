@@ -37,7 +37,9 @@ so the stored value can no longer disagree with what is drawn.
   `ResizableSplitterThemeData` is now both the `ThemeExtension` and the
   `ResizableSplitterTheme` data, which fixes a partial-override clobber bug by
   construction.
-- `SplitterController.animateTo` no longer takes `frames` (it is vsync-driven).
+- `SplitterController.animateTo` no longer takes `frames` (it is vsync-driven)
+  and now returns `Future<SplitterAnimationStatus>` (was `Future<void>`), so a
+  caller can tell a completed run from one a drag cancelled or a disposal ended.
 - The `Axis` re-export was dropped; import it from `package:flutter/material.dart`.
 
 ### Added
@@ -50,6 +52,8 @@ so the stored value can no longer disagree with what is drawn.
   the first layout (no pretending a pixel request already has a fraction).
 - `SplitterState` (the atomic controller value) and `SplitterController.jumpTo`
   / `position`.
+- `SplitterAnimationStatus` (`completed` / `canceled` / `detached`), the result
+  of an `animateTo` run.
 - Pixel pinning: `SplitterPosition.startPixels` / `endPixels` keep a pane's pixel
   width as the container resizes (true fixed sidebars).
 - Collapse/expand: `controller.collapse(SplitterPane.start | SplitterPane.end)`,
@@ -79,6 +83,11 @@ so the stored value can no longer disagree with what is drawn.
 - Overflow-safe under containers smaller than the divider; each pane is clipped.
 - Animation is vsync-driven, cancels on drag, and honors
   `MediaQuery.disableAnimations`.
+- Animation lifecycle is now deterministic: an `animateTo` future no longer
+  hangs when the splitter is disposed mid-run (resolves `detached`), a controller
+  swap no longer lets the animation bleed onto the new controller, and a
+  cancelled run is distinguishable from a completed one (no phantom
+  programmatic change after a cancel).
 - Drag is measured in local space (correct under `Transform`); the stuck-drag
   router is keyed by pointer id (independent concurrent drags).
 - Slider semantics: role, enabled/disabled state, focus, text direction, and

@@ -102,6 +102,120 @@ void main() {
     );
     await tester.pump();
     expect(controller.effectiveFraction, closeTo(0.8, 1e-6));
-    await future;
+    expect(await future, SplitterAnimationStatus.completed);
+  });
+
+  testWidgets('a normal finish resolves the future completed', (tester) async {
+    final controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.2),
+    );
+    await tester.pumpWidget(host(controller));
+
+    final future = controller.animateTo(
+      0.7,
+      duration: const Duration(milliseconds: 200),
+    );
+    await tester.pumpAndSettle();
+
+    expect(await future, SplitterAnimationStatus.completed);
+    expect(controller.effectiveFraction, closeTo(0.7, 1e-6));
+  });
+
+  testWidgets('a drag resolves the run as canceled (review #2)', (tester) async {
+    final controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.2),
+    );
+    await tester.pumpWidget(host(controller));
+
+    final future = controller.animateTo(
+      0.9,
+      duration: const Duration(milliseconds: 600),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    // Grabbing the divider cancels the animation - distinguishable from a finish.
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.bySemanticsLabel('handle')),
+    );
+    await tester.pump();
+    expect(await future, SplitterAnimationStatus.canceled);
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('disposing the splitter mid-run resolves the future detached '
+      '(review #2: no hung future)', (tester) async {
+    final controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.2),
+    );
+    await tester.pumpWidget(host(controller));
+
+    final future = controller.animateTo(
+      0.9,
+      duration: const Duration(milliseconds: 600),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    // Remove the splitter from the tree while the animation is in flight.
+    await tester.pumpWidget(const MaterialApp(home: Scaffold(body: SizedBox())));
+
+    expect(await future, SplitterAnimationStatus.detached);
+  });
+
+  testWidgets('swapping the controller mid-run resolves detached and leaves '
+      'the incoming controller untouched (review #2)', (tester) async {
+    final a = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.2),
+    );
+    final b = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.5),
+    );
+    var useA = true;
+    late StateSetter setOuter;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 400,
+              height: 240,
+              child: StatefulBuilder(
+                builder: (context, setState) {
+                  setOuter = setState;
+                  return ResizableSplitter(
+                    controller: useA ? a : b,
+                    startConstraints: const SplitterPaneConstraints(),
+                    endConstraints: const SplitterPaneConstraints(),
+                    start: const SizedBox(),
+                    end: const SizedBox(),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final future = a.animateTo(
+      0.9,
+      duration: const Duration(milliseconds: 600),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    // Swap the controller out from under the running animation.
+    setOuter(() => useA = false);
+    await tester.pump();
+    expect(await future, SplitterAnimationStatus.detached);
+
+    // Let any (wrongly) surviving animation tick; controller B must not move.
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pumpAndSettle();
+    expect(b.effectiveFraction, closeTo(0.5, 1e-6));
   });
 }

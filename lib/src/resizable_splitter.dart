@@ -9,6 +9,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:resizable_splitter/src/resizable_splitter_theme.dart';
+import 'package:resizable_splitter/src/split_animation.dart';
 import 'package:resizable_splitter/src/split_divider_style.dart';
 import 'package:resizable_splitter/src/split_layout.dart';
 import 'package:resizable_splitter/src/split_pane_constraints.dart';
@@ -205,13 +206,16 @@ class SplitterController extends ValueNotifier<SplitterState> {
   void toggleCollapse(SplitterPane pane) =>
       collapsedPane == pane ? expand() : collapse(pane);
 
-  /// Animates the split ratio to [target].
+  /// Animates the split ratio to [target], resolving with a
+  /// [SplitterAnimationStatus] that reports how the run ended.
   ///
   /// Driven by the attached view's vsync, so it honors the platform refresh
   /// rate and `MediaQuery.disableAnimations`. A drag, key press, reset, or
-  /// direct value write cancels a run in progress. With no view attached the
-  /// value is set immediately.
-  Future<void> animateTo(
+  /// direct value write cancels a run in progress (resolving [canceled]); a
+  /// disposal or controller swap ends it (resolving [detached]). With no view
+  /// attached, disabled animations, or a target already current, the value is
+  /// set immediately and the run resolves [completed].
+  Future<SplitterAnimationStatus> animateTo(
     double target, {
     Duration duration = const Duration(milliseconds: 200),
     Curve curve = Curves.easeOutCubic,
@@ -219,12 +223,16 @@ class SplitterController extends ValueNotifier<SplitterState> {
     final goal = target.clamp(0.0, 1.0).toDouble();
     if ((goal - effectiveFraction).abs() < 1e-7) {
       jumpTo(SplitterPosition.fraction(goal));
-      return Future<void>.value();
+      return Future<SplitterAnimationStatus>.value(
+        SplitterAnimationStatus.completed,
+      );
     }
     final animator = _animator;
     if (animator == null) {
       jumpTo(SplitterPosition.fraction(goal));
-      return Future<void>.value();
+      return Future<SplitterAnimationStatus>.value(
+        SplitterAnimationStatus.completed,
+      );
     }
     return animator.animateTo(goal, duration, curve);
   }
@@ -295,12 +303,45 @@ class _SplitterLayoutNotifier extends ChangeNotifier
 /// Drives vsync animation for a [SplitterController]. Implemented by the
 /// splitter's [State], which owns the [TickerProvider].
 abstract interface class _SplitterAnimator {
-  /// Animates the controller value to [target]; the future resolves when the
-  /// run completes or is cancelled.
-  Future<void> animateTo(double target, Duration duration, Curve curve);
+  /// Animates the controller value to [target]; the future resolves with the
+  /// outcome ([SplitterAnimationStatus]) when the run ends.
+  Future<SplitterAnimationStatus> animateTo(
+    double target,
+    Duration duration,
+    Curve curve,
+  );
 
-  /// Stops any in-progress animation.
+  /// Stops any in-progress animation (resolving it as cancelled).
   void cancel();
+}
+
+/// One run of [SplitterController.animateTo], owned by the splitter's [State].
+///
+/// Captures the [controller] it targets plus the interpolation, and a completer
+/// resolved exactly once with the run's [SplitterAnimationStatus]. Tying a run
+/// to its controller is what lets a controller swap end it cleanly instead of
+/// letting its ticks bleed onto a different controller.
+class _AnimationSession {
+  _AnimationSession({
+    required this.controller,
+    required this.begin,
+    required this.end,
+    required this.curve,
+  });
+
+  final SplitterController controller;
+  final double begin;
+  final double end;
+  final Curve curve;
+  final Completer<SplitterAnimationStatus> _completer =
+      Completer<SplitterAnimationStatus>();
+
+  Future<SplitterAnimationStatus> get future => _completer.future;
+
+  /// Resolves the run's future once; later calls are ignored.
+  void resolve(SplitterAnimationStatus status) {
+    if (!_completer.isCompleted) _completer.complete(status);
+  }
 }
 
 /// Singleton global pointer router providing a stuck-drag backup: if a platform
@@ -637,11 +678,10 @@ class _ResizableSplitterState extends State<ResizableSplitter>
       );
   bool _restorationReady = false;
 
-  // vsync animation state backing SplitterController.animateTo.
-  double _animBegin = 0;
-  double _animEnd = 0;
-  Curve _animCurve = Curves.linear;
-  Completer<void>? _animCompleter;
+  // The in-flight animateTo run (null when idle). It owns the controller it
+  // targets, so a controller swap or disposal can end it cleanly instead of
+  // letting its ticks bleed onto a different controller or hang forever.
+  _AnimationSession? _animSession;
 
   SplitterController get _effectiveController =>
       widget.controller ??
@@ -725,6 +765,10 @@ class _ResizableSplitterState extends State<ResizableSplitter>
         ));
 
     if (!identical(_attachedController, newController)) {
+      // End any in-flight animation on the outgoing controller; it must not
+      // continue ticking onto the incoming one.
+      _animationController.stop();
+      _resolveSession(SplitterAnimationStatus.detached);
       _attachedController
         ?..removeListener(_handlePositionChanged)
         .._detachAnimator(this)
@@ -748,6 +792,8 @@ class _ResizableSplitterState extends State<ResizableSplitter>
 
   @override
   void dispose() {
+    // Resolve a pending animateTo future so it can never hang past disposal.
+    _resolveSession(SplitterAnimationStatus.detached);
     _animationController.dispose();
     _attachedController
       ?..removeListener(_handlePositionChanged)
@@ -759,54 +805,66 @@ class _ResizableSplitterState extends State<ResizableSplitter>
   }
 
   @override
-  Future<void> animateTo(double target, Duration duration, Curve curve) {
+  Future<SplitterAnimationStatus> animateTo(
+    double target,
+    Duration duration,
+    Curve curve,
+  ) {
     _animationController.stop();
-    final disable = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    // A new run supersedes any in-flight one.
+    _resolveSession(SplitterAnimationStatus.canceled);
+
     final controller = _attachedController ?? _effectiveController;
+    final disable = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
     if (disable || duration <= Duration.zero) {
-      _completeAnimation();
       controller.jumpTo(SplitterPosition.fraction(target));
-      return Future<void>.value();
+      return Future<SplitterAnimationStatus>.value(
+        SplitterAnimationStatus.completed,
+      );
     }
-    _animBegin = controller.effectiveFraction;
-    _animEnd = target;
-    _animCurve = curve;
+    final session = _AnimationSession(
+      controller: controller,
+      begin: controller.effectiveFraction,
+      end: target,
+      curve: curve,
+    );
+    _animSession = session;
     _animationController.duration = duration;
-    _completeAnimation();
-    final completer = Completer<void>();
-    _animCompleter = completer;
     _animationController.forward(from: 0);
-    return completer.future;
+    return session.future;
   }
 
   @override
   void cancel() {
-    if (!_animationController.isAnimating && _animCompleter == null) return;
+    if (_animSession == null) return;
     _animationController.stop();
-    _completeAnimation();
+    _resolveSession(SplitterAnimationStatus.canceled);
   }
 
-  void _completeAnimation() {
-    final completer = _animCompleter;
-    _animCompleter = null;
-    if (completer != null && !completer.isCompleted) completer.complete();
-  }
-
-  void _setAnimatedValue(double value) {
-    final controller = _attachedController ?? _effectiveController;
-    controller._setAnimatedPosition(SplitterPosition.fraction(value));
+  // Ends the in-flight run (if any) with [status], resolving its future once.
+  void _resolveSession(SplitterAnimationStatus status) {
+    final session = _animSession;
+    _animSession = null;
+    session?.resolve(status);
   }
 
   void _onAnimationTick() {
-    final t = _animCurve.transform(_animationController.value);
-    _setAnimatedValue(_animBegin + (_animEnd - _animBegin) * t);
+    final session = _animSession;
+    if (session == null) return;
+    final t = session.curve.transform(_animationController.value);
+    final value = session.begin + (session.end - session.begin) * t;
+    session.controller._setAnimatedPosition(SplitterPosition.fraction(value));
   }
 
   void _onAnimationStatus(AnimationStatus status) {
-    if (status == AnimationStatus.completed) {
-      _setAnimatedValue(_animEnd);
-      _completeAnimation();
-    }
+    if (status != AnimationStatus.completed) return;
+    final session = _animSession;
+    if (session == null) return;
+    session.controller._setAnimatedPosition(
+      SplitterPosition.fraction(session.end),
+    );
+    _animSession = null;
+    session.resolve(SplitterAnimationStatus.completed);
   }
 
   // Primes the controller's resolved layout synchronously (so its read-outs are
@@ -1731,8 +1789,14 @@ class _DividerHandleState extends State<_DividerHandle> {
                 final target = widget.doubleTapResetTo!;
                 final startValue = widget.controller.effectiveFraction;
                 unawaited(
-                  widget.controller.animateTo(target).then((_) {
-                    if (!mounted) return;
+                  widget.controller.animateTo(target).then((status) {
+                    // Only report a settle when the animation actually reached
+                    // the target; a drag/value-write that cancelled it, or a
+                    // disposal, must not emit a phantom programmatic change.
+                    if (!mounted ||
+                        status != SplitterAnimationStatus.completed) {
+                      return;
+                    }
                     final updated = _effective;
                     if ((updated - startValue).abs() > 1e-9) {
                       widget.onChanged?.call(
