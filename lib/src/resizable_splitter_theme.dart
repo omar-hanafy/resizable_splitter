@@ -36,6 +36,7 @@ class ResizableSplitterThemeData {
     this.handleHitSlop = 0.0,
     this.overlayEnabled = true,
     this.enableKeyboard = true,
+    this.enableHaptics = true,
     this.keyboardStep = 0.01,
     this.pageStep = 0.1,
     this.unboundedBehavior = UnboundedBehavior.flexExpand,
@@ -72,6 +73,9 @@ class ResizableSplitterThemeData {
   /// Whether keyboard interaction is enabled by default.
   final bool enableKeyboard;
 
+  /// Whether haptic feedback fires on drag start and keyboard adjustments.
+  final bool enableHaptics;
+
   /// Ratio delta applied when pressing arrow keys.
   final double keyboardStep;
 
@@ -97,6 +101,7 @@ class ResizableSplitterThemeData {
     double? handleHitSlop,
     bool? overlayEnabled,
     bool? enableKeyboard,
+    bool? enableHaptics,
     double? keyboardStep,
     double? pageStep,
     UnboundedBehavior? unboundedBehavior,
@@ -112,6 +117,7 @@ class ResizableSplitterThemeData {
       handleHitSlop: handleHitSlop ?? this.handleHitSlop,
       overlayEnabled: overlayEnabled ?? this.overlayEnabled,
       enableKeyboard: enableKeyboard ?? this.enableKeyboard,
+      enableHaptics: enableHaptics ?? this.enableHaptics,
       keyboardStep: keyboardStep ?? this.keyboardStep,
       pageStep: pageStep ?? this.pageStep,
       unboundedBehavior: unboundedBehavior ?? this.unboundedBehavior,
@@ -136,6 +142,7 @@ class ResizableSplitterThemeData {
       handleHitSlop: overrides.handleHitSlop ?? handleHitSlop,
       overlayEnabled: overrides.overlayEnabled ?? overlayEnabled,
       enableKeyboard: overrides.enableKeyboard ?? enableKeyboard,
+      enableHaptics: overrides.enableHaptics ?? enableHaptics,
       keyboardStep: overrides.keyboardStep ?? keyboardStep,
       pageStep: overrides.pageStep ?? pageStep,
       unboundedBehavior: overrides.unboundedBehavior ?? unboundedBehavior,
@@ -143,6 +150,32 @@ class ResizableSplitterThemeData {
           overrides.fallbackMainAxisExtent ?? fallbackMainAxisExtent,
       antiAliasingWorkaround:
           overrides.antiAliasingWorkaround ?? antiAliasingWorkaround,
+    );
+  }
+
+  /// Overlays a more specific [local] theme on top of this base, with [local]
+  /// taking precedence. Nullable fields fall back to this base when [local]
+  /// leaves them unset (so an app-wide extension can still supply colors a
+  /// local theme omits); the remaining fields always come from [local].
+  ///
+  /// Used by [ResizableSplitterTheme.of] so a local `ResizableSplitterTheme`
+  /// overrides the global `ThemeExtension`, matching the documented precedence.
+  ResizableSplitterThemeData mergeTheme(ResizableSplitterThemeData local) {
+    return ResizableSplitterThemeData(
+      dividerThickness: local.dividerThickness,
+      dividerColor: local.dividerColor ?? dividerColor,
+      dividerHoverColor: local.dividerHoverColor ?? dividerHoverColor,
+      dividerActiveColor: local.dividerActiveColor ?? dividerActiveColor,
+      blockerColor: local.blockerColor ?? blockerColor,
+      handleHitSlop: local.handleHitSlop,
+      overlayEnabled: local.overlayEnabled,
+      enableKeyboard: local.enableKeyboard,
+      enableHaptics: local.enableHaptics,
+      keyboardStep: local.keyboardStep,
+      pageStep: local.pageStep,
+      unboundedBehavior: local.unboundedBehavior,
+      fallbackMainAxisExtent: local.fallbackMainAxisExtent,
+      antiAliasingWorkaround: local.antiAliasingWorkaround,
     );
   }
 }
@@ -165,13 +198,21 @@ class ResizableSplitterTheme extends StatelessWidget {
   static const _default = ResizableSplitterThemeData();
 
   /// Retrieves the nearest [ResizableSplitterThemeData].
+  ///
+  /// Precedence, lowest to highest: Material defaults, then the app-wide
+  /// `ThemeData.extension<ResizableSplitterThemeOverrides>()`, then a local
+  /// [ResizableSplitterTheme]. The local theme is more specific, so it
+  /// overrides the global extension (constructor parameters, resolved by the
+  /// widget, sit above all of these).
   static ResizableSplitterThemeData of(BuildContext context) {
     final inherited = context
         .dependOnInheritedWidgetOfExactType<_InheritedSplitterTheme>();
     final overridesExt = Theme.of(
       context,
     ).extension<ResizableSplitterThemeOverrides>();
-    return (inherited?.theme.data ?? _default).mergeOverrides(overridesExt);
+    final base = _default.mergeOverrides(overridesExt);
+    final local = inherited?.theme.data;
+    return local == null ? base : base.mergeTheme(local);
   }
 
   @override
@@ -206,6 +247,7 @@ class ResizableSplitterThemeOverrides
     this.handleHitSlop,
     this.overlayEnabled,
     this.enableKeyboard,
+    this.enableHaptics,
     this.keyboardStep,
     this.pageStep,
     this.unboundedBehavior,
@@ -237,6 +279,9 @@ class ResizableSplitterThemeOverrides
   /// Keyboard enablement override.
   final bool? enableKeyboard;
 
+  /// Haptic feedback enablement override.
+  final bool? enableHaptics;
+
   /// Arrow-key step override.
   final double? keyboardStep;
 
@@ -263,6 +308,7 @@ class ResizableSplitterThemeOverrides
     double? handleHitSlop,
     bool? overlayEnabled,
     bool? enableKeyboard,
+    bool? enableHaptics,
     double? keyboardStep,
     double? pageStep,
     UnboundedBehavior? unboundedBehavior,
@@ -278,6 +324,7 @@ class ResizableSplitterThemeOverrides
       handleHitSlop: handleHitSlop ?? this.handleHitSlop,
       overlayEnabled: overlayEnabled ?? this.overlayEnabled,
       enableKeyboard: enableKeyboard ?? this.enableKeyboard,
+      enableHaptics: enableHaptics ?? this.enableHaptics,
       keyboardStep: keyboardStep ?? this.keyboardStep,
       pageStep: pageStep ?? this.pageStep,
       unboundedBehavior: unboundedBehavior ?? this.unboundedBehavior,
@@ -312,6 +359,7 @@ class ResizableSplitterThemeOverrides
       handleHitSlop: lerpDouble(handleHitSlop, other.handleHitSlop, t),
       overlayEnabled: t < 0.5 ? overlayEnabled : other.overlayEnabled,
       enableKeyboard: t < 0.5 ? enableKeyboard : other.enableKeyboard,
+      enableHaptics: t < 0.5 ? enableHaptics : other.enableHaptics,
       keyboardStep: lerpDouble(keyboardStep, other.keyboardStep, t),
       pageStep: lerpDouble(pageStep, other.pageStep, t),
       unboundedBehavior: t < 0.5 ? unboundedBehavior : other.unboundedBehavior,

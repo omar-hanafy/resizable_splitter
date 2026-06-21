@@ -24,6 +24,90 @@ extension _AxisHelpers on Axis {
       isH ? SystemMouseCursors.resizeColumn : SystemMouseCursors.resizeRow;
 }
 
+/// Single source of truth for turning a *desired* split ratio into a *legal*
+/// one for a given layout.
+///
+/// Centralizing this here is deliberate: every consumer - layout, drag, snap,
+/// and the semantics readout - routes through [resolve], so no call site can
+/// build an inverted `clamp(min, max)` range. `num.clamp` throws when
+/// `min > max`, which is exactly what happens when both panels' pixel minimums
+/// cannot be satisfied at once; [resolve] handles that case via
+/// [crampedBehavior] instead of throwing.
+@immutable
+class _SplitterMetrics {
+  const _SplitterMetrics({
+    required this.availableSize,
+    required this.minStart,
+    required this.minEnd,
+    required this.minRatio,
+    required this.maxRatio,
+    required this.crampedBehavior,
+  });
+
+  /// Space shared by the two panels (total extent minus the divider).
+  final double availableSize;
+
+  /// Start (left/top) panel minimum in logical pixels.
+  final double minStart;
+
+  /// End (right/bottom) panel minimum in logical pixels.
+  final double minEnd;
+
+  /// Lower ratio cap requested by the caller.
+  final double minRatio;
+
+  /// Upper ratio cap requested by the caller.
+  final double maxRatio;
+
+  /// Policy used when both minimums cannot be honored simultaneously.
+  final CrampedBehavior crampedBehavior;
+
+  /// Lowest ratio honoring both [minRatio] and the start pixel minimum.
+  double get minRatioBound {
+    if (availableSize <= 0) return minRatio.clamp(0.0, 1.0);
+    final pixelMin = (minStart / availableSize).clamp(0.0, 1.0);
+    return math.max(minRatio, pixelMin).clamp(0.0, 1.0);
+  }
+
+  /// Highest ratio honoring both [maxRatio] and the end pixel minimum.
+  double get maxRatioBound {
+    if (availableSize <= 0) return maxRatio.clamp(0.0, 1.0);
+    final pixelMax = (1.0 - minEnd / availableSize).clamp(0.0, 1.0);
+    return math.min(maxRatio, pixelMax).clamp(0.0, 1.0);
+  }
+
+  /// Whether both panel minimums fit at the same time.
+  bool get isFeasible => minRatioBound <= maxRatioBound;
+
+  /// The legal ratio nearest [ratio]. Never throws: when the minimums cannot
+  /// both be met it falls back to [crampedBehavior] rather than clamping with
+  /// an inverted range.
+  double resolve(double ratio) {
+    final lo = minRatioBound;
+    final hi = maxRatioBound;
+    if (lo <= hi) return ratio.clamp(lo, hi);
+    return switch (crampedBehavior) {
+      CrampedBehavior.favorStart => lo,
+      CrampedBehavior.favorEnd => hi,
+      CrampedBehavior.proportionallyClamp =>
+        (minStart + minEnd) <= 0
+            ? 0.5
+            : (minStart / (minStart + minEnd)).clamp(0.0, 1.0),
+    };
+  }
+
+  /// Leading-panel extent in logical pixels for [ratio]. When
+  /// [snapToWholePixels] is set the feasible result is floored to avoid
+  /// sub-pixel anti-aliasing seams, then re-checked against the minimums.
+  double leadingExtent(double ratio, {bool snapToWholePixels = false}) {
+    if (availableSize <= 0) return 0;
+    final resolved = (availableSize * resolve(ratio)).clamp(0.0, availableSize);
+    if (!snapToWholePixels || !isFeasible) return resolved;
+    final maxAllowed = (availableSize - minEnd).clamp(0.0, availableSize);
+    return resolved.floorToDouble().clamp(minStart, maxAllowed);
+  }
+}
+
 /// Public handle details passed to [ResizableSplitter.handleBuilder].
 class SplitterHandleDetails {
   /// Captures the current handle interaction state for custom builders.
@@ -63,7 +147,7 @@ class SplitterController extends ValueNotifier<double> {
         'initialRatio must be between 0.0 and 1.0',
       ),
       super(initialRatio) {
-    _globalRouter.register(this);
+    _globalRouter.ensureInitialized();
   }
 
   static final _globalRouter = _GlobalPointerRouter();
@@ -87,12 +171,12 @@ class SplitterController extends ValueNotifier<double> {
   Object? get debugOwner => _owner;
 
   void _attach(Object owner) {
-    assert(() {
-      if (_owner != null && !identical(_owner, owner)) {
-        throw FlutterError(_multiAttachErrorMessage);
-      }
-      return true;
-    }(), _multiAttachErrorMessage);
+    // Enforced in release too: a shared controller silently corrupts drag
+    // state (isDragging, drag callbacks, the active pointer), so fail loudly
+    // rather than limp along when asserts are stripped.
+    if (_owner != null && !identical(_owner, owner)) {
+      throw FlutterError(_multiAttachErrorMessage);
+    }
     _owner = owner;
   }
 
@@ -218,7 +302,9 @@ class _GlobalPointerRouter {
     _initialized = true;
   }
 
-  void register(SplitterController c) {
+  /// Lazily installs the global pointer route. Named for what it actually
+  /// does: it keeps no per-controller registry, it just ensures init.
+  void ensureInitialized() {
     _initialize();
   }
 
@@ -286,7 +372,9 @@ class _GlobalPointerRouter {
 /// - Extensive customization via colors and a custom [handleBuilder].
 ///
 /// If the incoming constraints along [axis] are unbounded or zero, the
-/// splitter defaults to two [Expanded] children without the divider. Opt into
+/// splitter cannot resize, so it shows the two panels without the divider:
+/// [Expanded] when the extent is a finite zero, or at their intrinsic size
+/// when truly unbounded (flexing into an unbounded axis would throw). Opt into
 /// [UnboundedBehavior.limitedBox] (via [ResizableSplitterTheme] or the
 /// constructor) to give the handle a finite sandbox while preserving side
 /// panels.
@@ -319,6 +407,7 @@ class ResizableSplitter extends StatefulWidget {
     this.onDragStart,
     this.onDragEnd,
     bool? enableKeyboard,
+    bool? enableHaptics,
     double? keyboardStep,
     double? pageStep,
     this.semanticsLabel,
@@ -339,6 +428,8 @@ class ResizableSplitter extends StatefulWidget {
     bool? antiAliasingWorkaround,
   }) : enableKeyboard = enableKeyboard ?? true,
        _enableKeyboardExplicit = enableKeyboard != null,
+       enableHaptics = enableHaptics ?? true,
+       _enableHapticsExplicit = enableHaptics != null,
        overlayEnabled = overlayEnabled ?? true,
        _overlayEnabledExplicit = overlayEnabled != null,
        unboundedBehavior = unboundedBehavior ?? UnboundedBehavior.flexExpand,
@@ -471,6 +562,13 @@ class ResizableSplitter extends StatefulWidget {
   /// Whether to enable keyboard navigation with arrow keys.
   final bool enableKeyboard;
   final bool _enableKeyboardExplicit;
+
+  /// Whether haptic feedback fires on drag start and keyboard adjustments.
+  ///
+  /// Defaults to true. On platforms without a haptic engine (web, most
+  /// desktops) the calls are silent no-ops regardless.
+  final bool enableHaptics;
+  final bool _enableHapticsExplicit;
 
   /// Step applied with Arrow keys (e.g., 0.01 = 1%).
   final double keyboardStep;
@@ -613,6 +711,14 @@ class _ResizableSplitterState extends State<ResizableSplitter> {
     final enableKeyboard = widget._enableKeyboardExplicit
         ? widget.enableKeyboard
         : theme.enableKeyboard;
+    final enableHaptics = widget._enableHapticsExplicit
+        ? widget.enableHaptics
+        : theme.enableHaptics;
+
+    // The divider reserves its visible thickness plus the invisible grab slop
+    // on either side. Panels share whatever is left, so the slop widens the
+    // hit target instead of silently overlapping the panels.
+    final dividerExtent = dividerThickness + 2 * handleHitSlop;
 
     final blockerColor = widget.blockerColor ?? theme.blockerColor;
     final dividerColor = widget.dividerColor ?? theme.dividerColor;
@@ -660,13 +766,16 @@ class _ResizableSplitterState extends State<ResizableSplitter> {
                   return ValueListenableBuilder<double>(
                     valueListenable: controller,
                     builder: (_, ratio, _) {
-                      final availableSize = (boundedMax - dividerThickness)
-                          .clamp(0.0, double.infinity);
+                      final availableSize = (boundedMax - dividerExtent).clamp(
+                        0.0,
+                        double.infinity,
+                      );
                       return _buildBounded(
                         ratio: ratio,
                         availableSize: availableSize,
                         dividerThickness: dividerThickness,
                         enableKeyboard: enableKeyboard,
+                        enableHaptics: enableHaptics,
                         keyboardStep: keyboardStep,
                         pageStep: pageStep,
                         overlayEnabled: overlayEnabled,
@@ -685,19 +794,28 @@ class _ResizableSplitterState extends State<ResizableSplitter> {
             );
           }
 
+          // flexExpand fallback. Expanded requires a bounded main axis - under
+          // a truly unbounded constraint RenderFlex throws ("children have
+          // non-zero flex but incoming constraints are unbounded"). So only
+          // flex when finite (e.g. a zero extent); otherwise let the panels
+          // take their intrinsic size. Use limitedBox for a working splitter
+          // under unbounded constraints.
+          final bounded = maxSize.isFinite;
           return Flex(
             direction: widget.axis,
-            children: [
-              Expanded(child: widget.startPanel),
-              Expanded(child: widget.endPanel),
-            ],
+            children: bounded
+                ? [
+                    Expanded(child: widget.startPanel),
+                    Expanded(child: widget.endPanel),
+                  ]
+                : [widget.startPanel, widget.endPanel],
           );
         }
 
         return ValueListenableBuilder<double>(
           valueListenable: controller,
           builder: (_, ratio, _) {
-            final availableSize = (maxSize - dividerThickness).clamp(
+            final availableSize = (maxSize - dividerExtent).clamp(
               0.0,
               double.infinity,
             );
@@ -707,6 +825,7 @@ class _ResizableSplitterState extends State<ResizableSplitter> {
               availableSize: availableSize,
               dividerThickness: dividerThickness,
               enableKeyboard: enableKeyboard,
+              enableHaptics: enableHaptics,
               keyboardStep: keyboardStep,
               pageStep: pageStep,
               overlayEnabled: overlayEnabled,
@@ -729,6 +848,7 @@ class _ResizableSplitterState extends State<ResizableSplitter> {
     required double availableSize,
     required double dividerThickness,
     required bool enableKeyboard,
+    required bool enableHaptics,
     required double keyboardStep,
     required double pageStep,
     required bool overlayEnabled,
@@ -749,52 +869,22 @@ class _ResizableSplitterState extends State<ResizableSplitter> {
       availableSize,
     );
 
-    double first;
-    double second;
+    // One metrics object drives both the layout here and every ratio decision
+    // inside the handle, so the two can never disagree on the legal bounds.
+    final metrics = _SplitterMetrics(
+      availableSize: availableSize,
+      minStart: minStart,
+      minEnd: minEnd,
+      minRatio: widget.minRatio,
+      maxRatio: widget.maxRatio,
+      crampedBehavior: widget.crampedBehavior,
+    );
 
-    if (availableSize <= 0) {
-      first = 0;
-      second = 0;
-    } else {
-      final pixelMinRatio = (minStart / availableSize).clamp(0.0, 1.0);
-      final pixelMaxRatio = (1.0 - minEnd / availableSize).clamp(0.0, 1.0);
-      final minR = math.max(widget.minRatio, pixelMinRatio);
-      final maxR = math.min(widget.maxRatio, pixelMaxRatio);
-
-      double effectiveRatio;
-      if (minR <= maxR) {
-        effectiveRatio = ratio.clamp(minR, maxR);
-      } else {
-        final sum = minStart + minEnd;
-        effectiveRatio = switch (widget.crampedBehavior) {
-          CrampedBehavior.favorStart => minR,
-          CrampedBehavior.favorEnd => maxR,
-          CrampedBehavior.proportionallyClamp =>
-            sum <= 0 ? 0.5 : (minStart / sum).clamp(0.0, 1.0),
-        };
-      }
-
-      first = availableSize * effectiveRatio;
-      if (antiAliasingWorkaround) {
-        first = first.floorToDouble();
-        final maxAllowed = (availableSize - minEnd).clamp(0.0, availableSize);
-        if (minStart <= maxAllowed) {
-          first = first.clamp(minStart, maxAllowed);
-        } else {
-          first = switch (widget.crampedBehavior) {
-            CrampedBehavior.favorStart => minStart,
-            CrampedBehavior.favorEnd => maxAllowed,
-            CrampedBehavior.proportionallyClamp =>
-              (availableSize *
-                      (minStart + minEnd <= 0
-                          ? 0.5
-                          : (minStart / (minStart + minEnd)).clamp(0.0, 1.0)))
-                  .clamp(0.0, availableSize),
-          };
-        }
-      }
-      second = (availableSize - first).clamp(0.0, availableSize);
-    }
+    final first = metrics.leadingExtent(
+      ratio,
+      snapToWholePixels: antiAliasingWorkaround,
+    );
+    final second = (availableSize - first).clamp(0.0, availableSize);
 
     return Flex(
       direction: widget.axis,
@@ -808,12 +898,7 @@ class _ResizableSplitterState extends State<ResizableSplitter> {
           axis: widget.axis,
           controller: controller,
           thickness: dividerThickness,
-          minRatio: widget.minRatio,
-          maxRatio: widget.maxRatio,
-          minStart: minStart,
-          minEnd: minEnd,
-          maxSize: availableSize,
-          crampedBehavior: widget.crampedBehavior,
+          metrics: metrics,
           blockerColor: blockerColor,
           dividerColor: dividerColor,
           dividerHoverColor: dividerHoverColor,
@@ -822,6 +907,7 @@ class _ResizableSplitterState extends State<ResizableSplitter> {
           onDragStart: widget.onDragStart,
           onDragEnd: widget.onDragEnd,
           enableKeyboard: enableKeyboard && widget.resizable,
+          enableHaptics: enableHaptics,
           keyboardStep: keyboardStep,
           pageStep: pageStep,
           focusNode: _focusNode,
@@ -854,12 +940,7 @@ class _DividerHandle extends StatefulWidget {
     required this.axis,
     required this.controller,
     required this.thickness,
-    required this.minRatio,
-    required this.maxRatio,
-    required this.minStart,
-    required this.minEnd,
-    required this.maxSize,
-    required this.crampedBehavior,
+    required this.metrics,
     required this.dividerColor,
     required this.blockerColor,
     required this.dividerHoverColor,
@@ -868,6 +949,7 @@ class _DividerHandle extends StatefulWidget {
     required this.onDragStart,
     required this.onDragEnd,
     required this.enableKeyboard,
+    required this.enableHaptics,
     required this.keyboardStep,
     required this.pageStep,
     required this.focusNode,
@@ -887,12 +969,7 @@ class _DividerHandle extends StatefulWidget {
   final Axis axis;
   final SplitterController controller;
   final double thickness;
-  final double minRatio;
-  final double maxRatio;
-  final double minStart;
-  final double minEnd;
-  final double maxSize;
-  final CrampedBehavior crampedBehavior;
+  final _SplitterMetrics metrics;
   final Color? dividerColor;
   final Color? blockerColor;
   final Color? dividerHoverColor;
@@ -901,6 +978,7 @@ class _DividerHandle extends StatefulWidget {
   final ValueChanged<double>? onDragStart;
   final ValueChanged<double>? onDragEnd;
   final bool enableKeyboard;
+  final bool enableHaptics;
   final double keyboardStep;
   final double pageStep;
   final FocusNode focusNode;
@@ -925,10 +1003,15 @@ class _DividerHandleState extends State<_DividerHandle> {
   bool _isHovering = false;
   double? _dragStartPosition;
   double? _dragStartRatio;
+  double? _lastDragRatio;
   OverlayEntry? _dragOverlay;
   int? _activePointer;
   ScrollHoldController? _scrollHold;
   final List<_PendingPointer> _pendingPointers = <_PendingPointer>[];
+
+  void _haptic() {
+    if (widget.enableHaptics) unawaited(HapticFeedback.selectionClick());
+  }
 
   late BoxDecoration _idleDecoration;
   late BoxDecoration _hoverDecoration;
@@ -1009,16 +1092,17 @@ class _DividerHandleState extends State<_DividerHandle> {
 
     if (widget.overlayEnabled) _insertOverlay();
 
-    unawaited(HapticFeedback.selectionClick());
+    _haptic();
     widget.focusNode.requestFocus();
     widget.onDragStart?.call(widget.controller.value);
   }
 
   void _onDragUpdate(DragUpdateDetails details) {
+    final available = widget.metrics.availableSize;
     if (!_isDragging ||
         _dragStartPosition == null ||
         _dragStartRatio == null ||
-        widget.maxSize <= 0) {
+        available <= 0) {
       return;
     }
 
@@ -1026,20 +1110,13 @@ class _DividerHandleState extends State<_DividerHandle> {
         ? details.globalPosition.dx
         : details.globalPosition.dy;
     final delta = currentPos - _dragStartPosition!;
-    final deltaRatio = delta / widget.maxSize;
+    final deltaRatio = delta / available;
 
-    var newRatio = _dragStartRatio! + deltaRatio;
-
-    final minR = math.max(
-      widget.minRatio,
-      (widget.minStart / widget.maxSize).clamp(0.0, 1.0),
-    );
-    final maxR = math.min(
-      widget.maxRatio,
-      (1.0 - widget.minEnd / widget.maxSize).clamp(0.0, 1.0),
-    );
-
-    newRatio = newRatio.clamp(minR, maxR);
+    // Route through the shared metrics: when both panel minimums cannot fit
+    // (a cramped layout) the bounds invert, and a raw clamp(min, max) would
+    // throw. resolve() falls back to crampedBehavior instead.
+    final newRatio = widget.metrics.resolve(_dragStartRatio! + deltaRatio);
+    _lastDragRatio = newRatio;
 
     final previous = widget.controller.value;
     widget.controller.updateRatio(newRatio);
@@ -1059,6 +1136,17 @@ class _DividerHandleState extends State<_DividerHandle> {
   void _stopDrag() {
     final snapped = _maybeSnap(widget.controller.value);
 
+    // No snap point claimed the release: commit the exact final ratio. The
+    // per-update threshold can otherwise leave the handle a fraction short of
+    // where the pointer actually let go.
+    if (snapped == null && _lastDragRatio != null) {
+      final previous = widget.controller.value;
+      widget.controller.updateRatio(_lastDragRatio!, threshold: 0);
+      if ((widget.controller.value - previous).abs() > 1e-9) {
+        widget.onRatioChanged?.call(widget.controller.value);
+      }
+    }
+
     if (mounted) {
       setState(() => _isDragging = false);
     } else {
@@ -1074,6 +1162,7 @@ class _DividerHandleState extends State<_DividerHandle> {
 
     _dragStartPosition = null;
     _dragStartRatio = null;
+    _lastDragRatio = null;
 
     if (_activePointer != null && _activePointer! >= 0) {
       _pendingPointers.removeWhere((pointer) => pointer.id == _activePointer);
@@ -1088,16 +1177,7 @@ class _DividerHandleState extends State<_DividerHandle> {
   double? _maybeSnap(double value) {
     final points = widget.snapPoints;
     if (points == null || points.isEmpty) return null;
-    if (widget.maxSize <= 0) return null;
-
-    final minR = math.max(
-      widget.minRatio,
-      (widget.minStart / widget.maxSize).clamp(0.0, 1.0),
-    );
-    final maxR = math.min(
-      widget.maxRatio,
-      (1.0 - widget.minEnd / widget.maxSize).clamp(0.0, 1.0),
-    );
+    if (widget.metrics.availableSize <= 0) return null;
 
     var nearest = value;
     var bestDist = double.infinity;
@@ -1109,7 +1189,7 @@ class _DividerHandleState extends State<_DividerHandle> {
       }
     }
     if (bestDist <= widget.snapTolerance) {
-      final bounded = minR <= maxR ? nearest.clamp(minR, maxR) : minR;
+      final bounded = widget.metrics.resolve(nearest);
       if ((bounded - widget.controller.value).abs() > 1e-9) {
         final previous = widget.controller.value;
         widget.controller.updateRatio(bounded, threshold: 0);
@@ -1208,50 +1288,23 @@ class _DividerHandleState extends State<_DividerHandle> {
         kind == PointerDeviceKind.unknown;
   }
 
-  double _effectiveRatio(double ratio) {
-    if (widget.maxSize <= 0) {
-      return ratio.clamp(widget.minRatio, widget.maxRatio).clamp(0.0, 1.0);
-    }
-
-    final pixelMinRatio = (widget.minStart / widget.maxSize).clamp(0.0, 1.0);
-    final pixelMaxRatio = (1.0 - widget.minEnd / widget.maxSize).clamp(
-      0.0,
-      1.0,
-    );
-    final minR = math.max(widget.minRatio, pixelMinRatio);
-    final maxR = math.min(widget.maxRatio, pixelMaxRatio);
-
-    if (minR <= maxR) {
-      return ratio.clamp(minR, maxR).clamp(0.0, 1.0);
-    }
-
-    final minClamped = minR.clamp(0.0, 1.0);
-    final maxClamped = maxR.clamp(0.0, 1.0);
-
-    switch (widget.crampedBehavior) {
-      case CrampedBehavior.favorStart:
-        return minClamped;
-      case CrampedBehavior.favorEnd:
-        return maxClamped;
-      case CrampedBehavior.proportionallyClamp:
-        final sum = widget.minStart + widget.minEnd;
-        final fallback = sum <= 0
-            ? 0.5
-            : (widget.minStart / sum).clamp(0.0, 1.0);
-        return fallback;
-    }
-  }
+  /// The on-screen ratio for [ratio], honoring ratio caps and pixel minimums.
+  /// Used for the semantics readout so it matches what the layout shows.
+  double _effectiveRatio(double ratio) => widget.metrics.resolve(ratio);
 
   void _nudge(double delta) {
     if (!widget.resizable) return;
 
     final previous = widget.controller.value;
-    final newRatio = (previous + delta).clamp(widget.minRatio, widget.maxRatio);
+    final newRatio = (previous + delta).clamp(
+      widget.metrics.minRatio,
+      widget.metrics.maxRatio,
+    );
     widget.controller.value = newRatio;
     if ((widget.controller.value - previous).abs() > 1e-9) {
       widget.onRatioChanged?.call(widget.controller.value);
     }
-    unawaited(HapticFeedback.selectionClick());
+    _haptic();
   }
 
   @override
@@ -1297,6 +1350,19 @@ class _DividerHandleState extends State<_DividerHandle> {
       handle = SizedBox(width: widget.thickness, child: handle);
     } else {
       handle = SizedBox(height: widget.thickness, child: handle);
+    }
+
+    // Widen the *grab* area across the divider's thin dimension without moving
+    // the visible bar: the slop is transparent padding that still sits inside
+    // the opaque Listener below, so it hit-tests. The matching extent was
+    // already reserved out of the panels via the divider footprint.
+    if (widget.handleHitSlop > 0) {
+      handle = Padding(
+        padding: widget.axis.isH
+            ? EdgeInsets.symmetric(horizontal: widget.handleHitSlop)
+            : EdgeInsets.symmetric(vertical: widget.handleHitSlop),
+        child: handle,
+      );
     }
 
     Widget divider = GestureDetector(
@@ -1346,15 +1412,6 @@ class _DividerHandleState extends State<_DividerHandle> {
         ),
       ),
     );
-
-    if (widget.handleHitSlop > 0) {
-      final lr = widget.axis.isH ? 0.0 : widget.handleHitSlop;
-      final tb = widget.axis.isH ? widget.handleHitSlop : 0.0;
-      divider = Padding(
-        padding: EdgeInsets.fromLTRB(lr, tb, lr, tb),
-        child: divider,
-      );
-    }
 
     String formatPercent(double ratio) {
       final effective = _effectiveRatio(ratio).clamp(0.0, 1.0);
@@ -1423,26 +1480,28 @@ class _DividerHandleState extends State<_DividerHandle> {
             onInvoke: (intent) {
               final previous = widget.controller.value;
               final newRatio = (previous + intent.delta).clamp(
-                widget.minRatio,
-                widget.maxRatio,
+                widget.metrics.minRatio,
+                widget.metrics.maxRatio,
               );
               widget.controller.value = newRatio;
               if ((widget.controller.value - previous).abs() > 1e-9) {
                 widget.onRatioChanged?.call(widget.controller.value);
               }
-              unawaited(HapticFeedback.selectionClick());
+              _haptic();
               return null;
             },
           ),
           _JumpIntent: CallbackAction<_JumpIntent>(
             onInvoke: (intent) {
               final previous = widget.controller.value;
-              final dest = intent.toMin ? widget.minRatio : widget.maxRatio;
+              final dest = intent.toMin
+                  ? widget.metrics.minRatio
+                  : widget.metrics.maxRatio;
               widget.controller.value = dest;
               if ((widget.controller.value - previous).abs() > 1e-9) {
                 widget.onRatioChanged?.call(widget.controller.value);
               }
-              unawaited(HapticFeedback.selectionClick());
+              _haptic();
               return null;
             },
           ),

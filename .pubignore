@@ -1,0 +1,30 @@
+# Keep the published archive to library source, the example's source, and docs.
+# Everything below is dev-only noise or is rehosted elsewhere.
+
+# OS / IDE / build artifacts
+.DS_Store
+.idea/
+build/
+.dart_tool/
+
+# Dev-only docs. The README embeds the demo gif via an absolute GitHub URL,
+# so the 18 MB screenshots/ folder does not need to ship.
+AGENTS.md
+screenshots/
+
+# Example app: publish only its Dart source and manifest, not the generated
+# platform shells (android/ios/web/desktop) or local tooling state.
+example/.DS_Store
+example/.idea/
+example/.dart_tool/
+example/build/
+example/.metadata
+example/.flutter-plugins-dependencies
+example/pubspec.lock
+example/*.iml
+example/android/
+example/ios/
+example/linux/
+example/macos/
+example/web/
+example/windows/

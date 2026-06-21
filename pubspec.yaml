@@ -15,8 +15,11 @@ topics:
   - resize
 
 environment:
+  # Dart 3.9.2 ships with Flutter 3.35; the floors must agree. (The source also
+  # uses `_` wildcard parameters, which require Dart 3.7+, so the old 3.22 floor
+  # could never compile.)
   sdk: ">=3.9.2 <4.0.0"
-  flutter: ">=3.22.0"
+  flutter: ">=3.35.0"
 
 dependencies:
   flutter:
