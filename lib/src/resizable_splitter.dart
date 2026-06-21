@@ -653,13 +653,13 @@ class _ResizableSplitterState extends State<ResizableSplitter>
         widget.enableKeyboard ?? theme.enableKeyboard ?? true;
     final enableHaptics = widget.enableHaptics ?? theme.enableHaptics ?? true;
 
-    // The divider reserves only its visible thickness. The grab slop is applied
-    // by the catcher overlay in _buildBounded, which sits on top of the panels,
-    // so the slop enlarges the hit target by overlapping the panel edges instead
-    // of reducing panel layout. Decoupling the grab region (overlay) from the
-    // layout footprint (Flex) makes it structurally impossible for slop to eat
-    // layout.
-    final dividerExtent = dividerThickness;
+    // The divider reserves only its visible thickness (not the grab slop): the
+    // slop is applied by the catcher overlay in _buildBounded, which sits on top
+    // of the panels and overlaps their edges instead of reducing panel layout.
+    // Decoupling the grab region (overlay) from the layout footprint (Flex) makes
+    // it structurally impossible for slop to eat layout. The footprint is also
+    // clamped to the container per layout below, so a parent smaller than the
+    // thickness shrinks the divider to fit rather than overflowing.
 
     final blockerColor = widget.blockerColor ?? theme.blockerColor;
 
@@ -703,14 +703,17 @@ class _ResizableSplitterState extends State<ResizableSplitter>
                   return ValueListenableBuilder<SplitterPosition>(
                     valueListenable: controller,
                     builder: (_, position, _) {
-                      final availableSize = (boundedMax - dividerExtent).clamp(
+                      // Clamp the divider to the container so it can never make
+                      // the Flex overflow; the panes share whatever is left.
+                      final effectiveThickness = dividerThickness.clamp(
                         0.0,
-                        double.infinity,
+                        boundedMax,
                       );
+                      final availableSize = boundedMax - effectiveThickness;
                       return _buildBounded(
                         position: position,
                         availableSize: availableSize,
-                        dividerThickness: dividerThickness,
+                        dividerThickness: effectiveThickness,
                         enableKeyboard: enableKeyboard,
                         enableHaptics: enableHaptics,
                         keyboardStep: keyboardStep,
@@ -748,15 +751,15 @@ class _ResizableSplitterState extends State<ResizableSplitter>
         return ValueListenableBuilder<SplitterPosition>(
           valueListenable: controller,
           builder: (_, position, _) {
-            final availableSize = (maxSize - dividerExtent).clamp(
-              0.0,
-              double.infinity,
-            );
+            // Clamp the divider to the container so it can never make the Flex
+            // overflow; the panes share whatever is left.
+            final effectiveThickness = dividerThickness.clamp(0.0, maxSize);
+            final availableSize = maxSize - effectiveThickness;
 
             return _buildBounded(
               position: position,
               availableSize: availableSize,
-              dividerThickness: dividerThickness,
+              dividerThickness: effectiveThickness,
               enableKeyboard: enableKeyboard,
               enableHaptics: enableHaptics,
               keyboardStep: keyboardStep,
@@ -868,7 +871,9 @@ class _ResizableSplitterState extends State<ResizableSplitter>
             SizedBox(
               width: widget.axis.isH ? first : null,
               height: widget.axis.isH ? null : first,
-              child: widget.start,
+              // Clip each pane to its box so content cannot bleed across the
+              // divider into the other pane.
+              child: ClipRect(child: widget.start),
             ),
             SizedBox(
               width: widget.axis.isH ? dividerThickness : null,
@@ -877,7 +882,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
             SizedBox(
               width: widget.axis.isH ? second : null,
               height: widget.axis.isH ? null : second,
-              child: widget.end,
+              child: ClipRect(child: widget.end),
             ),
           ],
         ),
