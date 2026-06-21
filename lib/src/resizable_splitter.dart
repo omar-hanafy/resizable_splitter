@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:resizable_splitter/src/resizable_splitter_theme.dart';
 import 'package:resizable_splitter/src/split_divider_style.dart';
+import 'package:resizable_splitter/src/split_layout.dart';
 import 'package:resizable_splitter/src/split_pane_constraints.dart';
 import 'package:resizable_splitter/src/split_position.dart';
 import 'package:resizable_splitter/src/split_snap_behavior.dart';
@@ -47,8 +48,7 @@ class SplitterController extends ValueNotifier<SplitterState> {
   /// adjustment writes a fractional position (the pin releases on interaction).
   SplitterController({
     SplitterPosition initialPosition = const SplitterPosition.fraction(0.5),
-  }) : _effectiveFraction = initialPosition.resolveFraction(0),
-       super(SplitterState(position: initialPosition));
+  }) : super(SplitterState(position: initialPosition));
 
   static final _globalRouter = _GlobalPointerRouter();
 
@@ -93,20 +93,54 @@ class SplitterController extends ValueNotifier<SplitterState> {
     _globalRouter.unregister(this);
     _animator?.cancel();
     _isDragging.dispose();
+    _layout.dispose();
     super.dispose();
   }
 
-  /// The on-screen start fraction the attached splitter last resolved, in
-  /// `[0, 1]`. Unlike [value] (the request, which may be in pixels) this is the
-  /// effective ratio actually shown - the convenient value for read-outs. Before
-  /// the first layout it reflects the requested fraction (0 for a pixel request).
-  double get effectiveFraction => _effectiveFraction;
-  double _effectiveFraction;
+  /// The resolved, on-screen layout the attached splitter last published, or
+  /// null before the first layout (or while detached from any view).
+  ///
+  /// Unlike [value] (the request), this reflects what is actually drawn, and it
+  /// notifies via [layoutListenable] whenever the geometry changes - including
+  /// when a pixel-pinned pane's effective fraction shifts as the container
+  /// resizes, which leaves the request untouched. Reading the request through
+  /// [value] alone would miss that class of change.
+  SplitterLayout? get layout => _layout.value;
 
-  // Updated by the attached splitter after each solve so [effectiveFraction]
-  // tracks the constrained, on-screen ratio. Not a notification source: the
-  // request in [value] is canonical and already drives rebuilds.
-  void _setEffectiveFraction(double fraction) => _effectiveFraction = fraction;
+  /// Notifies whenever the resolved [layout] changes. This is a separate
+  /// observable from the request notifier ([value]); listen here to track the
+  /// on-screen geometry rather than the intent.
+  ValueListenable<SplitterLayout?> get layoutListenable => _layout;
+  final _layout = _SplitterLayoutNotifier();
+
+  // True once the request changed but the splitter has not yet re-solved, so the
+  // published layout is stale and [effectiveFraction] derives from the request
+  // instead. Cleared on the next solve.
+  bool _layoutStale = false;
+
+  /// The on-screen start fraction, in `[0, 1]`. Once laid out this is the
+  /// resolved [layout]'s fraction; before the first layout, while detached, or
+  /// in the brief window after a request change before the next solve, it
+  /// derives from the request - resolved against the last known extent, so a
+  /// pixel pin still estimates sensibly (0 before any layout). For change
+  /// notifications, listen to [layoutListenable].
+  double get effectiveFraction {
+    final layout = _layout.value;
+    if (layout != null && !_layoutStale) return layout.effectiveFraction;
+    return value.position.resolveFraction(layout?.availableExtent ?? 0);
+  }
+
+  // Updates the resolved layout synchronously (so [layout] and
+  // [effectiveFraction] are fresh within the frame the splitter solved in) and
+  // returns whether it changed, so the splitter can defer the listener
+  // notification out of the build phase.
+  bool _primeLayout(SplitterLayout layout) {
+    _layoutStale = false;
+    return _layout.prime(layout);
+  }
+
+  // Fires the deferred layout notification; called post-frame by the splitter.
+  void _flushLayout() => _layout.flush();
 
   /// The requested position (a fraction or pixel pin); shorthand for
   /// `value.position`.
@@ -125,13 +159,10 @@ class SplitterController extends ValueNotifier<SplitterState> {
     // matching notification - the historic collapse/equal-write desync is gone.
     if (newValue == value) return;
     if (!_isAnimationTick) _animator?.cancel();
-    // A fractional request resolves without the layout, so refresh the cache
-    // eagerly; the splitter overwrites it with the constrained value on layout.
-    final position = newValue.position;
-    if (position is FractionSplitterPosition) {
-      _effectiveFraction = position.resolveFraction(0);
-    }
     super.value = newValue;
+    // The request changed, so the published layout no longer reflects it until
+    // the next solve; [effectiveFraction] derives from the request meanwhile.
+    _layoutStale = true;
   }
 
   /// Requests [position] as a fresh intent: clears any collapse and supersedes a
@@ -228,6 +259,37 @@ class SplitterController extends ValueNotifier<SplitterState> {
   /// Resets the global pointer router. For testing only.
   @visibleForTesting
   static void resetGlobalRouter() => _globalRouter.dispose();
+}
+
+/// The resolved-layout observable behind [SplitterController.layoutListenable].
+///
+/// Its value updates synchronously (via [prime], during the splitter's build,
+/// so read-outs are fresh in the same frame) while the listener notification is
+/// deferred to [flush] (post-frame), so publishing the layout can never trigger
+/// a listener's `setState` during build.
+class _SplitterLayoutNotifier extends ChangeNotifier
+    implements ValueListenable<SplitterLayout?> {
+  SplitterLayout? _value;
+  bool _dirty = false;
+
+  @override
+  SplitterLayout? get value => _value;
+
+  /// Sets [next] immediately; returns true if it changed (so the caller knows a
+  /// [flush] should be scheduled).
+  bool prime(SplitterLayout? next) {
+    if (_value == next) return false;
+    _value = next;
+    _dirty = true;
+    return true;
+  }
+
+  /// Notifies listeners once if the value changed since the last flush.
+  void flush() {
+    if (!_dirty) return;
+    _dirty = false;
+    notifyListeners();
+  }
 }
 
 /// Drives vsync animation for a [SplitterController]. Implemented by the
@@ -747,6 +809,17 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     }
   }
 
+  // Primes the controller's resolved layout synchronously (so its read-outs are
+  // fresh this frame) and schedules the listener notification after the frame,
+  // so it never triggers a listener's setState during build. No-ops when the
+  // layout is unchanged.
+  void _publishLayout(SplitterController controller, SplitterLayout layout) {
+    if (!controller._primeLayout(layout)) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) controller._flushLayout();
+    });
+  }
+
   // Surfaces a collapse/expand transition to onChanged exactly once, tagged with
   // the matching source, after the frame settles. Called from _buildBounded with
   // the freshly solved geometry, so the reported extents match what is drawn.
@@ -974,9 +1047,21 @@ class _ResizableSplitterState extends State<ResizableSplitter>
       snapToDevicePixels: antiAliasingWorkaround,
     );
 
-    // Keep the controller's effective-fraction read-out in step with the
-    // constrained, on-screen ratio it just resolved to.
-    controller._setEffectiveFraction(solution.effectiveFraction);
+    // Publish the resolved geometry to the controller (after the frame, so the
+    // notification never fires mid-build). This is the on-screen read-out and
+    // the signal for layout changes the request alone cannot produce - e.g. a
+    // pixel pin's fraction shifting as the container resizes.
+    _publishLayout(
+      controller,
+      SplitterLayout(
+        effectiveFraction: solution.effectiveFraction,
+        startExtent: solution.startExtent,
+        endExtent: solution.endExtent,
+        availableExtent: solver.available,
+        isConstrained: solution.isCramped,
+        collapsedPane: collapsedPane,
+      ),
+    );
 
     // Report a collapse/expand transition once, after the frame, so the change
     // callbacks stay honest about every layout change and its source without
