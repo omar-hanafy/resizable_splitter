@@ -125,11 +125,15 @@ Branch `feat/resizable-splitter-2.0`. 90 tests green, `dart analyze` clean.
   anti-alias snap, snap matching in effective space, haptics-on-change, overlay
   dispose, transparent barrier honored. Tests migrated to the honest values;
   `effective_position_test.dart` locks the invariants.
-- PARTIAL Sub-project 3 (Interaction): RTL done (drag + arrows + layout,
-  `rtl_test.dart`). Controller value-setter hardened to reject NaN / out-of-range
-  at the source. REMAINING: transform-safe local coordinates, a custom drag
-  recognizer with real pointer ids + multi-drag sessions keyed by pointer,
-  pixel-space snap tolerance.
+- DONE Sub-project 3 (Interaction): RTL (drag + arrows + layout, `rtl_test.dart`)
+  and the NaN / out-of-range controller hardening landed earlier; the tail landed
+  with sub-project 7 - transform-safe local-space drag (`globalToLocal` anchored
+  on the stationary splitter box, `transform_drag_test.dart`), a pointer-id-keyed
+  multi-drag stuck-drag router (map instead of a single slot, `multi_drag_test.dart`),
+  and a pixel-space snap tolerance (`SplitterSnapBehavior.pixelTolerance`,
+  `snap_pixel_tolerance_test.dart`). A full custom drag recognizer was judged
+  disproportionate (the position-matching pointer correlation is adequate; the
+  map fixes the real backup-cleanup gap at the right level).
 - DONE Sub-project 4 (Controller + animation): vsync `AnimationController` owned
   by the State; controller delegates via a private `_SplitterAnimator`. Honors
   `MediaQuery.disableAnimations`; a drag/key/reset/direct-write cancels a run;
@@ -193,12 +197,15 @@ object would also have to, plus re-implement Flex for arbitrary children. See
   panes settle once on release, reusing the snap+commit path.
 Status: 127 tests green, analyze clean (package + example).
 
+DONE Sub-project 3 tail (transform-safe drag, multi-drag router, pixel snap
+tolerance). Status: 131 tests green, analyze clean (package + example).
+
 Remaining:
-- Sub-project 3 tail: transform-safe local coordinates, a custom drag recognizer
-  with real pointer ids + multi-drag sessions, pixel-space snap tolerance.
 - Sub-project 8: platform barrier (`dragBarrierBuilder`), integration tests, CI
   matrix, pana, publish dry-run, de-sugar `(_, _)` wildcards + reconsider the
   Flutter floor, README/CHANGELOG (document the breaking changes), bump to 2.0.0.
+  Has outward-facing / contract steps (publish, version, Flutter floor policy)
+  that want owner sign-off.
 
 ## Working agreements
 
