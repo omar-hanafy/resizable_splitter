@@ -1010,6 +1010,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
                         dividerColor: dividerColor,
                         handleBuilder: handleBuilder,
                         antiAliasingWorkaround: antiAliasingWorkaround,
+                        crossAxisBounded: _crossAxisBounded(bounded),
                         controller: controller,
                       );
                     },
@@ -1056,6 +1057,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
               dividerColor: dividerColor,
               handleBuilder: handleBuilder,
               antiAliasingWorkaround: antiAliasingWorkaround,
+              crossAxisBounded: _crossAxisBounded(constraints),
               controller: controller,
             );
           },
@@ -1063,6 +1065,12 @@ class _ResizableSplitterState extends State<ResizableSplitter>
       },
     );
   }
+
+  // Whether the cross axis (perpendicular to [axis]) is bounded. When it is not,
+  // the layout Stack must size to the panes (loose) instead of expanding to an
+  // infinite cross extent, which RenderStack would reject.
+  bool _crossAxisBounded(BoxConstraints constraints) =>
+      (widget.axis.isH ? constraints.maxHeight : constraints.maxWidth).isFinite;
 
   Widget _buildBounded({
     required SplitterPosition position,
@@ -1079,6 +1087,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     required Widget Function(BuildContext, SplitterHandleDetails)?
     handleBuilder,
     required bool antiAliasingWorkaround,
+    required bool crossAxisBounded,
     required SplitterController controller,
   }) {
     // Raw configured minimums (not pre-clamped): the solver clamps internally
@@ -1185,7 +1194,11 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     final textDirection = Directionality.maybeOf(context) ?? TextDirection.ltr;
 
     return Stack(
-      fit: StackFit.expand,
+      // With an unbounded cross axis, StackFit.expand would force an infinite
+      // cross extent (RenderStack throws); size to the panes instead so a
+      // finite-main / unbounded-cross layout (e.g. a horizontal splitter in a
+      // Column) still renders.
+      fit: crossAxisBounded ? StackFit.expand : StackFit.loose,
       children: [
         Flex(
           direction: widget.axis,

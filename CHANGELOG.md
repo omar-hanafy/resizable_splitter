@@ -81,6 +81,9 @@ so the stored value can no longer disagree with what is drawn.
 - `handleHitSlop` now enlarges the grab target by overlapping the panes instead
   of widening the divider footprint.
 - Overflow-safe under containers smaller than the divider; each pane is clipped.
+- A bounded main axis with an unbounded cross axis (e.g. a horizontal splitter
+  in a `Column`) no longer throws an infinite-size error; the layout sizes to the
+  panes' cross extent instead.
 - Animation is vsync-driven, cancels on drag, and honors
   `MediaQuery.disableAnimations`.
 - Animation lifecycle is now deterministic: an `animateTo` future no longer
