@@ -367,6 +367,7 @@ class ResizableSplitter extends StatefulWidget {
     this.overlayEnabled,
     this.snap,
     this.holdScrollWhileDragging = false,
+    this.deferredResize = false,
     this.doubleTapResetTo,
     this.resizable = true,
     this.onHandleTap,
@@ -496,6 +497,12 @@ class ResizableSplitter extends StatefulWidget {
   /// Whether to temporarily hold the nearest Scrollable's position while dragging.
   final bool holdScrollWhileDragging;
 
+  /// Defers the resize until the drag is released. While dragging, the panes
+  /// keep their committed size and a lightweight preview line tracks the
+  /// pointer; on release the panes settle to the final position once. Useful
+  /// when the panes contain expensive subtrees. Defaults to false (live resize).
+  final bool deferredResize;
+
   /// Optional ratio to jump to on double-tap.
   final double? doubleTapResetTo;
 
@@ -547,6 +554,10 @@ class _ResizableSplitterState extends State<ResizableSplitter>
   // reported exactly once (not on every rebuild while it stays collapsed).
   SplitterPane? _reportedCollapsePane;
 
+  // The preview fraction shown during a deferred drag (null when not
+  // previewing). The panes stay at the committed position; only this line moves.
+  double? _previewFraction;
+
   // Persists the divider position when widget.restorationId is set. The mixin
   // owns and disposes it; _restorationReady gates writes until it is registered.
   // Its default is the controller's *current* value, so a first run with no
@@ -583,6 +594,12 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     // making a no-saved-state run a no-op while a real restore overrides it.
     (_attachedController ?? _effectiveController).value =
         _restorablePosition.value;
+  }
+
+  // Updates the deferred-drag preview line (the panes stay put until release).
+  void _setPreview(double? fraction) {
+    if (!mounted || _previewFraction == fraction) return;
+    setState(() => _previewFraction = fraction);
   }
 
   // Mirrors the live controller position into the restorable so it persists.
@@ -979,7 +996,19 @@ class _ResizableSplitterState extends State<ResizableSplitter>
       resizable: widget.resizable,
       onTap: widget.onHandleTap,
       onDoubleTap: widget.onHandleDoubleTap,
+      deferred: widget.deferredResize && widget.resizable,
+      onPreviewChanged: widget.deferredResize && widget.resizable
+          ? _setPreview
+          : null,
     );
+
+    // During a deferred drag the panes hold their committed size; a lightweight
+    // preview line tracks the pointer at the would-be boundary instead.
+    final previewFraction = _previewFraction;
+    final previewStart = previewFraction == null
+        ? null
+        : solver.solve(SplitterPosition.fraction(previewFraction)).startExtent;
+    final previewColor = Theme.of(context).colorScheme.primary;
 
     // Layout + paint live in the Flex; the interactive handle is overlaid on top
     // of the panels. The middle Flex slot is a transparent gap of exactly the
@@ -1030,6 +1059,24 @@ class _ResizableSplitterState extends State<ResizableSplitter>
             right: 0,
             child: divider,
           ),
+        if (previewStart != null)
+          if (widget.axis.isH)
+            Positioned.directional(
+              textDirection: textDirection,
+              start: previewStart,
+              width: dividerThickness,
+              top: 0,
+              bottom: 0,
+              child: IgnorePointer(child: ColoredBox(color: previewColor)),
+            )
+          else
+            Positioned(
+              top: previewStart,
+              height: dividerThickness,
+              left: 0,
+              right: 0,
+              child: IgnorePointer(child: ColoredBox(color: previewColor)),
+            ),
       ],
     );
   }
@@ -1063,6 +1110,8 @@ class _DividerHandle extends StatefulWidget {
     required this.resizable,
     this.onTap,
     this.onDoubleTap,
+    this.deferred = false,
+    this.onPreviewChanged,
   });
 
   final Axis axis;
@@ -1090,6 +1139,13 @@ class _DividerHandle extends StatefulWidget {
   final bool resizable;
   final VoidCallback? onTap;
   final VoidCallback? onDoubleTap;
+
+  /// Whether to defer the resize until release, tracking the drag with a preview
+  /// line instead of resizing the panes every frame.
+  final bool deferred;
+
+  /// Reports the live preview fraction during a deferred drag (null on release).
+  final ValueChanged<double?>? onPreviewChanged;
 
   @override
   State<_DividerHandle> createState() => _DividerHandleState();
@@ -1138,6 +1194,8 @@ class _DividerHandleState extends State<_DividerHandle> {
     if (_isDragging) {
       widget.controller._setDragging(false);
       SplitterController._globalRouter.setDragging(null);
+      // Clear any deferred-drag preview so it does not linger after disposal.
+      widget.onPreviewChanged?.call(null);
     }
     widget.controller._setDragCallback(null);
     _removeOverlay();
@@ -1228,6 +1286,13 @@ class _DividerHandleState extends State<_DividerHandle> {
         .effectiveFraction;
     _lastDragRatio = newRatio;
 
+    if (widget.deferred) {
+      // Defer the resize: move only the preview line. The panes keep their
+      // committed size and onChanged stays silent until the drag is released.
+      widget.onPreviewChanged?.call(newRatio);
+      return;
+    }
+
     final previous = _effective;
     widget.controller.updateRatio(newRatio);
     final current = _effective;
@@ -1247,11 +1312,17 @@ class _DividerHandleState extends State<_DividerHandle> {
   }
 
   void _stopDrag() {
-    final snapped = _maybeSnap(_effective);
+    // Settle from the drag target. In deferred mode the controller has not moved
+    // during the drag, so the target is the last preview; in live mode the
+    // target equals the effective value, so this matches the previous behavior.
+    final target = _lastDragRatio ?? _effective;
+    widget.onPreviewChanged?.call(null);
+    final snapped = _maybeSnap(target);
 
     // No snap point claimed the release: commit the exact final ratio. The
     // per-update threshold can otherwise leave the handle a fraction short of
-    // where the pointer actually let go.
+    // where the pointer actually let go (and in deferred mode the controller has
+    // not moved at all yet).
     if (snapped == null && _lastDragRatio != null) {
       final previous = _effective;
       widget.controller.updateRatio(_lastDragRatio!, threshold: 0);
