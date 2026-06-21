@@ -1384,7 +1384,13 @@ class _DividerHandleState extends State<_DividerHandle> {
     final snap = widget.snap;
     final points = snap?.points;
     if (snap == null || points == null || points.isEmpty) return null;
-    if (widget.solver.available <= 0) return null;
+    final available = widget.solver.available;
+    if (available <= 0) return null;
+
+    // A pixel tolerance is measured in logical pixels (size-independent);
+    // otherwise the distance and tolerance are both in effective-ratio space.
+    final usePixels = snap.pixelTolerance != null;
+    final tolerance = snap.pixelTolerance ?? snap.tolerance;
 
     // Compare in effective space: a snap point that constraints push aside is
     // measured by where it actually lands, not by its nominal ratio.
@@ -1394,13 +1400,13 @@ class _DividerHandleState extends State<_DividerHandle> {
       final resolved = widget.solver
           .solve(SplitterPosition.fraction(p))
           .effectiveFraction;
-      final d = (value - resolved).abs();
+      final d = (value - resolved).abs() * (usePixels ? available : 1.0);
       if (d < bestDist) {
         bestDist = d;
         nearest = resolved;
       }
     }
-    if (bestDist <= snap.tolerance) {
+    if (bestDist <= tolerance) {
       final previous = _effective;
       if ((nearest - previous).abs() > 1e-9) {
         widget.controller.updateRatio(nearest, threshold: 0);
