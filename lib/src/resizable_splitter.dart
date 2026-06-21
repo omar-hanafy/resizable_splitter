@@ -375,6 +375,7 @@ class ResizableSplitter extends StatefulWidget {
     this.unboundedBehavior,
     this.fallbackMainAxisExtent,
     this.antiAliasingWorkaround,
+    this.restorationId,
   }) : assert(
          minStartFraction >= 0.0 && minStartFraction <= 1.0,
          'minStartFraction must be between 0.0 and 1.0',
@@ -522,12 +523,20 @@ class ResizableSplitter extends StatefulWidget {
   /// gaps. Defaults to false.
   final bool? antiAliasingWorkaround;
 
+  /// Restoration id for persisting the divider position across app restarts.
+  ///
+  /// When non-null the splitter saves its position into the ambient
+  /// [RestorationScope], so it is restored after the app is killed and
+  /// relaunched (see [RestorationMixin]). Restoration works with the internal
+  /// controller as well as an external one. Null disables restoration.
+  final String? restorationId;
+
   @override
   State<ResizableSplitter> createState() => _ResizableSplitterState();
 }
 
 class _ResizableSplitterState extends State<ResizableSplitter>
-    with SingleTickerProviderStateMixin
+    with SingleTickerProviderStateMixin, RestorationMixin
     implements _SplitterAnimator {
   late final FocusNode _focusNode;
   late final AnimationController _animationController;
@@ -537,6 +546,17 @@ class _ResizableSplitterState extends State<ResizableSplitter>
   // The collapse state last surfaced to onChanged, so a collapse/expand is
   // reported exactly once (not on every rebuild while it stays collapsed).
   SplitterPane? _reportedCollapsePane;
+
+  // Persists the divider position when widget.restorationId is set. The mixin
+  // owns and disposes it; _restorationReady gates writes until it is registered.
+  // Its default is the controller's *current* value, so a first run with no
+  // saved state re-applies what is already there (never clobbering an external
+  // controller); only a genuine restore overrides it.
+  late final _RestorableSplitterPosition _restorablePosition =
+      _RestorableSplitterPosition(
+        () => (_attachedController ?? _effectiveController).value,
+      );
+  bool _restorationReady = false;
 
   // vsync animation state backing SplitterController.animateTo.
   double _animBegin = 0;
@@ -551,6 +571,28 @@ class _ResizableSplitterState extends State<ResizableSplitter>
       ));
 
   @override
+  String? get restorationId => widget.restorationId;
+
+  @override
+  void restoreState(RestorationBucket? oldBucket, bool initialRestore) {
+    registerForRestoration(_restorablePosition, 'position');
+    _restorationReady = true;
+    // Re-apply the (restored or default) position. initialRestore is true on
+    // every fresh State, including after a restart, so it cannot be used to gate
+    // this; instead the restorable defaults to the controller's current value,
+    // making a no-saved-state run a no-op while a real restore overrides it.
+    (_attachedController ?? _effectiveController).value =
+        _restorablePosition.value;
+  }
+
+  // Mirrors the live controller position into the restorable so it persists.
+  void _handlePositionChanged() {
+    if (!_restorationReady) return;
+    final controller = _attachedController;
+    if (controller != null) _restorablePosition.value = controller.value;
+  }
+
+  @override
   void initState() {
     super.initState();
     _focusNode = FocusNode(debugLabel: 'ResizableSplitterHandle');
@@ -559,7 +601,8 @@ class _ResizableSplitterState extends State<ResizableSplitter>
       ..addStatusListener(_onAnimationStatus);
     final controller = _effectiveController
       .._attach(this)
-      .._attachAnimator(this);
+      .._attachAnimator(this)
+      ..addListener(_handlePositionChanged);
     _attachedController = controller;
   }
 
@@ -585,7 +628,8 @@ class _ResizableSplitterState extends State<ResizableSplitter>
 
     if (!identical(_attachedController, newController)) {
       _attachedController
-        ?.._detachAnimator(this)
+        ?..removeListener(_handlePositionChanged)
+        .._detachAnimator(this)
         .._detach(this);
 
       if (oldWidget.controller == null && widget.controller != null) {
@@ -595,7 +639,8 @@ class _ResizableSplitterState extends State<ResizableSplitter>
 
       newController
         .._attach(this)
-        .._attachAnimator(this);
+        .._attachAnimator(this)
+        ..addListener(_handlePositionChanged);
       _attachedController = newController;
       // Sync to the incoming controller so a swap does not fire a phantom
       // collapse/restore for state that was never this controller's.
@@ -607,7 +652,8 @@ class _ResizableSplitterState extends State<ResizableSplitter>
   void dispose() {
     _animationController.dispose();
     _attachedController
-      ?.._detachAnimator(this)
+      ?..removeListener(_handlePositionChanged)
+      .._detachAnimator(this)
       .._detach(this);
     _focusNode.dispose();
     _internalController?.dispose();
@@ -1674,4 +1720,42 @@ class _JumpIntent extends Intent {
 
   const _JumpIntent.toMax() : this._(false);
   final bool toMin;
+}
+
+/// Serializes a [SplitterPosition] for state restoration as a `[kind, number]`
+/// pair, where kind is 0 (fraction), 1 (start pixels), or 2 (end pixels).
+class _RestorableSplitterPosition extends RestorableValue<SplitterPosition> {
+  _RestorableSplitterPosition(this._defaultValue);
+
+  final SplitterPosition Function() _defaultValue;
+
+  @override
+  SplitterPosition createDefaultValue() => _defaultValue();
+
+  @override
+  void didUpdateValue(SplitterPosition? oldValue) {
+    if (oldValue == null || oldValue != value) {
+      notifyListeners();
+    }
+  }
+
+  @override
+  SplitterPosition fromPrimitives(Object? data) {
+    if (data is List && data.length == 2) {
+      final number = (data[1] as num).toDouble();
+      return switch (data[0]) {
+        1 => SplitterPosition.startPixels(number),
+        2 => SplitterPosition.endPixels(number),
+        _ => SplitterPosition.fraction(number),
+      };
+    }
+    return _defaultValue();
+  }
+
+  @override
+  Object toPrimitives() => switch (value) {
+    FractionSplitterPosition(:final value) => <Object>[0, value],
+    StartPixelsSplitterPosition(:final extent) => <Object>[1, extent],
+    EndPixelsSplitterPosition(:final extent) => <Object>[2, extent],
+  };
 }
