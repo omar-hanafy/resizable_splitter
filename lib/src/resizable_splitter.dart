@@ -14,6 +14,7 @@ import 'package:resizable_splitter/src/split_pane_constraints.dart';
 import 'package:resizable_splitter/src/split_position.dart';
 import 'package:resizable_splitter/src/split_snap_behavior.dart';
 import 'package:resizable_splitter/src/split_solver.dart';
+import 'package:resizable_splitter/src/split_view_value.dart';
 
 /// Axis helpers to eliminate H/V duplication.
 extension _AxisHelpers on Axis {
@@ -294,9 +295,9 @@ class ResizableSplitter extends StatefulWidget {
     this.minStartFraction = 0.0,
     this.maxStartFraction = 1.0,
     this.divider,
-    this.onRatioChanged,
-    this.onDragStart,
-    this.onDragEnd,
+    this.onChanged,
+    this.onChangeStart,
+    this.onChangeEnd,
     this.enableKeyboard,
     this.enableHaptics,
     this.keyboardStep,
@@ -393,14 +394,17 @@ class ResizableSplitter extends StatefulWidget {
   /// [ResizableSplitterTheme], then to the built-in defaults.
   final SplitterDividerStyle? divider;
 
-  /// Called when the split ratio changes (e.g., dragging or keyboard).
-  final ValueChanged<double>? onRatioChanged;
+  /// Called whenever the split position changes, with both the request and the
+  /// effective layout plus the [SplitterChangeSource] (drag, keyboard, snap,
+  /// semantics, or the built-in double-tap reset).
+  final ValueChanged<SplitterChangeDetails>? onChanged;
 
-  /// Called when a drag gesture starts.
-  final ValueChanged<double>? onDragStart;
+  /// Called when a drag gesture starts, with the position at that moment.
+  final ValueChanged<SplitterChangeDetails>? onChangeStart;
 
-  /// Called when a drag gesture ends.
-  final ValueChanged<double>? onDragEnd;
+  /// Called when a drag gesture ends, with the settled position. The source is
+  /// [SplitterChangeSource.snap] when a snap point claimed the release.
+  final ValueChanged<SplitterChangeDetails>? onChangeEnd;
 
   /// Whether to enable keyboard navigation with arrow keys. Defaults to true.
   final bool? enableKeyboard;
@@ -805,9 +809,9 @@ class _ResizableSplitterState extends State<ResizableSplitter>
           solution: solution,
           blockerColor: blockerColor,
           dividerColor: dividerColor,
-          onRatioChanged: widget.onRatioChanged,
-          onDragStart: widget.onDragStart,
-          onDragEnd: widget.onDragEnd,
+          onChanged: widget.onChanged,
+          onChangeStart: widget.onChangeStart,
+          onChangeEnd: widget.onChangeEnd,
           enableKeyboard: enableKeyboard && widget.resizable,
           enableHaptics: enableHaptics,
           keyboardStep: keyboardStep,
@@ -845,9 +849,9 @@ class _DividerHandle extends StatefulWidget {
     required this.solution,
     required this.dividerColor,
     required this.blockerColor,
-    required this.onRatioChanged,
-    required this.onDragStart,
-    required this.onDragEnd,
+    required this.onChanged,
+    required this.onChangeStart,
+    required this.onChangeEnd,
     required this.enableKeyboard,
     required this.enableHaptics,
     required this.keyboardStep,
@@ -872,9 +876,9 @@ class _DividerHandle extends StatefulWidget {
   final SplitterSolution solution;
   final WidgetStateProperty<Color?>? dividerColor;
   final Color? blockerColor;
-  final ValueChanged<double>? onRatioChanged;
-  final ValueChanged<double>? onDragStart;
-  final ValueChanged<double>? onDragEnd;
+  final ValueChanged<SplitterChangeDetails>? onChanged;
+  final ValueChanged<SplitterChangeDetails>? onChangeStart;
+  final ValueChanged<SplitterChangeDetails>? onChangeEnd;
   final bool enableKeyboard;
   final bool enableHaptics;
   final double keyboardStep;
@@ -908,6 +912,23 @@ class _DividerHandleState extends State<_DividerHandle> {
 
   void _haptic() {
     if (widget.enableHaptics) unawaited(HapticFeedback.selectionClick());
+  }
+
+  /// Builds the change payload for [fraction], resolving the effective layout
+  /// through the shared solver so the reported extents match what is drawn.
+  SplitterChangeDetails _changeDetails(
+    double fraction,
+    SplitterChangeSource source,
+  ) {
+    final solution = widget.solver.solve(SplitterPosition.fraction(fraction));
+    return SplitterChangeDetails(
+      requestedPosition: SplitterPosition.fraction(fraction),
+      effectiveFraction: solution.effectiveFraction,
+      startExtent: solution.startExtent,
+      endExtent: solution.endExtent,
+      availableExtent: widget.solver.available,
+      source: source,
+    );
   }
 
   @override
@@ -970,7 +991,12 @@ class _DividerHandleState extends State<_DividerHandle> {
 
     _haptic();
     widget.focusNode.requestFocus();
-    widget.onDragStart?.call(widget.solution.effectiveFraction);
+    widget.onChangeStart?.call(
+      _changeDetails(
+        widget.solution.effectiveFraction,
+        SplitterChangeSource.drag,
+      ),
+    );
   }
 
   void _onDragUpdate(DragUpdateDetails details) {
@@ -1003,7 +1029,9 @@ class _DividerHandleState extends State<_DividerHandle> {
     final previous = widget.controller.value;
     widget.controller.updateRatio(newRatio);
     if ((widget.controller.value - previous).abs() > 1e-9) {
-      widget.onRatioChanged?.call(widget.controller.value);
+      widget.onChanged?.call(
+        _changeDetails(widget.controller.value, SplitterChangeSource.drag),
+      );
     }
   }
 
@@ -1025,7 +1053,9 @@ class _DividerHandleState extends State<_DividerHandle> {
       final previous = widget.controller.value;
       widget.controller.updateRatio(_lastDragRatio!, threshold: 0);
       if ((widget.controller.value - previous).abs() > 1e-9) {
-        widget.onRatioChanged?.call(widget.controller.value);
+        widget.onChanged?.call(
+          _changeDetails(widget.controller.value, SplitterChangeSource.drag),
+        );
       }
     }
 
@@ -1052,7 +1082,14 @@ class _DividerHandleState extends State<_DividerHandle> {
     _activePointer = null;
 
     if (mounted) {
-      widget.onDragEnd?.call(snapped ?? widget.controller.value);
+      widget.onChangeEnd?.call(
+        _changeDetails(
+          snapped ?? widget.controller.value,
+          snapped != null
+              ? SplitterChangeSource.snap
+              : SplitterChangeSource.drag,
+        ),
+      );
     }
   }
 
@@ -1081,7 +1118,9 @@ class _DividerHandleState extends State<_DividerHandle> {
         final previous = widget.controller.value;
         widget.controller.updateRatio(nearest, threshold: 0);
         if ((widget.controller.value - previous).abs() > 1e-9) {
-          widget.onRatioChanged?.call(widget.controller.value);
+          widget.onChanged?.call(
+            _changeDetails(widget.controller.value, SplitterChangeSource.snap),
+          );
         }
       }
       return nearest;
@@ -1192,7 +1231,7 @@ class _DividerHandleState extends State<_DividerHandle> {
   double _effectiveRatio(double ratio) =>
       widget.solver.solve(SplitterPosition.fraction(ratio)).effectiveFraction;
 
-  void _nudge(double delta) {
+  void _nudge(double delta, SplitterChangeSource source) {
     if (!widget.resizable) return;
 
     // Step from the current *effective* position (re-solved fresh, so repeated
@@ -1208,7 +1247,7 @@ class _DividerHandleState extends State<_DividerHandle> {
         .effectiveFraction;
     widget.controller.value = newRatio;
     if ((widget.controller.value - previous).abs() > 1e-9) {
-      widget.onRatioChanged?.call(widget.controller.value);
+      widget.onChanged?.call(_changeDetails(widget.controller.value, source));
       _haptic();
     }
   }
@@ -1296,7 +1335,12 @@ class _DividerHandleState extends State<_DividerHandle> {
                     if (!mounted) return;
                     final updated = widget.controller.value;
                     if ((updated - startValue).abs() > 1e-9) {
-                      widget.onRatioChanged?.call(updated);
+                      widget.onChanged?.call(
+                        _changeDetails(
+                          updated,
+                          SplitterChangeSource.programmatic,
+                        ),
+                      );
                     }
                   }),
                 );
@@ -1349,10 +1393,10 @@ class _DividerHandleState extends State<_DividerHandle> {
           ? pct(_effectiveRatio(effective - widget.keyboardStep))
           : null,
       onIncrease: allowSemanticAdjust
-          ? () => _nudge(widget.keyboardStep)
+          ? () => _nudge(widget.keyboardStep, SplitterChangeSource.semantics)
           : null,
       onDecrease: allowSemanticAdjust
-          ? () => _nudge(-widget.keyboardStep)
+          ? () => _nudge(-widget.keyboardStep, SplitterChangeSource.semantics)
           : null,
       child: divider,
     );
@@ -1390,7 +1434,7 @@ class _DividerHandleState extends State<_DividerHandle> {
         actions: <Type, Action<Intent>>{
           _AdjustIntent: CallbackAction<_AdjustIntent>(
             onInvoke: (intent) {
-              _nudge(intent.delta);
+              _nudge(intent.delta, SplitterChangeSource.keyboard);
               return null;
             },
           ),
@@ -1406,7 +1450,12 @@ class _DividerHandleState extends State<_DividerHandle> {
                         .effectiveFraction;
               widget.controller.value = dest;
               if ((widget.controller.value - previous).abs() > 1e-9) {
-                widget.onRatioChanged?.call(widget.controller.value);
+                widget.onChanged?.call(
+                  _changeDetails(
+                    widget.controller.value,
+                    SplitterChangeSource.keyboard,
+                  ),
+                );
                 _haptic();
               }
               return null;

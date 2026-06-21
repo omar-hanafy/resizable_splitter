@@ -43,9 +43,9 @@ void main() {
               points: [0.25, 0.75],
               tolerance: 0.1,
             ),
-            onDragStart: (value) => dragStart = value,
-            onDragEnd: (value) => dragEnd = value,
-            onRatioChanged: ratioChanges.add,
+            onChangeStart: (d) => dragStart = d.effectiveFraction,
+            onChangeEnd: (d) => dragEnd = d.effectiveFraction,
+            onChanged: (d) => ratioChanges.add(d.effectiveFraction),
             start: const SizedBox(key: Key('start')),
             end: const SizedBox(key: Key('end')),
           ),
@@ -403,7 +403,7 @@ void main() {
     expect(controller.value, closeTo(0.75, 1e-6));
   });
 
-  testWidgets('double-tap reset skips onRatioChanged when already at target', (
+  testWidgets('double-tap reset skips onChanged when already at target', (
     tester,
   ) async {
     final controller = SplitterController(initialRatio: 0.75);
@@ -415,7 +415,7 @@ void main() {
           controller: controller,
           semanticsLabel: 'handle',
           doubleTapResetTo: 0.75,
-          onRatioChanged: (_) => ratioChangedCount++,
+          onChanged: (_) => ratioChangedCount++,
           start: const SizedBox(),
           end: const SizedBox(),
         ),

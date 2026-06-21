@@ -12,7 +12,7 @@ void main() {
   // fraction at 0.5 even though the controller requested 0.10.
   Widget host({
     required SplitterController controller,
-    ValueChanged<double>? onDragStart,
+    ValueChanged<SplitterChangeDetails>? onChangeStart,
   }) => MaterialApp(
     home: Scaffold(
       body: Center(
@@ -25,7 +25,7 @@ void main() {
             startConstraints: const SplitterPaneConstraints(minExtent: 200),
             endConstraints: const SplitterPaneConstraints(),
             semanticsLabel: 'handle',
-            onDragStart: onDragStart,
+            onChangeStart: onChangeStart,
             start: const SizedBox(),
             end: const SizedBox(),
           ),
@@ -34,13 +34,16 @@ void main() {
     ),
   );
 
-  testWidgets('onDragStart reports the effective position, not the stored '
+  testWidgets('onChangeStart reports the effective position, not the stored '
       'request', (tester) async {
     final controller = SplitterController(initialRatio: 0.10);
     double? dragStart;
 
     await tester.pumpWidget(
-      host(controller: controller, onDragStart: (v) => dragStart = v),
+      host(
+        controller: controller,
+        onChangeStart: (d) => dragStart = d.effectiveFraction,
+      ),
     );
 
     final gesture = await tester.startGesture(

@@ -1,0 +1,126 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:resizable_splitter/resizable_splitter.dart';
+
+/// Sub-project 6: the rich change callbacks carry both the request and the
+/// effective layout, tagged with the [SplitterChangeSource] that produced them.
+void main() {
+  tearDown(SplitterController.resetGlobalRouter);
+
+  Widget host(Widget child) => MaterialApp(
+    home: Scaffold(
+      body: Center(child: SizedBox(width: 408, height: 240, child: child)),
+    ),
+  );
+
+  testWidgets('a drag reports drag-sourced start/changed/end details', (
+    tester,
+  ) async {
+    final controller = SplitterController();
+    SplitterChangeDetails? start;
+    SplitterChangeDetails? end;
+    final changes = <SplitterChangeDetails>[];
+
+    await tester.pumpWidget(
+      host(
+        ResizableSplitter(
+          controller: controller,
+          divider: const SplitterDividerStyle(thickness: 8),
+          startConstraints: const SplitterPaneConstraints(),
+          endConstraints: const SplitterPaneConstraints(),
+          semanticsLabel: 'handle',
+          onChangeStart: (d) => start = d,
+          onChanged: changes.add,
+          onChangeEnd: (d) => end = d,
+          start: const SizedBox(),
+          end: const SizedBox(),
+        ),
+      ),
+    );
+
+    final handle = find.bySemanticsLabel('handle');
+    final gesture = await tester.startGesture(tester.getCenter(handle));
+    await tester.pump();
+    await gesture.moveBy(const Offset(40, 0));
+    await tester.pump();
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(start, isNotNull);
+    expect(start!.source, SplitterChangeSource.drag);
+    expect(changes, isNotEmpty);
+    expect(changes.every((d) => d.source == SplitterChangeSource.drag), isTrue);
+    expect(end, isNotNull);
+    expect(end!.source, SplitterChangeSource.drag);
+
+    // available = 408 - 8 = 400. The payload exposes the resolved geometry.
+    expect(end!.availableExtent, closeTo(400, 1e-6));
+    expect(end!.startExtent + end!.endExtent, closeTo(400, 1e-6));
+    expect(end!.effectiveFraction, closeTo(controller.value, 1e-6));
+  });
+
+  testWidgets('a snap on release reports SplitterChangeSource.snap', (
+    tester,
+  ) async {
+    final controller = SplitterController();
+    SplitterChangeDetails? end;
+
+    await tester.pumpWidget(
+      host(
+        ResizableSplitter(
+          controller: controller,
+          divider: const SplitterDividerStyle(thickness: 8),
+          startConstraints: const SplitterPaneConstraints(),
+          endConstraints: const SplitterPaneConstraints(),
+          semanticsLabel: 'handle',
+          snap: const SplitterSnapBehavior(points: [0.75], tolerance: 0.2),
+          onChangeEnd: (d) => end = d,
+          start: const SizedBox(),
+          end: const SizedBox(),
+        ),
+      ),
+    );
+
+    final handle = find.bySemanticsLabel('handle');
+    final gesture = await tester.startGesture(tester.getCenter(handle));
+    await tester.pump();
+    // Drag from 0.5 toward 0.7 so the 0.75 snap point claims the release.
+    await gesture.moveBy(const Offset(80, 0));
+    await tester.pump();
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(end, isNotNull);
+    expect(end!.source, SplitterChangeSource.snap);
+    expect(controller.value, closeTo(0.75, 1e-6));
+  });
+
+  testWidgets('a keyboard adjust reports SplitterChangeSource.keyboard', (
+    tester,
+  ) async {
+    final controller = SplitterController();
+    final sources = <SplitterChangeSource>[];
+
+    await tester.pumpWidget(
+      host(
+        ResizableSplitter(
+          controller: controller,
+          startConstraints: const SplitterPaneConstraints(),
+          endConstraints: const SplitterPaneConstraints(),
+          semanticsLabel: 'handle',
+          onChanged: (d) => sources.add(d.source),
+          start: const SizedBox(),
+          end: const SizedBox(),
+        ),
+      ),
+    );
+
+    await tester.tap(find.bySemanticsLabel('handle'));
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pump();
+
+    expect(sources, contains(SplitterChangeSource.keyboard));
+  });
+}

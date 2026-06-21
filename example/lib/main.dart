@@ -331,7 +331,7 @@ class _KeyboardDemo extends StatelessWidget {
         const _ExampleCard(child: _KeyboardExample()),
         const SizedBox(height: 24),
         const _Bullet('keyboardStep and pageStep tune the control feel'),
-        const _Bullet('Snap reports through onRatioChanged when it activates'),
+        const _Bullet('Snap reports through onChanged when it activates'),
       ],
     );
   }
@@ -837,7 +837,8 @@ class _KeyboardExampleState extends State<_KeyboardExample> {
                 color: Colors.transparent,
                 child: _TimelinePreview(),
               ),
-              onRatioChanged: (value) => setState(() => _lastSnap = value),
+              onChanged: (details) =>
+                  setState(() => _lastSnap = details.effectiveFraction),
             ),
           ),
           const SizedBox(height: 12),
