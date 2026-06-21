@@ -233,6 +233,28 @@ exported and property-tested; invariant tests lock #1 and #8. Spec:
 `2026-06-22-resizable-splitter-9-atomic-state.md`. Status: 155 tests green,
 analyze clean (package + tests + example).
 
+DONE Review issue #9 (change-details honesty). `_changeDetails` reported a
+fabricated `SplitterPosition.fraction(...)`; now that the atomic value exposes
+`value.position` it reports the controller's real request, so a drag starting on
+a pixel-pinned pane reports the pin (and a fraction once a move releases it).
+
+DONE Review issue #2 (animation lifecycle) + #3 (drag session) - explicit
+cancellable sessions. The animation is now an `_AnimationSession` capturing the
+controller it targets; `animateTo` returns `Future<SplitterAnimationStatus>`
+({completed, canceled, detached}); disposal resolves `detached` (no hung
+future), a controller swap stops the run and resolves `detached` (no bleed onto
+the new controller), and a drag/value-write resolves `canceled` (distinct from a
+finish, so no phantom programmatic onChanged). The drag got the matching fix: a
+`_DividerHandle.didUpdateWidget` ends an in-flight drag on the original
+controller when the controller/axis is swapped mid-drag (shared `_teardownDrag`).
+Status: 161 tests green, analyze clean (package + tests + example).
+
+REMAINING from the review (next candidates): #10 overlay `maybeOf` graceful
+degrade; #7 unify geometry so pixel snapping is consistent across solve sites;
+#4 honest callback contract / centralized dispatch (product-shaped); #5 collapse
+respects `collapsible` (needs a model decision); #6 solver surplus policy
+(product-shaped); #11 unbounded cross axis.
+
 ## Working agreements
 
 - TDD: tests first, lock invariants (not just reported inputs).

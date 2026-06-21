@@ -1614,6 +1614,23 @@ class _DividerHandleState extends State<_DividerHandle> {
   void _insertOverlay() {
     if (_dragOverlay != null) return;
 
+    // The shield needs a root Overlay to sit above platform views. Apps built on
+    // MaterialApp/Navigator have one; if there is none, degrade gracefully - the
+    // drag still works, just without the platform-view shield - rather than
+    // throwing from a reusable layout primitive (Overlay.of would).
+    final overlay = Overlay.maybeOf(context, rootOverlay: true);
+    if (overlay == null) {
+      assert(() {
+        debugPrint(
+          'ResizableSplitter: no Overlay ancestor, so the drag platform-view '
+          'shield is disabled. Provide a MaterialApp/Navigator (or any Overlay), '
+          'or set overlayEnabled: false to opt out and silence this.',
+        );
+        return true;
+      }());
+      return;
+    }
+
     final entry = OverlayEntry(
       builder: (context) => _DragOverlay(
         axis: widget.axis,
@@ -1622,11 +1639,10 @@ class _DividerHandleState extends State<_DividerHandle> {
       ),
     );
 
-    // Use the root overlay so it sits above platform views. Only record the
-    // entry once it is actually inserted, so _removeOverlay can always pair a
-    // remove() with the dispose() (mounted tracks the built widget, not overlay
-    // membership).
-    Overlay.of(context, rootOverlay: true).insert(entry);
+    // Only record the entry once it is actually inserted, so _removeOverlay can
+    // always pair a remove() with the dispose() (mounted tracks the built
+    // widget, not overlay membership).
+    overlay.insert(entry);
     _dragOverlay = entry;
   }
 

@@ -88,6 +88,10 @@ so the stored value can no longer disagree with what is drawn.
   swap no longer lets the animation bleed onto the new controller, and a
   cancelled run is distinguishable from a completed one (no phantom
   programmatic change after a cancel).
+- Swapping the controller (or axis) during an active drag now ends the drag on
+  the original controller instead of stranding it flagged as dragging.
+- The drag shield degrades gracefully when there is no `Overlay` ancestor
+  (the drag still works) instead of throwing from a reusable layout primitive.
 - Drag is measured in local space (correct under `Transform`); the stuck-drag
   router is keyed by pointer id (independent concurrent drags).
 - Slider semantics: role, enabled/disabled state, focus, text direction, and
