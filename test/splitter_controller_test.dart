@@ -1,6 +1,3 @@
-import 'dart:async';
-
-import 'package:fake_async/fake_async.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:resizable_splitter/resizable_splitter.dart';
@@ -53,26 +50,12 @@ void main() {
       expect(controller.value.isFinite, isTrue);
     });
 
-    test('animateTo tweens value without a Ticker', () {
+    test('animateTo applies immediately when no view is attached', () async {
       final controller = SplitterController(initialRatio: 0.1);
-
-      FakeAsync().run((fake) {
-        var completed = false;
-        unawaited(
-          controller
-              .animateTo(
-                0.9,
-                duration: const Duration(milliseconds: 120),
-                frames: 4,
-              )
-              .then((_) => completed = true),
-        );
-
-        fake.elapse(const Duration(milliseconds: 120));
-        expect(controller.value, closeTo(0.9, 1e-6));
-        fake.flushMicrotasks();
-        expect(completed, isTrue);
-      });
+      // No splitter is mounted, so there is no vsync host: the value is set
+      // immediately and the future resolves.
+      await controller.animateTo(0.9);
+      expect(controller.value, closeTo(0.9, 1e-6));
     });
 
     testWidgets(

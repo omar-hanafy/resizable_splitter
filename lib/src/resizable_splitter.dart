@@ -3,7 +3,6 @@
 // A robust, high-performance split view that plays nicely with platform views.
 
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
@@ -65,9 +64,7 @@ class SplitterController extends ValueNotifier<double> {
         initialRatio >= 0.0 && initialRatio <= 1.0,
         'initialRatio must be between 0.0 and 1.0',
       ),
-      super(initialRatio) {
-    _globalRouter.ensureInitialized();
-  }
+      super(initialRatio);
 
   static final _globalRouter = _GlobalPointerRouter();
 
@@ -81,8 +78,10 @@ class SplitterController extends ValueNotifier<double> {
   /// A convenience getter for [_isDragging] as a boolean.
   bool get isDragging => _isDragging.value;
   final _isDragging = ValueNotifier<bool>(false);
-  Timer? _animationTimer;
-  Completer<void>? _animationCompleter;
+
+  // The attached view drives vsync animation; null while detached.
+  _SplitterAnimator? _animator;
+  bool _isAnimationTick = false;
   Object? _owner;
 
   /// Exposes the widget currently owning this controller in debug/test builds.
@@ -108,7 +107,7 @@ class SplitterController extends ValueNotifier<double> {
   @override
   void dispose() {
     _globalRouter.unregister(this);
-    _cancelActiveAnimation();
+    _animator?.cancel();
     _isDragging.dispose();
     super.dispose();
   }
@@ -120,6 +119,9 @@ class SplitterController extends ValueNotifier<double> {
   @override
   set value(double newValue) {
     if (!newValue.isFinite) return;
+    // Any value change that is not an animation tick (a drag, key press, reset,
+    // or direct write) takes over from a running animation.
+    if (!_isAnimationTick) _animator?.cancel();
     super.value = newValue.clamp(0.0, 1.0).toDouble();
   }
 
@@ -137,62 +139,37 @@ class SplitterController extends ValueNotifier<double> {
     value = to;
   }
 
-  /// Convenience animation (no Ticker dependency).
+  /// Animates the split ratio to [target].
+  ///
+  /// Driven by the attached view's vsync, so it honors the platform refresh
+  /// rate and `MediaQuery.disableAnimations`. A drag, key press, reset, or
+  /// direct value write cancels a run in progress. With no view attached the
+  /// value is set immediately.
   Future<void> animateTo(
     double target, {
-    Duration duration = const Duration(milliseconds: 160),
-    Curve curve = Curves.easeOut,
-    int frames = 12,
+    Duration duration = const Duration(milliseconds: 200),
+    Curve curve = Curves.easeOutCubic,
   }) {
-    final goal = target.clamp(0.0, 1.0);
+    final goal = target.clamp(0.0, 1.0).toDouble();
     if ((goal - value).abs() < 1e-7) {
       value = goal;
       return Future<void>.value();
     }
-
-    if (duration <= Duration.zero || frames <= 0) {
-      _cancelActiveAnimation();
+    final animator = _animator;
+    if (animator == null) {
       value = goal;
       return Future<void>.value();
     }
-
-    _cancelActiveAnimation();
-
-    final totalFrames = math.max(1, frames);
-    final start = value;
-    final completer = Completer<void>();
-    final intervalMicros = math.max(1, duration.inMicroseconds ~/ totalFrames);
-    final interval = Duration(microseconds: intervalMicros);
-    var frame = 0;
-
-    _animationCompleter = completer;
-    _animationTimer = Timer.periodic(interval, (timer) {
-      frame += 1;
-      final progress = curve.transform(math.min(1, frame / totalFrames));
-      value = start + (goal - start) * progress;
-
-      if (frame >= totalFrames) {
-        timer.cancel();
-        _animationTimer = null;
-        value = goal;
-        if (!completer.isCompleted) {
-          completer.complete();
-        }
-        _animationCompleter = null;
-      }
-    });
-
-    return completer.future;
+    return animator.animateTo(goal, duration, curve);
   }
 
-  void _cancelActiveAnimation() {
-    _animationTimer?.cancel();
-    _animationTimer = null;
-    if (_animationCompleter != null && !_animationCompleter!.isCompleted) {
-      _animationCompleter!.complete();
-    }
-    _animationCompleter = null;
+  void _attachAnimator(_SplitterAnimator animator) => _animator = animator;
+
+  void _detachAnimator(_SplitterAnimator animator) {
+    if (identical(_animator, animator)) _animator = null;
   }
+
+  void _cancelAnimation() => _animator?.cancel();
 
   // Internal methods for global router
   void _stopDrag() {
@@ -208,6 +185,17 @@ class SplitterController extends ValueNotifier<double> {
   /// Resets the global pointer router. For testing only.
   @visibleForTesting
   static void resetGlobalRouter() => _globalRouter.dispose();
+}
+
+/// Drives vsync animation for a [SplitterController]. Implemented by the
+/// splitter's [State], which owns the [TickerProvider].
+abstract interface class _SplitterAnimator {
+  /// Animates the controller value to [target]; the future resolves when the
+  /// run completes or is cancelled.
+  Future<void> animateTo(double target, Duration duration, Curve curve);
+
+  /// Stops any in-progress animation.
+  void cancel();
 }
 
 /// Singleton global pointer router to handle drag completion events.
@@ -564,10 +552,19 @@ class ResizableSplitter extends StatefulWidget {
   State<ResizableSplitter> createState() => _ResizableSplitterState();
 }
 
-class _ResizableSplitterState extends State<ResizableSplitter> {
+class _ResizableSplitterState extends State<ResizableSplitter>
+    with SingleTickerProviderStateMixin
+    implements _SplitterAnimator {
   late final FocusNode _focusNode;
+  late final AnimationController _animationController;
   SplitterController? _internalController;
   SplitterController? _attachedController;
+
+  // vsync animation state backing SplitterController.animateTo.
+  double _animBegin = 0;
+  double _animEnd = 0;
+  Curve _animCurve = Curves.linear;
+  Completer<void>? _animCompleter;
 
   SplitterController get _effectiveController =>
       widget.controller ??
@@ -579,13 +576,28 @@ class _ResizableSplitterState extends State<ResizableSplitter> {
   void initState() {
     super.initState();
     _focusNode = FocusNode(debugLabel: 'ResizableSplitterHandle');
-    final controller = _effectiveController.._attach(this);
+    _animationController = AnimationController(vsync: this)
+      ..addListener(_onAnimationTick)
+      ..addStatusListener(_onAnimationStatus);
+    final controller = _effectiveController
+      .._attach(this)
+      .._attachAnimator(this);
     _attachedController = controller;
   }
 
   @override
   void didUpdateWidget(ResizableSplitter oldWidget) {
     super.didUpdateWidget(oldWidget);
+
+    // Dropping an external controller: seed the internal one with the last
+    // shown position so the divider does not jump back to initialRatio.
+    if (oldWidget.controller != null &&
+        widget.controller == null &&
+        _internalController == null) {
+      _internalController = SplitterController(
+        initialRatio: (_attachedController ?? oldWidget.controller!).value,
+      );
+    }
 
     final newController =
         widget.controller ??
@@ -594,24 +606,84 @@ class _ResizableSplitterState extends State<ResizableSplitter> {
         ));
 
     if (!identical(_attachedController, newController)) {
-      _attachedController?._detach(this);
+      _attachedController
+        ?.._detachAnimator(this)
+        .._detach(this);
 
       if (oldWidget.controller == null && widget.controller != null) {
         _internalController?.dispose();
         _internalController = null;
       }
 
-      newController._attach(this);
+      newController
+        .._attach(this)
+        .._attachAnimator(this);
       _attachedController = newController;
     }
   }
 
   @override
   void dispose() {
-    _attachedController?._detach(this);
+    _animationController.dispose();
+    _attachedController
+      ?.._detachAnimator(this)
+      .._detach(this);
     _focusNode.dispose();
     _internalController?.dispose();
     super.dispose();
+  }
+
+  @override
+  Future<void> animateTo(double target, Duration duration, Curve curve) {
+    _animationController.stop();
+    final disable = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    final controller = _attachedController ?? _effectiveController;
+    if (disable || duration <= Duration.zero) {
+      _completeAnimation();
+      controller.value = target;
+      return Future<void>.value();
+    }
+    _animBegin = controller.value;
+    _animEnd = target;
+    _animCurve = curve;
+    _animationController.duration = duration;
+    _completeAnimation();
+    final completer = Completer<void>();
+    _animCompleter = completer;
+    _animationController.forward(from: 0);
+    return completer.future;
+  }
+
+  @override
+  void cancel() {
+    if (!_animationController.isAnimating && _animCompleter == null) return;
+    _animationController.stop();
+    _completeAnimation();
+  }
+
+  void _completeAnimation() {
+    final completer = _animCompleter;
+    _animCompleter = null;
+    if (completer != null && !completer.isCompleted) completer.complete();
+  }
+
+  void _setAnimatedValue(double value) {
+    final controller = _attachedController ?? _effectiveController;
+    controller._isAnimationTick = true;
+    controller.value = value;
+    controller._isAnimationTick = false;
+  }
+
+  void _onAnimationTick() {
+    final t = _animCurve.transform(_animationController.value);
+    _setAnimatedValue(_animBegin + (_animEnd - _animBegin) * t);
+  }
+
+  void _onAnimationStatus(AnimationStatus status) {
+    if (status == AnimationStatus.completed) {
+      _setAnimatedValue(_animEnd);
+      _completeAnimation();
+    }
   }
 
   @override
@@ -1013,7 +1085,9 @@ class _DividerHandleState extends State<_DividerHandle> {
     if (!_isSupportedPointerKind(details.kind)) return;
 
     setState(() => _isDragging = true);
-    widget.controller._setDragging(true);
+    widget.controller
+      .._cancelAnimation()
+      .._setDragging(true);
 
     _dragStartRatio = widget.solution.effectiveFraction;
     _dragStartPosition = widget.axis.isH
@@ -1351,6 +1425,7 @@ class _DividerHandleState extends State<_DividerHandle> {
                 final startValue = widget.controller.value;
                 unawaited(
                   widget.controller.animateTo(target).then((_) {
+                    if (!mounted) return;
                     final updated = widget.controller.value;
                     if ((updated - startValue).abs() > 1e-9) {
                       widget.onRatioChanged?.call(updated);
