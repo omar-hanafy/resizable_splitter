@@ -235,7 +235,11 @@ abstract interface class _SplitterAnimator {
   void cancel();
 }
 
-/// Singleton global pointer router to handle drag completion events.
+/// Singleton global pointer router providing a stuck-drag backup: if a platform
+/// view swallows the pointer-up that would normally end a drag, this global
+/// route still sees it and ends the matching session. Active drags are keyed by
+/// their real pointer id, so several splitters can be dragged at once and each
+/// is cleaned up independently (the old single-slot design tracked only one).
 class _GlobalPointerRouter {
   factory _GlobalPointerRouter() => _instance;
 
@@ -244,8 +248,10 @@ class _GlobalPointerRouter {
   }
 
   static final _instance = _GlobalPointerRouter._();
-  SplitterController? _currentlyDragging;
-  int? _activePointer;
+
+  // Active drags keyed by their real pointer id.
+  final Map<int, SplitterController> _activeByPointer =
+      <int, SplitterController>{};
   bool _initialized = false;
 
   void _initialize() {
@@ -256,54 +262,40 @@ class _GlobalPointerRouter {
     _initialized = true;
   }
 
-  /// Lazily installs the global pointer route. Named for what it actually
-  /// does: it keeps no per-controller registry, it just ensures init.
-  void ensureInitialized() {
-    _initialize();
-  }
-
+  /// Removes every active drag owned by [c] (used when its controller is
+  /// disposed).
   void unregister(SplitterController c) {
-    if (c == _currentlyDragging) {
-      _currentlyDragging = null;
-      _activePointer = null;
-    }
+    _activeByPointer.removeWhere((_, controller) => identical(controller, c));
   }
 
-  void setDragging(SplitterController? c, [int? pointerId]) {
-    if (c != null) {
-      _initialize();
-    }
-    _currentlyDragging = c;
-    _activePointer = pointerId;
+  /// Registers [c] as dragging under [pointerId]. A controller drives one drag
+  /// at a time, so any stale pointer it held is dropped first. A real
+  /// (non-negative) pointer id is required for the backup route to match a later
+  /// up; an unknown pointer (-1) simply gets no backup.
+  void beginDrag(SplitterController c, int pointerId) {
+    _initialize();
+    _activeByPointer.removeWhere((_, controller) => identical(controller, c));
+    if (pointerId >= 0) _activeByPointer[pointerId] = c;
+  }
+
+  /// Ends every active drag owned by [c] (its drag finished normally).
+  void endDrag(SplitterController c) {
+    _activeByPointer.removeWhere((_, controller) => identical(controller, c));
   }
 
   void _handleGlobal(PointerEvent event) {
-    final isUp = event is PointerUpEvent || event is PointerCancelEvent;
-    if (isUp &&
-        _currentlyDragging != null &&
-        _activePointer != null &&
-        _activePointer! >= 0 &&
-        event.pointer == _activePointer) {
-      _currentlyDragging?._stopDrag();
-      _currentlyDragging = null;
-      _activePointer = null;
-    }
+    if (event is! PointerUpEvent && event is! PointerCancelEvent) return;
+    _activeByPointer.remove(event.pointer)?._stopDrag();
   }
 
   void dispose() {
-    if (!_initialized) {
-      _currentlyDragging = null;
-      _activePointer = null;
-      return;
-    }
-
+    _activeByPointer.clear();
+    if (!_initialized) return;
     final binding = _maybeBinding();
     if (binding != null) {
       binding.pointerRouter.removeGlobalRoute(_handleGlobal);
     }
     _initialized = false;
-    _currentlyDragging = null;
-    _activePointer = null;
   }
 
   WidgetsBinding? _maybeBinding() {
@@ -1217,7 +1209,7 @@ class _DividerHandleState extends State<_DividerHandle> {
   void dispose() {
     if (_isDragging) {
       widget.controller._setDragging(false);
-      SplitterController._globalRouter.setDragging(null);
+      SplitterController._globalRouter.endDrag(widget.controller);
       // Clear any deferred-drag preview so it does not linger after disposal.
       widget.onPreviewChanged?.call(null);
     }
@@ -1261,7 +1253,7 @@ class _DividerHandleState extends State<_DividerHandle> {
     final pointerId = _takePendingPointer(details.globalPosition) ?? -1;
     _activePointer = pointerId;
 
-    SplitterController._globalRouter.setDragging(widget.controller, pointerId);
+    SplitterController._globalRouter.beginDrag(widget.controller, pointerId);
     widget.controller._setDragCallback(_stopDrag);
 
     if (widget.holdScrollWhileDragging) {
@@ -1362,7 +1354,7 @@ class _DividerHandleState extends State<_DividerHandle> {
 
     widget.controller._setDragging(false);
     widget.controller._setDragCallback(null);
-    SplitterController._globalRouter.setDragging(null);
+    SplitterController._globalRouter.endDrag(widget.controller);
     _removeOverlay();
     _scrollHold?.cancel();
     _scrollHold = null;
