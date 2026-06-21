@@ -32,6 +32,9 @@ void main() {
         ),
         matchesSemantics(
           label: 'Drag to resize left and right panels.',
+          isSlider: true,
+          hasEnabledState: true,
+          isEnabled: true,
           value: '50%',
           increasedValue: '51%',
           decreasedValue: '49%',
@@ -71,13 +74,90 @@ void main() {
         ),
         matchesSemantics(
           label: 'Drag to resize left and right panels.',
+          isSlider: true,
+          hasEnabledState: true,
+          isEnabled: true,
           value: '61%',
-          increasedValue: '61%',
+          // The increase preview reflects what an adjust action actually does:
+          // nudge from the effective 61% to 62% (not the never-visible stored
+          // request).
+          increasedValue: '62%',
           decreasedValue: '61%',
           isFocusable: true,
           hasFocusAction: true,
           hasIncreaseAction: true,
           hasDecreaseAction: true,
+        ),
+      );
+    } finally {
+      semanticsHandle.dispose();
+    }
+  });
+
+  testWidgets(
+    'assistive adjustment stays available when the keyboard is disabled',
+    (tester) async {
+      await tester.pumpWidget(
+        host(
+          const ResizableSplitter(
+            enableKeyboard: false,
+            minPanelSize: 0,
+            semanticsLabel: 'handle',
+            startPanel: SizedBox(),
+            endPanel: SizedBox(),
+          ),
+        ),
+      );
+
+      final semanticsHandle = tester.ensureSemantics();
+      try {
+        // No physical keyboard, so the node is not focusable - but a screen
+        // reader can still adjust it.
+        expect(
+          tester.getSemantics(find.bySemanticsLabel('handle')),
+          matchesSemantics(
+            label: 'handle',
+            isSlider: true,
+            hasEnabledState: true,
+            isEnabled: true,
+            value: '50%',
+            increasedValue: '51%',
+            decreasedValue: '49%',
+            hasIncreaseAction: true,
+            hasDecreaseAction: true,
+          ),
+        );
+      } finally {
+        semanticsHandle.dispose();
+      }
+    },
+  );
+
+  testWidgets('a non-resizable splitter reads as a disabled slider', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      host(
+        const ResizableSplitter(
+          resizable: false,
+          minPanelSize: 0,
+          startPanel: SizedBox(),
+          endPanel: SizedBox(),
+        ),
+      ),
+    );
+
+    final semanticsHandle = tester.ensureSemantics();
+    try {
+      expect(
+        tester.getSemantics(
+          find.bySemanticsLabel('Splitter between left and right panels.'),
+        ),
+        matchesSemantics(
+          label: 'Splitter between left and right panels.',
+          isSlider: true,
+          hasEnabledState: true,
+          value: '50%',
         ),
       );
     } finally {

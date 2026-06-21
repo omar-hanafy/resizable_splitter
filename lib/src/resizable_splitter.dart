@@ -1267,6 +1267,12 @@ class _DividerHandleState extends State<_DividerHandle> {
 
     if (!isPrimaryMouse && !isTouchLike) return;
 
+    // Pressing the handle focuses it, so keyboard adjustment works after a tap
+    // (not only after a drag).
+    if (widget.enableKeyboard && widget.resizable) {
+      widget.focusNode.requestFocus();
+    }
+
     _pendingPointers.removeWhere((pointer) => pointer.id == event.pointer);
     _pendingPointers.add(_PendingPointer(event.pointer, event.position));
   }
@@ -1452,28 +1458,33 @@ class _DividerHandleState extends State<_DividerHandle> {
       ),
     );
 
-    String formatPercent(double ratio) {
-      final effective = _effectiveRatio(ratio).clamp(0.0, 1.0);
-      return '${(effective * 100).round()}%';
-    }
-
-    final currentRatio = widget.controller.value;
-
-    // Screen reader actions & value.
-    final allowSemanticAdjust = widget.resizable && widget.enableKeyboard;
+    // Value previews mirror what an adjust action actually does: move from the
+    // current effective position by one step. Assistive adjustment is offered
+    // whenever the splitter is resizable, independent of physical keyboard
+    // support - a screen reader is its own input channel.
+    final effective = _effectiveRatio(widget.controller.value);
+    String pct(double ratio) => '${(ratio.clamp(0.0, 1.0) * 100).round()}%';
+    final allowSemanticAdjust = widget.resizable;
 
     divider = Semantics(
+      slider: true,
+      enabled: widget.resizable,
+      textDirection: Directionality.maybeOf(context),
       label:
           widget.semanticsLabel ??
-          (widget.axis.isH
-              ? 'Drag to resize left and right panels.'
-              : 'Drag to resize top and bottom panels.'),
-      value: formatPercent(currentRatio),
+          (widget.resizable
+              ? (widget.axis.isH
+                    ? 'Drag to resize left and right panels.'
+                    : 'Drag to resize top and bottom panels.')
+              : (widget.axis.isH
+                    ? 'Splitter between left and right panels.'
+                    : 'Splitter between top and bottom panels.')),
+      value: pct(effective),
       increasedValue: allowSemanticAdjust
-          ? formatPercent(currentRatio + widget.keyboardStep)
+          ? pct(_effectiveRatio(effective + widget.keyboardStep))
           : null,
       decreasedValue: allowSemanticAdjust
-          ? formatPercent(currentRatio - widget.keyboardStep)
+          ? pct(_effectiveRatio(effective - widget.keyboardStep))
           : null,
       onIncrease: allowSemanticAdjust
           ? () => _nudge(widget.keyboardStep)
