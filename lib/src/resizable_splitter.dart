@@ -653,10 +653,13 @@ class _ResizableSplitterState extends State<ResizableSplitter>
         widget.enableKeyboard ?? theme.enableKeyboard ?? true;
     final enableHaptics = widget.enableHaptics ?? theme.enableHaptics ?? true;
 
-    // The divider reserves its visible thickness plus the invisible grab slop
-    // on either side. Panels share whatever is left, so the slop widens the
-    // hit target instead of silently overlapping the panels.
-    final dividerExtent = dividerThickness + 2 * handleHitSlop;
+    // The divider reserves only its visible thickness. The grab slop is applied
+    // by the catcher overlay in _buildBounded, which sits on top of the panels,
+    // so the slop enlarges the hit target by overlapping the panel edges instead
+    // of reducing panel layout. Decoupling the grab region (overlay) from the
+    // layout footprint (Flex) makes it structurally impossible for slop to eat
+    // layout.
+    final dividerExtent = dividerThickness;
 
     final blockerColor = widget.blockerColor ?? theme.blockerColor;
 
@@ -817,47 +820,82 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     final first = solution.startExtent;
     final second = solution.endExtent;
 
-    return Flex(
-      direction: widget.axis,
+    final divider = _DividerHandle(
+      axis: widget.axis,
+      controller: controller,
+      thickness: dividerThickness,
+      solver: solver,
+      solution: solution,
+      blockerColor: blockerColor,
+      dividerColor: dividerColor,
+      onChanged: widget.onChanged,
+      onChangeStart: widget.onChangeStart,
+      onChangeEnd: widget.onChangeEnd,
+      enableKeyboard: enableKeyboard && widget.resizable,
+      enableHaptics: enableHaptics,
+      keyboardStep: keyboardStep,
+      pageStep: pageStep,
+      focusNode: _focusNode,
+      semanticsLabel: widget.semanticsLabel,
+      overlayEnabled: overlayEnabled && widget.resizable,
+      snap: widget.snap,
+      handleBuilder: handleBuilder,
+      holdScrollWhileDragging:
+          widget.holdScrollWhileDragging && widget.resizable,
+      handleHitSlop: handleHitSlop,
+      doubleTapResetTo: widget.doubleTapResetTo,
+      resizable: widget.resizable,
+      onTap: widget.onHandleTap,
+      onDoubleTap: widget.onHandleDoubleTap,
+    );
+
+    // Layout + paint live in the Flex; the interactive handle is overlaid on top
+    // of the panels. The middle Flex slot is a transparent gap of exactly the
+    // visual thickness, and the handle (a `thickness + 2*slop` catcher) paints
+    // its bar over that gap while its grab slop overhangs the panel edges. The
+    // overlay sits above the panels, so it wins the hit test inside the slop -
+    // which a plain Flex child could never do (the opaque panel is hit-tested
+    // first in reverse paint order). `Positioned.directional` keeps the catcher
+    // aligned with the divider under RTL, where the start pane is on the right.
+    final textDirection = Directionality.maybeOf(context) ?? TextDirection.ltr;
+
+    return Stack(
+      fit: StackFit.expand,
       children: [
-        SizedBox(
-          width: widget.axis.isH ? first : null,
-          height: widget.axis.isH ? null : first,
-          child: widget.start,
+        Flex(
+          direction: widget.axis,
+          children: [
+            SizedBox(
+              width: widget.axis.isH ? first : null,
+              height: widget.axis.isH ? null : first,
+              child: widget.start,
+            ),
+            SizedBox(
+              width: widget.axis.isH ? dividerThickness : null,
+              height: widget.axis.isH ? null : dividerThickness,
+            ),
+            SizedBox(
+              width: widget.axis.isH ? second : null,
+              height: widget.axis.isH ? null : second,
+              child: widget.end,
+            ),
+          ],
         ),
-        _DividerHandle(
-          axis: widget.axis,
-          controller: controller,
-          thickness: dividerThickness,
-          solver: solver,
-          solution: solution,
-          blockerColor: blockerColor,
-          dividerColor: dividerColor,
-          onChanged: widget.onChanged,
-          onChangeStart: widget.onChangeStart,
-          onChangeEnd: widget.onChangeEnd,
-          enableKeyboard: enableKeyboard && widget.resizable,
-          enableHaptics: enableHaptics,
-          keyboardStep: keyboardStep,
-          pageStep: pageStep,
-          focusNode: _focusNode,
-          semanticsLabel: widget.semanticsLabel,
-          overlayEnabled: overlayEnabled && widget.resizable,
-          snap: widget.snap,
-          handleBuilder: handleBuilder,
-          holdScrollWhileDragging:
-              widget.holdScrollWhileDragging && widget.resizable,
-          handleHitSlop: handleHitSlop,
-          doubleTapResetTo: widget.doubleTapResetTo,
-          resizable: widget.resizable,
-          onTap: widget.onHandleTap,
-          onDoubleTap: widget.onHandleDoubleTap,
-        ),
-        SizedBox(
-          width: widget.axis.isH ? second : null,
-          height: widget.axis.isH ? null : second,
-          child: widget.end,
-        ),
+        if (widget.axis.isH)
+          Positioned.directional(
+            textDirection: textDirection,
+            start: first - handleHitSlop,
+            top: 0,
+            bottom: 0,
+            child: divider,
+          )
+        else
+          Positioned(
+            top: first - handleHitSlop,
+            left: 0,
+            right: 0,
+            child: divider,
+          ),
       ],
     );
   }

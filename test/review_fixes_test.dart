@@ -237,8 +237,8 @@ void main() {
     });
   });
 
-  group('handleHitSlop widens the grab area across the thin axis', () {
-    testWidgets('the divider footprint reserves thickness + 2 * slop', (
+  group('handleHitSlop overlaps the panels instead of reserving layout', () {
+    testWidgets('the divider footprint reserves only the visual thickness', (
       tester,
     ) async {
       const thickness = 10.0;
@@ -262,11 +262,19 @@ void main() {
         ),
       );
 
-      // The slop is reserved out of the shared space on the main axis, so the
-      // panels shrink by 2 * slop rather than the slop doing nothing.
-      const available = totalWidth - thickness - 2 * slop; // 350
-      final startSize = tester.getSize(find.byKey(const Key('start')));
-      expect(startSize.width, closeTo(available / 2, 1e-6));
+      // The slop no longer eats layout: the panels share everything except the
+      // visible bar (it used to reserve thickness + 2*slop). The grab zone
+      // reclaims the slop by overlapping the panel edges from on top instead of
+      // widening the divider footprint.
+      const available = totalWidth - thickness; // 390
+      final startRect = tester.getRect(find.byKey(const Key('start')));
+      expect(startRect.width, closeTo(available / 2, 1e-6));
+
+      // The grab catcher is thickness + 2*slop wide and overlaps each panel by
+      // slop: its leading edge sits `slop` inside the start panel.
+      final handleRect = tester.getRect(find.bySemanticsLabel('handle'));
+      expect(handleRect.width, closeTo(thickness + 2 * slop, 1e-6));
+      expect(handleRect.left, closeTo(startRect.right - slop, 1e-6));
     });
 
     testWidgets('a drag started inside the slop margin still resizes', (
