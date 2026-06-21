@@ -356,6 +356,7 @@ class ResizableSplitter extends StatefulWidget {
     this.pageStep,
     this.semanticsLabel,
     this.blockerColor,
+    this.dragBarrierBuilder,
     this.overlayEnabled,
     this.snap,
     this.holdScrollWhileDragging = false,
@@ -477,8 +478,15 @@ class ResizableSplitter extends StatefulWidget {
   /// Accessibility label for the divider.
   final String? semanticsLabel;
 
-  /// The blocked color when dragged.
+  /// The blocked color when dragged. Ignored if [dragBarrierBuilder] is set.
   final Color? blockerColor;
+
+  /// Builds the visual of the drag barrier - the overlay that shields embedded
+  /// platform views from stealing pointer events while dragging. The framework
+  /// always keeps the opaque hit shield; this only replaces what it looks like
+  /// (the default is a [blockerColor] fill). Only used when the overlay is
+  /// enabled.
+  final Widget Function(BuildContext context)? dragBarrierBuilder;
 
   /// Whether the protective overlay is used while dragging. Defaults to true.
   final bool? overlayEnabled;
@@ -979,6 +987,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
       solver: solver,
       solution: solution,
       blockerColor: blockerColor,
+      dragBarrierBuilder: widget.dragBarrierBuilder,
       dividerColor: dividerColor,
       onChanged: widget.onChanged,
       onChangeStart: widget.onChangeStart,
@@ -1096,6 +1105,7 @@ class _DividerHandle extends StatefulWidget {
     required this.solution,
     required this.dividerColor,
     required this.blockerColor,
+    required this.dragBarrierBuilder,
     required this.onChanged,
     required this.onChangeStart,
     required this.onChangeEnd,
@@ -1126,6 +1136,7 @@ class _DividerHandle extends StatefulWidget {
   final SplitterSolution solution;
   final WidgetStateProperty<Color?>? dividerColor;
   final Color? blockerColor;
+  final Widget Function(BuildContext context)? dragBarrierBuilder;
   final ValueChanged<SplitterChangeDetails>? onChanged;
   final ValueChanged<SplitterChangeDetails>? onChangeStart;
   final ValueChanged<SplitterChangeDetails>? onChangeEnd;
@@ -1426,8 +1437,11 @@ class _DividerHandleState extends State<_DividerHandle> {
     if (_dragOverlay != null) return;
 
     final entry = OverlayEntry(
-      builder: (context) =>
-          _DragOverlay(axis: widget.axis, blockerColor: widget.blockerColor),
+      builder: (context) => _DragOverlay(
+        axis: widget.axis,
+        blockerColor: widget.blockerColor,
+        barrierBuilder: widget.dragBarrierBuilder,
+      ),
     );
 
     // Use the root overlay so it sits above platform views. Only record the
@@ -1770,25 +1784,30 @@ class _PendingPointer {
 /// An invisible overlay that acts as a shield to block pointer events
 /// from reaching platform views during a drag operation.
 class _DragOverlay extends StatelessWidget {
-  const _DragOverlay({required this.axis, this.blockerColor});
+  const _DragOverlay({
+    required this.axis,
+    this.blockerColor,
+    this.barrierBuilder,
+  });
 
   final Axis axis;
   final Color? blockerColor;
+  final Widget Function(BuildContext context)? barrierBuilder;
 
   @override
   Widget build(BuildContext context) {
-    // The Listener below hit-tests opaquely regardless of paint, so the color
-    // is purely cosmetic - an explicit transparent barrier is honored.
-    final color = blockerColor ?? Colors.transparent;
+    // The Listener below hit-tests opaquely regardless of paint, so the visual
+    // is purely cosmetic - the shield works even with a transparent barrier. A
+    // custom barrierBuilder replaces only that visual, never the shield.
+    final barrier =
+        barrierBuilder?.call(context) ??
+        ColoredBox(color: blockerColor ?? Colors.transparent);
 
     return Positioned.fill(
       child: ExcludeSemantics(
         child: MouseRegion(
           cursor: axis.cursor,
-          child: Listener(
-            behavior: HitTestBehavior.opaque,
-            child: ColoredBox(color: color),
-          ),
+          child: Listener(behavior: HitTestBehavior.opaque, child: barrier),
         ),
       ),
     );
