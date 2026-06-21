@@ -14,9 +14,6 @@ import 'package:resizable_splitter/src/split_position.dart';
 import 'package:resizable_splitter/src/split_snap_behavior.dart';
 import 'package:resizable_splitter/src/split_solver.dart';
 
-/// Re-export for clean imports when only Axis is needed.
-export 'package:flutter/material.dart' show Axis;
-
 /// Axis helpers to eliminate H/V duplication.
 extension _AxisHelpers on Axis {
   bool get isH => this == Axis.horizontal;
