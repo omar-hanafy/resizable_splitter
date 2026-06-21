@@ -200,12 +200,18 @@ Status: 127 tests green, analyze clean (package + example).
 DONE Sub-project 3 tail (transform-safe drag, multi-drag router, pixel snap
 tolerance). Status: 131 tests green, analyze clean (package + example).
 
-Remaining:
-- Sub-project 8: platform barrier (`dragBarrierBuilder`), integration tests, CI
-  matrix, pana, publish dry-run, de-sugar `(_, _)` wildcards + reconsider the
-  Flutter floor, README/CHANGELOG (document the breaking changes), bump to 2.0.0.
-  Has outward-facing / contract steps (publish, version, Flutter floor policy)
-  that want owner sign-off.
+PARTIAL Sub-project 8 (release). DONE: platform barrier (`dragBarrierBuilder`,
+`drag_barrier_test.dart`); 2.0 README + 1.x->2.0 migration table; 2.0.0 CHANGELOG
+(breaking / added / fixed); version bump to 2.0.0; a clean
+`flutter pub publish --dry-run` (0 warnings - internal planning docs excluded via
+`.pubignore`). Status: 132 tests green, analyze clean (package + example).
+
+OWNER-GATED REMAINING (deliberately not done autonomously):
+- `flutter pub publish` - outward-facing/irreversible; owner runs or approves.
+- CI workflow (e.g. GitHub Actions analyze+test matrix) - infra preference.
+- De-sugar the `(_, _)` wildcards and lower the Flutter floor below 3.35 - a
+  support-policy decision (broader compatibility vs simpler source).
+- Optional: integration tests (the widget suite already covers the surface).
 
 ## Working agreements
 
