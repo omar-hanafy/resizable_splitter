@@ -113,6 +113,16 @@ class SplitterController extends ValueNotifier<double> {
     super.dispose();
   }
 
+  /// Sets the split ratio, sanitized into `[0, 1]`. Non-finite values are
+  /// ignored, so the controller can never hold a value that would corrupt the
+  /// layout, even when written directly instead of through [updateRatio] (and
+  /// even when an overshooting animation curve runs past the bounds).
+  @override
+  set value(double newValue) {
+    if (!newValue.isFinite) return;
+    super.value = newValue.clamp(0.0, 1.0).toDouble();
+  }
+
   /// Updates the ratio with an optional threshold to prevent chatty updates.
   void updateRatio(double newRatio, {double threshold = 0.002}) {
     final clamped = newRatio.clamp(0.0, 1.0);

@@ -43,6 +43,16 @@ void main() {
       expect(controller.value, 0.75);
     });
 
+    test('value setter sanitizes out-of-range and non-finite writes', () {
+      final controller = SplitterController(initialRatio: 0.4)..value = 2.0;
+      expect(controller.value, 1.0);
+      controller.value = -3.0;
+      expect(controller.value, 0.0);
+      controller.value = double.nan; // ignored, keeps the last good value
+      expect(controller.value, 0.0);
+      expect(controller.value.isFinite, isTrue);
+    });
+
     test('animateTo tweens value without a Ticker', () {
       final controller = SplitterController(initialRatio: 0.1);
 
