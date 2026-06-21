@@ -22,8 +22,8 @@ void main() {
           child: ResizableSplitter(
             controller: controller,
             dividerThickness: 8,
-            minPanelSize: 0,
-            minStartPanelSize: 200,
+            startConstraints: const SplitterPaneConstraints(minExtent: 200),
+            endConstraints: const SplitterPaneConstraints(),
             semanticsLabel: 'handle',
             onDragStart: onDragStart,
             start: const SizedBox(),

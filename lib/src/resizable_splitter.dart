@@ -311,11 +311,10 @@ class ResizableSplitter extends StatefulWidget {
     this.controller,
     this.axis = Axis.horizontal,
     this.initialRatio = 0.5,
-    this.minRatio = 0.0,
-    this.maxRatio = 1.0,
-    this.minPanelSize = 100.0,
-    this.minStartPanelSize,
-    this.minEndPanelSize,
+    this.startConstraints = const SplitterPaneConstraints(minExtent: 100),
+    this.endConstraints = const SplitterPaneConstraints(minExtent: 100),
+    this.minStartFraction = 0.0,
+    this.maxStartFraction = 1.0,
     double? dividerThickness,
     this.dividerColor,
     this.dividerHoverColor,
@@ -339,7 +338,7 @@ class ResizableSplitter extends StatefulWidget {
     this.resizable = true,
     this.onHandleTap,
     this.onHandleDoubleTap,
-    this.crampedBehavior = CrampedBehavior.favorStart,
+    this.constraintPolicy = SplitterConstraintPolicy.favorStart,
     UnboundedBehavior? unboundedBehavior,
     double? fallbackMainAxisExtent,
     bool? antiAliasingWorkaround,
@@ -369,14 +368,17 @@ class ResizableSplitter extends StatefulWidget {
          'initialRatio must be between 0.0 and 1.0',
        ),
        assert(
-         minRatio >= 0.0 && minRatio <= 1.0,
-         'minRatio must be between 0.0 and 1.0',
+         minStartFraction >= 0.0 && minStartFraction <= 1.0,
+         'minStartFraction must be between 0.0 and 1.0',
        ),
        assert(
-         maxRatio >= 0.0 && maxRatio <= 1.0,
-         'maxRatio must be between 0.0 and 1.0',
+         maxStartFraction >= 0.0 && maxStartFraction <= 1.0,
+         'maxStartFraction must be between 0.0 and 1.0',
        ),
-       assert(minRatio < maxRatio, 'minRatio must be less than maxRatio'),
+       assert(
+         minStartFraction <= maxStartFraction,
+         'minStartFraction must be <= maxStartFraction',
+       ),
        assert(
          handleHitSlop == null || handleHitSlop >= 0,
          'handleHitSlop must be non-negative',
@@ -384,15 +386,6 @@ class ResizableSplitter extends StatefulWidget {
        assert(
          dividerThickness == null || dividerThickness >= 0,
          'dividerThickness must be non-negative',
-       ),
-       assert(minPanelSize >= 0, 'minPanelSize must be non-negative'),
-       assert(
-         minStartPanelSize == null || minStartPanelSize >= 0,
-         'minStartPanelSize must be non-negative',
-       ),
-       assert(
-         minEndPanelSize == null || minEndPanelSize >= 0,
-         'minEndPanelSize must be non-negative',
        ),
        assert(
          keyboardStep == null || keyboardStep >= 0,
@@ -432,27 +425,24 @@ class ResizableSplitter extends StatefulWidget {
   /// Initial split ratio if no controller is provided.
   final double initialRatio;
 
-  /// Minimum allowed ratio (0.0 to 1.0).
-  final double minRatio;
+  /// Pixel sizing limits for the start (left/top) pane. Defaults to a 100px
+  /// minimum. Set [SplitterPaneConstraints.maxExtent] to cap the pane, or
+  /// [SplitterPaneConstraints.collapsible] to allow collapsing.
+  final SplitterPaneConstraints startConstraints;
 
-  /// Maximum allowed ratio (0.0 to 1.0).
+  /// Pixel sizing limits for the end (right/bottom) pane. Defaults to a 100px
+  /// minimum.
+  final SplitterPaneConstraints endConstraints;
+
+  /// Lowest fraction of the available space the start pane may take (0.0-1.0).
   ///
-  /// Keyboard shortcuts (Home/End/Page keys) clamp the controller value within
-  /// [minRatio] and [maxRatio]. Layout still enforces pixel minimums, so under
-  /// extreme constraints the visible split may differ slightly from the stored
-  /// ratio while these caps are respected.
-  final double maxRatio;
+  /// Layout still enforces the pixel limits in [startConstraints] /
+  /// [endConstraints], so under extreme constraints the visible split may differ
+  /// from this cap while it is honored where feasible.
+  final double minStartFraction;
 
-  /// Minimum size in pixels for either panel (fallback for the specific mins).
-  final double minPanelSize;
-
-  /// Minimum size for the start (left/top) panel. Defaults to [minPanelSize].
-  /// If both panels' minimums cannot be satisfied, the start panel keeps its
-  /// minimum and the end panel receives the remaining space.
-  final double? minStartPanelSize;
-
-  /// Minimum size for the end (right/bottom) panel. Defaults to [minPanelSize].
-  final double? minEndPanelSize;
+  /// Highest fraction of the available space the start pane may take (0.0-1.0).
+  final double maxStartFraction;
 
   /// Thickness of the divider handle in pixels.
   final double dividerThickness;
@@ -533,8 +523,8 @@ class ResizableSplitter extends StatefulWidget {
   /// Called when the divider is double-tapped.
   final VoidCallback? onHandleDoubleTap;
 
-  /// Policy for distributing space when both panels cannot meet their minimums.
-  final CrampedBehavior crampedBehavior;
+  /// Policy applied when both panes cannot meet their minimums at once.
+  final SplitterConstraintPolicy constraintPolicy;
 
   /// Fallback layout behavior when constraints are unbounded along the main axis.
   final UnboundedBehavior unboundedBehavior;
@@ -844,14 +834,6 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     );
   }
 
-  static SplitterConstraintPolicy _policyFor(CrampedBehavior behavior) =>
-      switch (behavior) {
-        CrampedBehavior.favorStart => SplitterConstraintPolicy.favorStart,
-        CrampedBehavior.favorEnd => SplitterConstraintPolicy.favorEnd,
-        CrampedBehavior.proportionallyClamp =>
-          SplitterConstraintPolicy.proportional,
-      };
-
   Widget _buildBounded({
     required double ratio,
     required double availableSize,
@@ -872,19 +854,16 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     // Raw configured minimums (not pre-clamped): the solver clamps internally
     // and uses the raw values for proportional distribution, so a cramped
     // layout keeps its configured proportions instead of collapsing to 50/50.
-    final minStart = widget.minStartPanelSize ?? widget.minPanelSize;
-    final minEnd = widget.minEndPanelSize ?? widget.minPanelSize;
-
     // One solver drives both the layout here and every ratio decision inside
     // the handle, so the two can never disagree on the legal bounds, and an
     // inverted clamp (the historic cramped-drag crash) is impossible.
     final solver = SplitterSolver(
       available: availableSize,
-      start: SplitterPaneConstraints(minExtent: minStart),
-      end: SplitterPaneConstraints(minExtent: minEnd),
-      minStartFraction: widget.minRatio,
-      maxStartFraction: widget.maxRatio,
-      policy: _policyFor(widget.crampedBehavior),
+      start: widget.startConstraints,
+      end: widget.endConstraints,
+      minStartFraction: widget.minStartFraction,
+      maxStartFraction: widget.maxStartFraction,
+      policy: widget.constraintPolicy,
     );
 
     final solution = solver.solve(

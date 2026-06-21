@@ -11,18 +11,6 @@ enum UnboundedBehavior {
   limitedBox,
 }
 
-/// Policy describing which panel should retain its minimum when space runs out.
-enum CrampedBehavior {
-  /// Keep the start (left/top) panel at its minimum size.
-  favorStart,
-
-  /// Keep the end (right/bottom) panel at its minimum size.
-  favorEnd,
-
-  /// Split proportionally based on configured minimum sizes.
-  proportionallyClamp,
-}
-
 /// Shared styling and behavior overrides for [ResizableSplitter] widgets.
 @immutable
 class ResizableSplitterThemeData {
