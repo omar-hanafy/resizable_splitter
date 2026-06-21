@@ -48,8 +48,8 @@ class DemoPage extends StatelessWidget {
     return Scaffold(
       body: ResizableSplitter(
         axis: Axis.horizontal,
-        startPanel: const Center(child: Text('Navigation')),
-        endPanel: const Center(child: Text('Content')),
+        start: const Center(child: Text('Navigation')),
+        end: const Center(child: Text('Content')),
         dividerThickness: 8,
         onRatioChanged: (ratio) => debugPrint('ratio: $ratio'),
       ),
@@ -84,8 +84,8 @@ ResizableSplitter(
     ),
   ),
   onRatioChanged: (ratio) => debugPrint('ratio=$ratio'),
-  startPanel: const YourMainPane(),
-  endPanel: const YourSidebar(),
+  start: const YourMainPane(),
+  end: const YourSidebar(),
 );
 ```
 
@@ -116,8 +116,8 @@ await controller.animateTo(
 
 ```dart
 ResizableSplitter(
-  startPanel: const NavigationPane(), // required left/top child
-  endPanel: const ContentPane(),      // required right/bottom child
+  start: const NavigationPane(), // required left/top child
+  end: const ContentPane(),      // required right/bottom child
   controller: controller,             // reuse to persist ratios
   axis: Axis.horizontal,              // Axis.vertical for top/bottom split
   initialRatio: 0.5,                  // used only when controller is null
@@ -197,8 +197,8 @@ ResizableSplitterTheme(
     fallbackMainAxisExtent: 360,
   ),
   child: const ResizableSplitter(
-    startPanel: NavPane(),
-    endPanel: ContentPane(),
+    start: NavPane(),
+    end: ContentPane(),
   ),
 );
 ```
@@ -233,8 +233,8 @@ ResizableSplitterTheme(
     fallbackMainAxisExtent: 420,
   ),
   child: const ResizableSplitter(
-    startPanel: LeftPane(),
-    endPanel: RightPane(),
+    start: LeftPane(),
+    end: RightPane(),
   ),
 );
 ```

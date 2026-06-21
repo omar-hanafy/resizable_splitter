@@ -18,8 +18,8 @@ void main() {
       host(
         const ResizableSplitter(
           dividerThickness: 8,
-          startPanel: SizedBox(),
-          endPanel: SizedBox(),
+          start: SizedBox(),
+          end: SizedBox(),
         ),
       ),
     );
@@ -60,8 +60,8 @@ void main() {
           controller: controller,
           minStartPanelSize: 240,
           minEndPanelSize: 120,
-          startPanel: const SizedBox(),
-          endPanel: const SizedBox(),
+          start: const SizedBox(),
+          end: const SizedBox(),
         ),
       ),
     );
@@ -103,8 +103,8 @@ void main() {
             enableKeyboard: false,
             minPanelSize: 0,
             semanticsLabel: 'handle',
-            startPanel: SizedBox(),
-            endPanel: SizedBox(),
+            start: SizedBox(),
+            end: SizedBox(),
           ),
         ),
       );
@@ -141,8 +141,8 @@ void main() {
         const ResizableSplitter(
           resizable: false,
           minPanelSize: 0,
-          startPanel: SizedBox(),
-          endPanel: SizedBox(),
+          start: SizedBox(),
+          end: SizedBox(),
         ),
       ),
     );

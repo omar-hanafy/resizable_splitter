@@ -126,12 +126,12 @@ class _SplitterDemoPageState extends State<SplitterDemoPage> {
         minStartPanelSize: 220,
         snapPoints: const <double>[0.26, 0.32, 0.45],
         snapTolerance: 0.04,
-        startPanel: _NavigationPane(
+        start: _NavigationPane(
           demos: _demos,
           selectedIndex: _selectedDemo,
           onSelect: _selectDemo,
         ),
-        endPanel: AnimatedSwitcher(
+        end: AnimatedSwitcher(
           duration: const Duration(milliseconds: 240),
           switchInCurve: Curves.easeOut,
           switchOutCurve: Curves.easeIn,
@@ -409,12 +409,12 @@ class _VerticalWorkspacePreview extends StatelessWidget {
         dividerColor: colorScheme.primary.withAlpha(70),
         dividerHoverColor: colorScheme.primary.withAlpha(100),
         dividerActiveColor: colorScheme.primary.withAlpha(140),
-        startPanel: _Panel(
+        start: _Panel(
           title: 'Today\'s schedule',
           color: colorScheme.surfaceContainerHighest,
           child: const _ScheduleList(),
         ),
-        endPanel: _Panel(
+        end: _Panel(
           title: 'Team notes',
           color: colorScheme.surface,
           child: const _NotesList(),
@@ -647,12 +647,12 @@ class _OverviewExampleState extends State<_OverviewExample> {
               dividerHoverColor: colorScheme.secondary.withAlpha(100),
               dividerActiveColor: colorScheme.secondary.withAlpha(150),
               snapPoints: const <double>[0.35, 0.5, 0.7],
-              startPanel: const _Panel(
+              start: const _Panel(
                 title: 'Navigation',
                 color: Colors.transparent,
                 child: _NavigationListPreview(itemCount: 5),
               ),
-              endPanel: const _Panel(
+              end: const _Panel(
                 title: 'Document preview',
                 color: Colors.transparent,
                 child: _DocumentPreview(),
@@ -724,14 +724,14 @@ class _StylingExampleState extends State<_StylingExample> {
             ),
           );
         },
-        startPanel: _GradientPanel(
+        start: _GradientPanel(
           title: 'Theme preview',
           colors: [colorScheme.tertiaryContainer, colorScheme.primaryContainer],
           child: const _Bullet(
             'Drop your own handleBuilder to match any brand',
           ),
         ),
-        endPanel: _GradientPanel(
+        end: _GradientPanel(
           title: 'Palette',
           colors: [colorScheme.surfaceContainerHighest, colorScheme.surface],
           child: Wrap(
@@ -791,12 +791,12 @@ class _KeyboardExampleState extends State<_KeyboardExample> {
               snapTolerance: 0.06,
               minStartPanelSize: 120,
               minEndPanelSize: 160,
-              startPanel: const _Panel(
+              start: const _Panel(
                 title: 'Notes',
                 color: Colors.transparent,
                 child: _NavigationListPreview(itemCount: 6),
               ),
-              endPanel: const _Panel(
+              end: const _Panel(
                 title: 'Canvas',
                 color: Colors.transparent,
                 child: _TimelinePreview(),

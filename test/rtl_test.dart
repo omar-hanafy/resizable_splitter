@@ -29,8 +29,8 @@ void main() {
           dividerThickness: 8,
           minPanelSize: 0,
           semanticsLabel: 'handle',
-          startPanel: const SizedBox(),
-          endPanel: const SizedBox(),
+          start: const SizedBox(),
+          end: const SizedBox(),
         ),
       ),
     );
@@ -58,8 +58,8 @@ void main() {
           controller: controller,
           minPanelSize: 0,
           semanticsLabel: 'handle',
-          startPanel: const SizedBox(),
-          endPanel: const SizedBox(),
+          start: const SizedBox(),
+          end: const SizedBox(),
         ),
       ),
     );
@@ -84,8 +84,8 @@ void main() {
           dividerThickness: 8,
           minPanelSize: 0,
           semanticsLabel: 'handle',
-          startPanel: Container(key: const Key('start')),
-          endPanel: Container(key: const Key('end')),
+          start: Container(key: const Key('start')),
+          end: Container(key: const Key('end')),
         ),
       ),
     );

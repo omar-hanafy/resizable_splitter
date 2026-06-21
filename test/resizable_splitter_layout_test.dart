@@ -33,8 +33,8 @@ void main() {
           minStartPanelSize: 200,
           minEndPanelSize: 50,
           semanticsLabel: 'handle',
-          startPanel: Container(key: const Key('start')),
-          endPanel: Container(key: const Key('end')),
+          start: Container(key: const Key('start')),
+          end: Container(key: const Key('end')),
         ),
       ),
     );
@@ -60,8 +60,8 @@ void main() {
           minStartPanelSize: 200,
           minEndPanelSize: 150,
           semanticsLabel: 'handle',
-          startPanel: Container(key: const Key('start')),
-          endPanel: Container(key: const Key('end')),
+          start: Container(key: const Key('start')),
+          end: Container(key: const Key('end')),
         ),
       ),
     );
@@ -90,8 +90,8 @@ void main() {
           minPanelSize: 0,
           dividerThickness: dividerThickness,
           semanticsLabel: 'handle',
-          startPanel: Container(key: const Key('top')),
-          endPanel: Container(key: const Key('bottom')),
+          start: Container(key: const Key('top')),
+          end: Container(key: const Key('bottom')),
         ),
       ),
     );
@@ -120,8 +120,8 @@ void main() {
           minStartPanelSize: 180,
           minEndPanelSize: 140,
           semanticsLabel: 'handle',
-          startPanel: Container(key: const Key('top')),
-          endPanel: Container(key: const Key('bottom')),
+          start: Container(key: const Key('top')),
+          end: Container(key: const Key('bottom')),
         ),
       ),
     );
@@ -139,8 +139,8 @@ void main() {
       frame(
         child: ResizableSplitter(
           semanticsLabel: 'handle',
-          startPanel: const SizedBox(),
-          endPanel: const SizedBox(),
+          start: const SizedBox(),
+          end: const SizedBox(),
           handleBuilder: (_, details) {
             expect(details.thickness, 6.0);
             expect(details.axis, Axis.horizontal);
@@ -168,8 +168,8 @@ void main() {
           minStartPanelSize: 200,
           minEndPanelSize: 140,
           semanticsLabel: 'handle',
-          startPanel: Container(key: const Key('start')),
-          endPanel: Container(key: const Key('end')),
+          start: Container(key: const Key('start')),
+          end: Container(key: const Key('end')),
         ),
       ),
     );
@@ -197,8 +197,8 @@ void main() {
           minStartPanelSize: 180,
           minEndPanelSize: 120,
           semanticsLabel: 'handle',
-          startPanel: Container(key: const Key('start')),
-          endPanel: Container(key: const Key('end')),
+          start: Container(key: const Key('start')),
+          end: Container(key: const Key('end')),
         ),
       ),
     );
@@ -228,8 +228,8 @@ void main() {
             minPanelSize: 0,
             antiAliasingWorkaround: true,
             semanticsLabel: 'handle',
-            startPanel: Container(key: const Key('start')),
-            endPanel: Container(key: const Key('end')),
+            start: Container(key: const Key('start')),
+            end: Container(key: const Key('end')),
           ),
         ),
       );
@@ -268,8 +268,8 @@ void main() {
                   height: 200,
                   child: ResizableSplitter(
                     semanticsLabel: 'handle',
-                    startPanel: Container(key: const Key('start')),
-                    endPanel: Container(key: const Key('end')),
+                    start: Container(key: const Key('start')),
+                    end: Container(key: const Key('end')),
                   ),
                 ),
               ),
@@ -316,8 +316,8 @@ void main() {
                     child: ResizableSplitter(
                       unboundedBehavior: UnboundedBehavior.flexExpand,
                       semanticsLabel: 'handle',
-                      startPanel: Container(key: const Key('start')),
-                      endPanel: Container(key: const Key('end')),
+                      start: Container(key: const Key('start')),
+                      end: Container(key: const Key('end')),
                     ),
                   ),
                 ),
@@ -363,8 +363,8 @@ void main() {
                     minPanelSize: 0,
                     antiAliasingWorkaround: false,
                     semanticsLabel: 'handle',
-                    startPanel: Container(key: const Key('start')),
-                    endPanel: Container(key: const Key('end')),
+                    start: Container(key: const Key('start')),
+                    end: Container(key: const Key('end')),
                   ),
                 ),
               ),

@@ -3,8 +3,8 @@
 /// Example:
 /// ```dart
 /// final splitter = ResizableSplitter(
-///   startPanel: const Text('Primary content'),
-///   endPanel: const Text('Secondary content'),
+///   start: const Text('Primary content'),
+///   end: const Text('Secondary content'),
 /// );
 /// ```
 library;

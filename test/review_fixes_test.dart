@@ -34,8 +34,8 @@ void main() {
           child: ResizableSplitter(
             controller: controller,
             semanticsLabel: 'handle',
-            startPanel: const SizedBox(),
-            endPanel: const SizedBox(),
+            start: const SizedBox(),
+            end: const SizedBox(),
           ),
         ),
       );
@@ -66,8 +66,8 @@ void main() {
                 child: UnconstrainedBox(
                   child: ResizableSplitter(
                     semanticsLabel: 'handle',
-                    startPanel: SizedBox(width: 40, height: 40),
-                    endPanel: SizedBox(width: 40, height: 40),
+                    start: SizedBox(width: 40, height: 40),
+                    end: SizedBox(width: 40, height: 40),
                   ),
                 ),
               ),
@@ -108,8 +108,8 @@ void main() {
                   data: const ResizableSplitterThemeData(dividerThickness: 10),
                   child: ResizableSplitter(
                     semanticsLabel: 'handle',
-                    startPanel: const SizedBox(),
-                    endPanel: const SizedBox(),
+                    start: const SizedBox(),
+                    end: const SizedBox(),
                     handleBuilder: (_, details) {
                       builtThickness = details.thickness;
                       return const SizedBox.shrink();
@@ -143,8 +143,8 @@ void main() {
             handleHitSlop: slop,
             minPanelSize: 0,
             semanticsLabel: 'handle',
-            startPanel: Container(key: const Key('start')),
-            endPanel: Container(key: const Key('end')),
+            start: Container(key: const Key('start')),
+            end: Container(key: const Key('end')),
           ),
         ),
       );
@@ -172,8 +172,8 @@ void main() {
             handleHitSlop: slop,
             minPanelSize: 0,
             semanticsLabel: 'handle',
-            startPanel: const SizedBox(),
-            endPanel: const SizedBox(),
+            start: const SizedBox(),
+            end: const SizedBox(),
           ),
         ),
       );
@@ -210,8 +210,8 @@ void main() {
             dividerThickness: thickness,
             minPanelSize: 0,
             semanticsLabel: 'handle',
-            startPanel: const SizedBox(),
-            endPanel: const SizedBox(),
+            start: const SizedBox(),
+            end: const SizedBox(),
           ),
         ),
       );
@@ -256,8 +256,8 @@ void main() {
           child: ResizableSplitter(
             enableHaptics: enableHaptics,
             semanticsLabel: 'handle',
-            startPanel: const SizedBox(),
-            endPanel: const SizedBox(),
+            start: const SizedBox(),
+            end: const SizedBox(),
           ),
         ),
       );

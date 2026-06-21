@@ -11,8 +11,8 @@ void main() {
         home: Scaffold(
           body: ResizableSplitter(
             controller: controller,
-            startPanel: const ColoredBox(color: Colors.red),
-            endPanel: const ColoredBox(color: Colors.blue),
+            start: const ColoredBox(color: Colors.red),
+            end: const ColoredBox(color: Colors.blue),
           ),
         ),
       ),

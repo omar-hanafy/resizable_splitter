@@ -80,8 +80,8 @@ void main() {
                           child: ResizableSplitter(
                             controller: controller,
                             semanticsLabel: 'first',
-                            startPanel: const SizedBox(),
-                            endPanel: const SizedBox(),
+                            start: const SizedBox(),
+                            end: const SizedBox(),
                           ),
                         ),
                         if (showSecond)
@@ -89,8 +89,8 @@ void main() {
                             child: ResizableSplitter(
                               controller: controller,
                               semanticsLabel: 'second',
-                              startPanel: const SizedBox(),
-                              endPanel: const SizedBox(),
+                              start: const SizedBox(),
+                              end: const SizedBox(),
                             ),
                           ),
                       ],

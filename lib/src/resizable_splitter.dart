@@ -305,8 +305,8 @@ class _GlobalPointerRouter {
 class ResizableSplitter extends StatefulWidget {
   /// Builds a resizable splitter with the provided panels and configuration.
   const ResizableSplitter({
-    required this.startPanel,
-    required this.endPanel,
+    required this.start,
+    required this.end,
     super.key,
     this.controller,
     this.axis = Axis.horizontal,
@@ -418,10 +418,10 @@ class ResizableSplitter extends StatefulWidget {
   static const double _defaultFallbackMainAxisExtent = 500;
 
   /// The widget to display in the start position (left/top).
-  final Widget startPanel;
+  final Widget start;
 
   /// The widget to display in the end position (right/bottom).
-  final Widget endPanel;
+  final Widget end;
 
   /// Optional controller for programmatic control and persistence.
   final SplitterController? controller;
@@ -758,8 +758,8 @@ class _ResizableSplitterState extends State<ResizableSplitter>
                     return Flex(
                       direction: widget.axis,
                       children: [
-                        Expanded(child: widget.startPanel),
-                        Expanded(child: widget.endPanel),
+                        Expanded(child: widget.start),
+                        Expanded(child: widget.end),
                       ],
                     );
                   }
@@ -806,10 +806,10 @@ class _ResizableSplitterState extends State<ResizableSplitter>
             direction: widget.axis,
             children: bounded
                 ? [
-                    Expanded(child: widget.startPanel),
-                    Expanded(child: widget.endPanel),
+                    Expanded(child: widget.start),
+                    Expanded(child: widget.end),
                   ]
-                : [widget.startPanel, widget.endPanel],
+                : [widget.start, widget.end],
           );
         }
 
@@ -902,7 +902,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
         SizedBox(
           width: widget.axis.isH ? first : null,
           height: widget.axis.isH ? null : first,
-          child: widget.startPanel,
+          child: widget.start,
         ),
         _DividerHandle(
           axis: widget.axis,
@@ -938,7 +938,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
         SizedBox(
           width: widget.axis.isH ? second : null,
           height: widget.axis.isH ? null : second,
-          child: widget.endPanel,
+          child: widget.end,
         ),
       ],
     );
