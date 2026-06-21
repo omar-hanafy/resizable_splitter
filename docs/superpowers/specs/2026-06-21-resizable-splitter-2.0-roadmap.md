@@ -130,14 +130,28 @@ Branch `feat/resizable-splitter-2.0`. 90 tests green, `dart analyze` clean.
   at the source. REMAINING: transform-safe local coordinates, a custom drag
   recognizer with real pointer ids + multi-drag sessions keyed by pointer,
   pixel-space snap tolerance.
+- DONE Sub-project 4 (Controller + animation): vsync `AnimationController` owned
+  by the State; controller delegates via a private `_SplitterAnimator`. Honors
+  `MediaQuery.disableAnimations`; a drag/key/reset/direct-write cancels a run;
+  `frames` removed; no `WidgetsBinding` at construction; controller swap keeps
+  the last shown position. `animation_test.dart` covers it. DEFERRED to 6:
+  `SplitterPosition` on the controller, controlled/uncontrolled constructors.
+- DONE Sub-project 5 (Accessibility, semantics layer): slider role, enabled /
+  disabled state, read-only label when not resizable, assistive adjust decoupled
+  from the keyboard flag, honest value previews, text direction, focus-on-press.
+  DEFERRED to 6: public `focusNode`/`autofocus`/`onFocusChange`, value formatter.
+
+Status: 94 tests green, analyze clean, through Sub-project 5.
 
 Interim notes for the next session:
-- The controller value is currently the requested/effective fraction in a single
-  `double`. The full sealed `SplitterPosition` request on the controller (pixel
-  pinning) lands in Sub-project 4.
+- The controller value is a single `double` (requested/effective fraction). The
+  sealed `SplitterPosition` public input (pixel pinning) lands in Sub-project 6.
 - `handleHitSlop` still reserves layout (`thickness + 2*slop`); the overlap fix
   arrives with the render object (Sub-project 7). The two `review_fixes`
   hit-slop tests still assert the interim behavior and will migrate then.
+- Next major phase = Sub-project 6 (API restructure + deprecation bridge) and 7
+  (render object + features). 6 carries public-API shape decisions; 7 is the
+  highest-risk piece to land without visual verification.
 
 ## Working agreements
 
