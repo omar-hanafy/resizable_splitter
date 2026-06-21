@@ -4,7 +4,9 @@ import 'package:resizable_splitter/resizable_splitter.dart';
 
 void main() {
   testWidgets('renders and responds to controller updates', (tester) async {
-    final controller = SplitterController(initialRatio: 0.4);
+    final controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.4),
+    );
 
     await tester.pumpWidget(
       MaterialApp(
@@ -20,9 +22,9 @@ void main() {
 
     expect(find.byType(ResizableSplitter), findsOneWidget);
 
-    controller.value = 0.6;
+    controller.value = const SplitterPosition.fraction(0.6);
     await tester.pump();
 
-    expect(controller.value, equals(0.6));
+    expect(controller.effectiveFraction, equals(0.6));
   });
 }

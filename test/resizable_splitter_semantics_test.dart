@@ -52,7 +52,9 @@ void main() {
   testWidgets('semantics value reflects effective ratio with pixel minimums', (
     tester,
   ) async {
-    final controller = SplitterController(initialRatio: 0.1);
+    final controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.1),
+    );
 
     await tester.pumpWidget(
       host(

@@ -36,7 +36,9 @@ void main() {
 
   testWidgets('onChangeStart reports the effective position, not the stored '
       'request', (tester) async {
-    final controller = SplitterController(initialRatio: 0.10);
+    final controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.10),
+    );
     double? dragStart;
 
     await tester.pumpWidget(
@@ -62,7 +64,9 @@ void main() {
   testWidgets('a small drag moves the divider immediately (no dead zone)', (
     tester,
   ) async {
-    final controller = SplitterController(initialRatio: 0.10);
+    final controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.10),
+    );
 
     await tester.pumpWidget(host(controller: controller));
 
@@ -77,30 +81,32 @@ void main() {
     await gesture.moveBy(const Offset(8, 0));
     await tester.pump();
 
-    expect(controller.value, greaterThan(0.5));
-    expect(controller.value, closeTo(208 / 400, 1e-6));
+    expect(controller.effectiveFraction, greaterThan(0.5));
+    expect(controller.effectiveFraction, closeTo(208 / 400, 1e-6));
 
     await gesture.up();
     await tester.pumpAndSettle();
 
     // Stored == visible after the gesture.
-    expect(controller.value, closeTo(208 / 400, 1e-6));
+    expect(controller.effectiveFraction, closeTo(208 / 400, 1e-6));
   });
 
   testWidgets('a non-finite controller value cannot corrupt the layout', (
     tester,
   ) async {
-    final controller = SplitterController(initialRatio: 0.4);
+    final controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.4),
+    );
 
     await tester.pumpWidget(host(controller: controller));
 
     // Bypassing updateRatio's clamp by writing the ValueNotifier directly used
     // to be able to push NaN into a SizedBox. The solver sanitizes it now.
-    controller.value = double.nan;
+    controller.value = const SplitterPosition.fraction(double.nan);
     await tester.pump();
     expect(tester.takeException(), isNull);
 
-    controller.value = -100;
+    controller.value = const SplitterPosition.fraction(-100);
     await tester.pump();
     expect(tester.takeException(), isNull);
   });

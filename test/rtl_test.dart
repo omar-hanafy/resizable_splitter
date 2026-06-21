@@ -46,8 +46,8 @@ void main() {
 
     // Pointer moved right by 40; in RTL that shrinks the start pane (in LTR it
     // would grow it). available = 400 - 8 = 392.
-    expect(controller.value, lessThan(0.5));
-    expect(controller.value, closeTo(0.5 - 40 / 392, 1e-6));
+    expect(controller.effectiveFraction, lessThan(0.5));
+    expect(controller.effectiveFraction, closeTo(0.5 - 40 / 392, 1e-6));
   });
 
   testWidgets('arrow keys swap direction in RTL', (tester) async {
@@ -71,18 +71,18 @@ void main() {
 
     // Left arrow grows the start pane in RTL (it sits on the right).
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
-    expect(controller.value, closeTo(0.51, 1e-6));
+    expect(controller.effectiveFraction, closeTo(0.51, 1e-6));
 
     // Right arrow shrinks it.
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
-    expect(controller.value, closeTo(0.50, 1e-6));
+    expect(controller.effectiveFraction, closeTo(0.50, 1e-6));
   });
 
   testWidgets('the start pane is laid out on the right in RTL', (tester) async {
     await tester.pumpWidget(
       rtlHost(
         ResizableSplitter(
-          initialRatio: 0.25,
+          initialPosition: const SplitterPosition.fraction(0.25),
           divider: const SplitterDividerStyle(thickness: 8),
           startConstraints: const SplitterPaneConstraints(),
           endConstraints: const SplitterPaneConstraints(),

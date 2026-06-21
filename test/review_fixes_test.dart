@@ -50,7 +50,7 @@ void main() {
 
       expect(tester.takeException(), isNull);
       // favorStart (default) keeps the start panel at its pixel minimum.
-      expect(controller.value, closeTo(100 / 174, 1e-6));
+      expect(controller.effectiveFraction, closeTo(100 / 174, 1e-6));
     });
   });
 
@@ -305,7 +305,7 @@ void main() {
       await gesture.up();
       await tester.pumpAndSettle();
 
-      expect(controller.value, lessThan(0.5));
+      expect(controller.effectiveFraction, lessThan(0.5));
     });
   });
 
@@ -343,8 +343,11 @@ void main() {
       await gesture.up();
       await tester.pumpAndSettle();
 
-      expect(controller.value, greaterThan(0.5));
-      expect(controller.value, closeTo(0.5 + 0.6 / available, 1e-6));
+      expect(controller.effectiveFraction, greaterThan(0.5));
+      expect(
+        controller.effectiveFraction,
+        closeTo(0.5 + 0.6 / available, 1e-6),
+      );
     });
   });
 

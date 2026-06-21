@@ -57,7 +57,7 @@ void main() {
     // available = 408 - 8 = 400. The payload exposes the resolved geometry.
     expect(end!.availableExtent, closeTo(400, 1e-6));
     expect(end!.startExtent + end!.endExtent, closeTo(400, 1e-6));
-    expect(end!.effectiveFraction, closeTo(controller.value, 1e-6));
+    expect(end!.effectiveFraction, closeTo(controller.effectiveFraction, 1e-6));
   });
 
   testWidgets('a snap on release reports SplitterChangeSource.snap', (
@@ -93,7 +93,7 @@ void main() {
 
     expect(end, isNotNull);
     expect(end!.source, SplitterChangeSource.snap);
-    expect(controller.value, closeTo(0.75, 1e-6));
+    expect(controller.effectiveFraction, closeTo(0.75, 1e-6));
   });
 
   testWidgets('a keyboard adjust reports SplitterChangeSource.keyboard', (

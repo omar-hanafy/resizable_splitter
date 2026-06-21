@@ -52,7 +52,7 @@ void main() {
         ),
       );
 
-      expect(controller.value, 0.5);
+      expect(controller.effectiveFraction, 0.5);
       expect(dragStart, isNull);
       expect(dragEnd, isNull);
 
@@ -76,7 +76,7 @@ void main() {
 
       expect(dragStart, isNotNull);
       expect(dragEnd, isNotNull);
-      expect(controller.value, closeTo(0.75, 1e-6));
+      expect(controller.effectiveFraction, closeTo(0.75, 1e-6));
       expect(ratioChanges, isNotEmpty);
       expect(overlayFinder(), findsNothing);
     },
@@ -121,7 +121,7 @@ void main() {
       expect(scrollableFinder, findsOneWidget);
       final scrollState = tester.state<ScrollableState>(scrollableFinder);
       final initialOffset = scrollState.position.pixels;
-      final initialRatio = controller.value;
+      final initialRatio = controller.effectiveFraction;
 
       final handle = find.bySemanticsLabel('handle');
       expect(handle, findsOneWidget);
@@ -136,7 +136,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(scrollState.position.pixels, closeTo(initialOffset, 1e-6));
-      expect(controller.value, isNot(closeTo(initialRatio, 1e-6)));
+      expect(controller.effectiveFraction, isNot(closeTo(initialRatio, 1e-6)));
     },
   );
 
@@ -145,7 +145,9 @@ void main() {
   ) async {
     const dividerThickness = 8.0;
     const totalWidth = 360.0;
-    final controller = SplitterController(initialRatio: 0.6);
+    final controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.6),
+    );
 
     await tester.pumpWidget(
       host(
@@ -170,7 +172,7 @@ void main() {
     await gesture.up();
     await tester.pumpAndSettle();
 
-    expect(controller.value, greaterThanOrEqualTo(0.3));
+    expect(controller.effectiveFraction, greaterThanOrEqualTo(0.3));
   });
 
   testWidgets('controller exposes dragging listenable updates', (tester) async {
@@ -207,7 +209,9 @@ void main() {
   ) async {
     const dividerThickness = 8.0;
     const totalWidth = 320.0;
-    final controller = SplitterController(initialRatio: 0.6);
+    final controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.6),
+    );
 
     await tester.pumpWidget(
       host(
@@ -235,13 +239,15 @@ void main() {
     await gesture.up();
     await tester.pumpAndSettle();
 
-    expect(controller.value, closeTo(130 / availableWidth, 1e-6));
+    expect(controller.effectiveFraction, closeTo(130 / availableWidth, 1e-6));
   });
 
   testWidgets('vertical drags respect pixel minimums', (tester) async {
     const dividerThickness = 12.0;
     const totalHeight = 360.0;
-    final controller = SplitterController(initialRatio: 0.4);
+    final controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.4),
+    );
 
     await tester.pumpWidget(
       host(
@@ -318,7 +324,9 @@ void main() {
   testWidgets('resizable false keeps ratio unchanged on drag attempts', (
     tester,
   ) async {
-    final controller = SplitterController(initialRatio: 0.45);
+    final controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.45),
+    );
 
     await tester.pumpWidget(
       host(
@@ -338,7 +346,7 @@ void main() {
     await gesture.up();
     await tester.pump();
 
-    expect(controller.value, 0.45);
+    expect(controller.effectiveFraction, 0.45);
     expect(controller.isDragging, isFalse);
   });
 
@@ -368,7 +376,9 @@ void main() {
   testWidgets('double-tap callback fires and ratio resets when configured', (
     tester,
   ) async {
-    final controller = SplitterController(initialRatio: 0.3);
+    final controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.3),
+    );
     var doubleTapCount = 0;
 
     await tester.pumpWidget(
@@ -400,13 +410,15 @@ void main() {
     await tester.pump(const Duration(milliseconds: 200));
 
     expect(doubleTapCount, 1);
-    expect(controller.value, closeTo(0.75, 1e-6));
+    expect(controller.effectiveFraction, closeTo(0.75, 1e-6));
   });
 
   testWidgets('double-tap reset skips onChanged when already at target', (
     tester,
   ) async {
-    final controller = SplitterController(initialRatio: 0.75);
+    final controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.75),
+    );
     var ratioChangedCount = 0;
 
     await tester.pumpWidget(
@@ -435,7 +447,7 @@ void main() {
     await secondTap.up();
     await tester.pumpAndSettle();
 
-    expect(controller.value, closeTo(0.75, 1e-6));
+    expect(controller.effectiveFraction, closeTo(0.75, 1e-6));
     expect(ratioChangedCount, 0);
   });
 

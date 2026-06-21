@@ -26,22 +26,28 @@ extension _AxisHelpers on Axis {
       isH ? SystemMouseCursors.resizeColumn : SystemMouseCursors.resizeRow;
 }
 
-/// A controller for managing splitter position (0.0-1.0).
+/// A controller for a [ResizableSplitter]'s position.
 ///
-/// Maintains the split ratio and exposes simple APIs to update or animate it.
-/// A global pointer router prevents “stuck drags” when platform views steal
+/// Holds the requested [SplitterPosition] (a fraction or a pixel pin) and
+/// exposes simple APIs to update or animate it; read [effectiveFraction] for
+/// the on-screen ratio after constraints are applied.
+/// A global pointer router prevents "stuck drags" when platform views steal
 /// pointer events. The router attaches only when a [WidgetsBinding] is
 /// available, so controllers created in pure Dart tests or before `runApp`
 /// stay functional - the enhanced drag cleanup simply activates once Flutter is
 /// initialized.
-class SplitterController extends ValueNotifier<double> {
-  /// Creates a splitter controller with the given initial ratio.
-  SplitterController({double initialRatio = 0.5})
-    : assert(
-        initialRatio >= 0.0 && initialRatio <= 1.0,
-        'initialRatio must be between 0.0 and 1.0',
-      ),
-      super(initialRatio);
+class SplitterController extends ValueNotifier<SplitterPosition> {
+  /// Creates a splitter controller at [initialPosition] (default: centered).
+  ///
+  /// The controller stores the requested [SplitterPosition]; the splitter
+  /// resolves it against the live layout every frame. A pixel request
+  /// ([SplitterPosition.startPixels] / [SplitterPosition.endPixels]) therefore
+  /// keeps its pixel size as the container resizes, while a drag or keyboard
+  /// adjustment writes a fractional position (the pin releases on interaction).
+  SplitterController({
+    SplitterPosition initialPosition = const SplitterPosition.fraction(0.5),
+  }) : _effectiveFraction = initialPosition.resolveFraction(0),
+       super(initialPosition);
 
   static final _globalRouter = _GlobalPointerRouter();
 
@@ -89,31 +95,46 @@ class SplitterController extends ValueNotifier<double> {
     super.dispose();
   }
 
-  /// Sets the split ratio, sanitized into `[0, 1]`. Non-finite values are
-  /// ignored, so the controller can never hold a value that would corrupt the
-  /// layout, even when written directly instead of through [updateRatio] (and
-  /// even when an overshooting animation curve runs past the bounds).
+  /// The on-screen start fraction the attached splitter last resolved, in
+  /// `[0, 1]`. Unlike [value] (the request, which may be in pixels) this is the
+  /// effective ratio actually shown - the convenient value for read-outs. Before
+  /// the first layout it reflects the requested fraction (0 for a pixel request).
+  double get effectiveFraction => _effectiveFraction;
+  double _effectiveFraction;
+
+  // Updated by the attached splitter after each solve so [effectiveFraction]
+  // tracks the constrained, on-screen ratio. Not a notification source: the
+  // request in [value] is canonical and already drives rebuilds.
+  void _setEffectiveFraction(double fraction) => _effectiveFraction = fraction;
+
+  /// Sets the requested [SplitterPosition]. The solver sanitizes it at layout,
+  /// so a malformed request (for example a non-finite fraction) can never
+  /// corrupt the layout. A write that is not an animation tick (a drag, key
+  /// press, reset, or direct assignment) takes over from a running animation.
   @override
-  set value(double newValue) {
-    if (!newValue.isFinite) return;
-    // Any value change that is not an animation tick (a drag, key press, reset,
-    // or direct write) takes over from a running animation.
+  set value(SplitterPosition newValue) {
     if (!_isAnimationTick) _animator?.cancel();
-    super.value = newValue.clamp(0.0, 1.0).toDouble();
+    // A fractional request resolves without the layout, so refresh the cache
+    // eagerly; the splitter overwrites it with the constrained value on layout.
+    if (newValue is FractionSplitterPosition) {
+      _effectiveFraction = newValue.resolveFraction(0);
+    }
+    super.value = newValue;
   }
 
-  /// Updates the ratio with an optional threshold to prevent chatty updates.
+  /// Updates to a fractional position, with an optional threshold to prevent
+  /// chatty updates. The threshold is compared against [effectiveFraction].
   void updateRatio(double newRatio, {double threshold = 0.002}) {
-    final clamped = newRatio.clamp(0.0, 1.0);
-    if ((clamped - value).abs() > threshold) {
-      value = clamped;
+    final clamped = newRatio.clamp(0.0, 1.0).toDouble();
+    if ((clamped - effectiveFraction).abs() > threshold) {
+      value = SplitterPosition.fraction(clamped);
     }
   }
 
-  /// Resets the splitter to the specified position, defaulting to center.
+  /// Resets the splitter to a fractional position, defaulting to center.
   void reset([double to = 0.5]) {
     assert(to >= 0.0 && to <= 1.0, 'to must be between 0.0 and 1.0');
-    value = to;
+    value = SplitterPosition.fraction(to);
   }
 
   /// Animates the split ratio to [target].
@@ -128,13 +149,13 @@ class SplitterController extends ValueNotifier<double> {
     Curve curve = Curves.easeOutCubic,
   }) {
     final goal = target.clamp(0.0, 1.0).toDouble();
-    if ((goal - value).abs() < 1e-7) {
-      value = goal;
+    if ((goal - effectiveFraction).abs() < 1e-7) {
+      value = SplitterPosition.fraction(goal);
       return Future<void>.value();
     }
     final animator = _animator;
     if (animator == null) {
-      value = goal;
+      value = SplitterPosition.fraction(goal);
       return Future<void>.value();
     }
     return animator.animateTo(goal, duration, curve);
@@ -289,7 +310,7 @@ class ResizableSplitter extends StatefulWidget {
     super.key,
     this.controller,
     this.axis = Axis.horizontal,
-    this.initialRatio = 0.5,
+    this.initialPosition = const SplitterPosition.fraction(0.5),
     this.startConstraints = const SplitterPaneConstraints(minExtent: 100),
     this.endConstraints = const SplitterPaneConstraints(minExtent: 100),
     this.minStartFraction = 0.0,
@@ -316,10 +337,6 @@ class ResizableSplitter extends StatefulWidget {
     this.fallbackMainAxisExtent,
     this.antiAliasingWorkaround,
   }) : assert(
-         initialRatio >= 0.0 && initialRatio <= 1.0,
-         'initialRatio must be between 0.0 and 1.0',
-       ),
-       assert(
          minStartFraction >= 0.0 && minStartFraction <= 1.0,
          'minStartFraction must be between 0.0 and 1.0',
        ),
@@ -366,8 +383,11 @@ class ResizableSplitter extends StatefulWidget {
   /// The axis along which to split (horizontal or vertical).
   final Axis axis;
 
-  /// Initial split ratio if no controller is provided.
-  final double initialRatio;
+  /// Initial split position if no controller is provided. Use
+  /// [SplitterPosition.startPixels] / [SplitterPosition.endPixels] to pin a pane
+  /// to a pixel width that survives container resizes, or
+  /// [SplitterPosition.fraction] for a ratio. Defaults to a centered fraction.
+  final SplitterPosition initialPosition;
 
   /// Pixel sizing limits for the start (left/top) pane. Defaults to a 100px
   /// minimum. Set [SplitterPaneConstraints.maxExtent] to cap the pane, or
@@ -484,7 +504,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
   SplitterController get _effectiveController =>
       widget.controller ??
       (_internalController ??= SplitterController(
-        initialRatio: widget.initialRatio,
+        initialPosition: widget.initialPosition,
       ));
 
   @override
@@ -510,14 +530,14 @@ class _ResizableSplitterState extends State<ResizableSplitter>
         widget.controller == null &&
         _internalController == null) {
       _internalController = SplitterController(
-        initialRatio: (_attachedController ?? oldWidget.controller!).value,
+        initialPosition: (_attachedController ?? oldWidget.controller!).value,
       );
     }
 
     final newController =
         widget.controller ??
         (_internalController ??= SplitterController(
-          initialRatio: widget.initialRatio,
+          initialPosition: widget.initialPosition,
         ));
 
     if (!identical(_attachedController, newController)) {
@@ -555,10 +575,10 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     final controller = _attachedController ?? _effectiveController;
     if (disable || duration <= Duration.zero) {
       _completeAnimation();
-      controller.value = target;
+      controller.value = SplitterPosition.fraction(target);
       return Future<void>.value();
     }
-    _animBegin = controller.value;
+    _animBegin = controller.effectiveFraction;
     _animEnd = target;
     _animCurve = curve;
     _animationController.duration = duration;
@@ -585,7 +605,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
   void _setAnimatedValue(double value) {
     final controller = _attachedController ?? _effectiveController;
     controller._isAnimationTick = true;
-    controller.value = value;
+    controller.value = SplitterPosition.fraction(value);
     controller._isAnimationTick = false;
   }
 
@@ -677,15 +697,15 @@ class _ResizableSplitterState extends State<ResizableSplitter>
                     );
                   }
 
-                  return ValueListenableBuilder<double>(
+                  return ValueListenableBuilder<SplitterPosition>(
                     valueListenable: controller,
-                    builder: (_, ratio, _) {
+                    builder: (_, position, _) {
                       final availableSize = (boundedMax - dividerExtent).clamp(
                         0.0,
                         double.infinity,
                       );
                       return _buildBounded(
-                        ratio: ratio,
+                        position: position,
                         availableSize: availableSize,
                         dividerThickness: dividerThickness,
                         enableKeyboard: enableKeyboard,
@@ -722,16 +742,16 @@ class _ResizableSplitterState extends State<ResizableSplitter>
           );
         }
 
-        return ValueListenableBuilder<double>(
+        return ValueListenableBuilder<SplitterPosition>(
           valueListenable: controller,
-          builder: (_, ratio, _) {
+          builder: (_, position, _) {
             final availableSize = (maxSize - dividerExtent).clamp(
               0.0,
               double.infinity,
             );
 
             return _buildBounded(
-              ratio: ratio,
+              position: position,
               availableSize: availableSize,
               dividerThickness: dividerThickness,
               enableKeyboard: enableKeyboard,
@@ -753,7 +773,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
   }
 
   Widget _buildBounded({
-    required double ratio,
+    required SplitterPosition position,
     required double availableSize,
     required double dividerThickness,
     required bool enableKeyboard,
@@ -785,10 +805,14 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     );
 
     final solution = solver.solve(
-      SplitterPosition.fraction(ratio),
+      position,
       devicePixelRatio: MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0,
       snapToDevicePixels: antiAliasingWorkaround,
     );
+
+    // Keep the controller's effective-fraction read-out in step with the
+    // constrained, on-screen ratio it just resolved to.
+    controller._setEffectiveFraction(solution.effectiveFraction);
 
     final first = solution.startExtent;
     final second = solution.endExtent;
@@ -931,6 +955,12 @@ class _DividerHandleState extends State<_DividerHandle> {
     );
   }
 
+  /// The current on-screen start fraction, freshly re-solved from the
+  /// controller's requested position so synchronous adjustments accumulate
+  /// against what is actually shown (not a stale build-time solution).
+  double get _effective =>
+      widget.solver.solve(widget.controller.value).effectiveFraction;
+
   @override
   void dispose() {
     if (_isDragging) {
@@ -1026,11 +1056,12 @@ class _DividerHandleState extends State<_DividerHandle> {
         .effectiveFraction;
     _lastDragRatio = newRatio;
 
-    final previous = widget.controller.value;
+    final previous = _effective;
     widget.controller.updateRatio(newRatio);
-    if ((widget.controller.value - previous).abs() > 1e-9) {
+    final current = _effective;
+    if ((current - previous).abs() > 1e-9) {
       widget.onChanged?.call(
-        _changeDetails(widget.controller.value, SplitterChangeSource.drag),
+        _changeDetails(current, SplitterChangeSource.drag),
       );
     }
   }
@@ -1044,17 +1075,18 @@ class _DividerHandleState extends State<_DividerHandle> {
   }
 
   void _stopDrag() {
-    final snapped = _maybeSnap(widget.controller.value);
+    final snapped = _maybeSnap(_effective);
 
     // No snap point claimed the release: commit the exact final ratio. The
     // per-update threshold can otherwise leave the handle a fraction short of
     // where the pointer actually let go.
     if (snapped == null && _lastDragRatio != null) {
-      final previous = widget.controller.value;
+      final previous = _effective;
       widget.controller.updateRatio(_lastDragRatio!, threshold: 0);
-      if ((widget.controller.value - previous).abs() > 1e-9) {
+      final current = _effective;
+      if ((current - previous).abs() > 1e-9) {
         widget.onChanged?.call(
-          _changeDetails(widget.controller.value, SplitterChangeSource.drag),
+          _changeDetails(current, SplitterChangeSource.drag),
         );
       }
     }
@@ -1084,7 +1116,7 @@ class _DividerHandleState extends State<_DividerHandle> {
     if (mounted) {
       widget.onChangeEnd?.call(
         _changeDetails(
-          snapped ?? widget.controller.value,
+          snapped ?? _effective,
           snapped != null
               ? SplitterChangeSource.snap
               : SplitterChangeSource.drag,
@@ -1114,12 +1146,13 @@ class _DividerHandleState extends State<_DividerHandle> {
       }
     }
     if (bestDist <= snap.tolerance) {
-      if ((nearest - widget.controller.value).abs() > 1e-9) {
-        final previous = widget.controller.value;
+      final previous = _effective;
+      if ((nearest - previous).abs() > 1e-9) {
         widget.controller.updateRatio(nearest, threshold: 0);
-        if ((widget.controller.value - previous).abs() > 1e-9) {
+        final current = _effective;
+        if ((current - previous).abs() > 1e-9) {
           widget.onChanged?.call(
-            _changeDetails(widget.controller.value, SplitterChangeSource.snap),
+            _changeDetails(current, SplitterChangeSource.snap),
           );
         }
       }
@@ -1238,16 +1271,14 @@ class _DividerHandleState extends State<_DividerHandle> {
     // presses without a rebuild still accumulate), then re-solve to clamp. This
     // moves the divider by the step in what the user actually sees, instead of
     // nudging a stored value through a dead band.
-    final previous = widget.controller.value;
-    final base = widget.solver
-        .solve(SplitterPosition.fraction(previous))
-        .effectiveFraction;
+    final base = _effective;
     final newRatio = widget.solver
         .solve(SplitterPosition.fraction(base + delta))
         .effectiveFraction;
-    widget.controller.value = newRatio;
-    if ((widget.controller.value - previous).abs() > 1e-9) {
-      widget.onChanged?.call(_changeDetails(widget.controller.value, source));
+    widget.controller.value = SplitterPosition.fraction(newRatio);
+    final current = _effective;
+    if ((current - base).abs() > 1e-9) {
+      widget.onChanged?.call(_changeDetails(current, source));
       _haptic();
     }
   }
@@ -1329,11 +1360,11 @@ class _DividerHandleState extends State<_DividerHandle> {
               widget.onDoubleTap?.call();
               if (widget.doubleTapResetTo != null && widget.resizable) {
                 final target = widget.doubleTapResetTo!;
-                final startValue = widget.controller.value;
+                final startValue = widget.controller.effectiveFraction;
                 unawaited(
                   widget.controller.animateTo(target).then((_) {
                     if (!mounted) return;
-                    final updated = widget.controller.value;
+                    final updated = _effective;
                     if ((updated - startValue).abs() > 1e-9) {
                       widget.onChanged?.call(
                         _changeDetails(
@@ -1368,7 +1399,7 @@ class _DividerHandleState extends State<_DividerHandle> {
     // current effective position by one step. Assistive adjustment is offered
     // whenever the splitter is resizable, independent of physical keyboard
     // support - a screen reader is its own input channel.
-    final effective = _effectiveRatio(widget.controller.value);
+    final effective = _effective;
     String pct(double ratio) => '${(ratio.clamp(0.0, 1.0) * 100).round()}%';
     final allowSemanticAdjust = widget.resizable;
 
@@ -1440,7 +1471,7 @@ class _DividerHandleState extends State<_DividerHandle> {
           ),
           _JumpIntent: CallbackAction<_JumpIntent>(
             onInvoke: (intent) {
-              final previous = widget.controller.value;
+              final previous = _effective;
               final dest = intent.toMin
                   ? widget.solver
                         .solve(const SplitterPosition.fraction(0))
@@ -1448,13 +1479,11 @@ class _DividerHandleState extends State<_DividerHandle> {
                   : widget.solver
                         .solve(const SplitterPosition.fraction(1))
                         .effectiveFraction;
-              widget.controller.value = dest;
-              if ((widget.controller.value - previous).abs() > 1e-9) {
+              widget.controller.value = SplitterPosition.fraction(dest);
+              final current = _effective;
+              if ((current - previous).abs() > 1e-9) {
                 widget.onChanged?.call(
-                  _changeDetails(
-                    widget.controller.value,
-                    SplitterChangeSource.keyboard,
-                  ),
+                  _changeDetails(current, SplitterChangeSource.keyboard),
                 );
                 _haptic();
               }

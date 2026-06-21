@@ -37,7 +37,9 @@ void main() {
   testWidgets('animateTo drives the value over vsync frames to the target', (
     tester,
   ) async {
-    final controller = SplitterController(initialRatio: 0.2);
+    final controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.2),
+    );
     await tester.pumpWidget(host(controller));
 
     final future = controller.animateTo(
@@ -47,16 +49,18 @@ void main() {
     await tester.pump(); // kick off
     await tester.pump(const Duration(milliseconds: 150)); // mid-flight
 
-    expect(controller.value, greaterThan(0.2));
-    expect(controller.value, lessThan(0.8));
+    expect(controller.effectiveFraction, greaterThan(0.2));
+    expect(controller.effectiveFraction, lessThan(0.8));
 
     await tester.pumpAndSettle();
-    expect(controller.value, closeTo(0.8, 1e-6));
+    expect(controller.effectiveFraction, closeTo(0.8, 1e-6));
     await future;
   });
 
   testWidgets('starting a drag cancels a running animation', (tester) async {
-    final controller = SplitterController(initialRatio: 0.2);
+    final controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.2),
+    );
     await tester.pumpWidget(host(controller));
 
     unawaited(
@@ -64,8 +68,8 @@ void main() {
     );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
-    expect(controller.value, greaterThan(0.2));
-    expect(controller.value, lessThan(0.9));
+    expect(controller.effectiveFraction, greaterThan(0.2));
+    expect(controller.effectiveFraction, lessThan(0.9));
 
     // Grab the divider and drag left; the animation must yield.
     final gesture = await tester.startGesture(
@@ -81,13 +85,15 @@ void main() {
     await gesture.up();
     await tester.pumpAndSettle();
 
-    expect(controller.value, lessThan(0.6));
+    expect(controller.effectiveFraction, lessThan(0.6));
   });
 
   testWidgets('animateTo is instant when MediaQuery disables animations', (
     tester,
   ) async {
-    final controller = SplitterController(initialRatio: 0.2);
+    final controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.2),
+    );
     await tester.pumpWidget(host(controller, disableAnimations: true));
 
     final future = controller.animateTo(
@@ -95,7 +101,7 @@ void main() {
       duration: const Duration(milliseconds: 300),
     );
     await tester.pump();
-    expect(controller.value, closeTo(0.8, 1e-6));
+    expect(controller.effectiveFraction, closeTo(0.8, 1e-6));
     await future;
   });
 }

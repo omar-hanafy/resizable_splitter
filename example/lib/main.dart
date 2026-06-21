@@ -82,7 +82,9 @@ class _SplitterDemoPageState extends State<SplitterDemoPage> {
   @override
   void initState() {
     super.initState();
-    _controller = SplitterController(initialRatio: 0.32);
+    _controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.32),
+    );
     _demos = List<_Demo>.of(_baseDemos);
     if (_supportsPlatformViewDemo) {
       _webViewDemoIndex = _demos.length;
@@ -350,7 +352,9 @@ class _VerticalDemoState extends State<_VerticalDemo> {
   @override
   void initState() {
     super.initState();
-    _controller = SplitterController(initialRatio: 0.48);
+    _controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.48),
+    );
   }
 
   @override
@@ -380,10 +384,10 @@ class _VerticalDemoState extends State<_VerticalDemo> {
           child: _VerticalWorkspacePreview(controller: _controller),
         ),
         const SizedBox(height: 16),
-        ValueListenableBuilder<double>(
+        ValueListenableBuilder<SplitterPosition>(
           valueListenable: _controller,
-          builder: (context, ratio, _) {
-            final topPercent = (ratio * 100).round();
+          builder: (context, _, _) {
+            final topPercent = (_controller.effectiveFraction * 100).round();
             final bottomPercent = 100 - topPercent;
             return Text(
               'Top panel $topPercent% · Bottom panel $bottomPercent%',
@@ -647,7 +651,9 @@ class _OverviewExampleState extends State<_OverviewExample> {
   @override
   void initState() {
     super.initState();
-    _controller = SplitterController(initialRatio: 0.58);
+    _controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.58),
+    );
   }
 
   @override
@@ -690,10 +696,10 @@ class _OverviewExampleState extends State<_OverviewExample> {
             ),
           ),
           const SizedBox(height: 12),
-          ValueListenableBuilder<double>(
+          ValueListenableBuilder<SplitterPosition>(
             valueListenable: _controller,
-            builder: (context, value, _) => Text(
-              'Current ratio: ${(value * 100).round()}%',
+            builder: (context, _, _) => Text(
+              'Current ratio: ${(_controller.effectiveFraction * 100).round()}%',
               style: Theme.of(context).textTheme.labelLarge,
             ),
           ),
@@ -716,7 +722,9 @@ class _StylingExampleState extends State<_StylingExample> {
   @override
   void initState() {
     super.initState();
-    _controller = SplitterController(initialRatio: 0.5);
+    _controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.5),
+    );
   }
 
   @override
@@ -800,7 +808,9 @@ class _KeyboardExampleState extends State<_KeyboardExample> {
   @override
   void initState() {
     super.initState();
-    _controller = SplitterController(initialRatio: 0.4);
+    _controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.4),
+    );
   }
 
   @override
@@ -842,10 +852,11 @@ class _KeyboardExampleState extends State<_KeyboardExample> {
             ),
           ),
           const SizedBox(height: 12),
-          ValueListenableBuilder<double>(
+          ValueListenableBuilder<SplitterPosition>(
             valueListenable: _controller,
-            builder: (context, value, _) => Text(
-              'Arrow/Page keys adjust ratio · Current ${(value * 100).round()}%',
+            builder: (context, _, _) => Text(
+              'Arrow/Page keys adjust ratio · Current '
+              '${(_controller.effectiveFraction * 100).round()}%',
               style: theme.textTheme.labelLarge,
             ),
           ),

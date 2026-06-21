@@ -28,7 +28,7 @@ void main() {
     await tester.pumpWidget(
       frame(
         child: ResizableSplitter(
-          initialRatio: 0.1,
+          initialPosition: const SplitterPosition.fraction(0.1),
           divider: const SplitterDividerStyle(thickness: dividerThickness),
           startConstraints: const SplitterPaneConstraints(minExtent: 200),
           endConstraints: const SplitterPaneConstraints(minExtent: 50),
@@ -55,7 +55,7 @@ void main() {
     await tester.pumpWidget(
       frame(
         child: ResizableSplitter(
-          initialRatio: 0.8,
+          initialPosition: const SplitterPosition.fraction(0.8),
           divider: const SplitterDividerStyle(thickness: dividerThickness),
           startConstraints: const SplitterPaneConstraints(minExtent: 200),
           endConstraints: const SplitterPaneConstraints(minExtent: 150),
@@ -79,7 +79,9 @@ void main() {
   ) async {
     const dividerThickness = 12.0;
     const totalHeight = 400.0;
-    final controller = SplitterController(initialRatio: 0.25);
+    final controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.25),
+    );
 
     await tester.pumpWidget(
       frame(
@@ -116,7 +118,7 @@ void main() {
         height: totalHeight,
         child: ResizableSplitter(
           axis: Axis.vertical,
-          initialRatio: 0.7,
+          initialPosition: const SplitterPosition.fraction(0.7),
           divider: const SplitterDividerStyle(thickness: dividerThickness),
           startConstraints: const SplitterPaneConstraints(minExtent: 180),
           endConstraints: const SplitterPaneConstraints(minExtent: 140),
@@ -220,7 +222,9 @@ void main() {
     (tester) async {
       const dividerThickness = 3.0;
       const totalWidth = 303.0;
-      final controller = SplitterController(initialRatio: 0.331);
+      final controller = SplitterController(
+        initialPosition: const SplitterPosition.fraction(0.331),
+      );
 
       await tester.pumpWidget(
         frame(
@@ -349,7 +353,9 @@ void main() {
     (tester) async {
       const dividerThickness = 3.0;
       const totalWidth = 303.0;
-      final controller = SplitterController(initialRatio: 0.331);
+      final controller = SplitterController(
+        initialPosition: const SplitterPosition.fraction(0.331),
+      );
 
       await tester.pumpWidget(
         MaterialApp(
