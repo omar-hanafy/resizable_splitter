@@ -12,6 +12,11 @@ build/
 AGENTS.md
 screenshots/
 
+# Internal planning artifacts (2.0 rebuild specs/plans). Kept in git for project
+# history, but not part of the published package (also avoids Pub's docs -> doc
+# naming warning).
+docs/
+
 # Example app: publish only its Dart source and manifest, not the generated
 # platform shells (android/ios/web/desktop) or local tooling state.
 example/.DS_Store
