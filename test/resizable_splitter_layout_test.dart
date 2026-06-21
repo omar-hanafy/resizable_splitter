@@ -212,36 +212,42 @@ void main() {
     expect(endSize.width, closeTo(available * (1 - expectedRatio), 1e-3));
   });
 
-  testWidgets('antiAliasingWorkaround floors the leading panel size', (
-    tester,
-  ) async {
-    const dividerThickness = 3.0;
-    const totalWidth = 303.0;
-    final controller = SplitterController(initialRatio: 0.331);
+  testWidgets(
+    'antiAliasingWorkaround snaps the leading panel to a physical pixel',
+    (tester) async {
+      const dividerThickness = 3.0;
+      const totalWidth = 303.0;
+      final controller = SplitterController(initialRatio: 0.331);
 
-    await tester.pumpWidget(
-      frame(
-        width: totalWidth,
-        child: ResizableSplitter(
-          controller: controller,
-          dividerThickness: dividerThickness,
-          minPanelSize: 0,
-          antiAliasingWorkaround: true,
-          semanticsLabel: 'handle',
-          startPanel: Container(key: const Key('start')),
-          endPanel: Container(key: const Key('end')),
+      await tester.pumpWidget(
+        frame(
+          width: totalWidth,
+          child: ResizableSplitter(
+            controller: controller,
+            dividerThickness: dividerThickness,
+            minPanelSize: 0,
+            antiAliasingWorkaround: true,
+            semanticsLabel: 'handle',
+            startPanel: Container(key: const Key('start')),
+            endPanel: Container(key: const Key('end')),
+          ),
         ),
-      ),
-    );
+      );
 
-    final startSize = tester.getSize(find.byKey(const Key('start')));
-    final endSize = tester.getSize(find.byKey(const Key('end')));
-    const available = totalWidth - dividerThickness;
+      final startSize = tester.getSize(find.byKey(const Key('start')));
+      final endSize = tester.getSize(find.byKey(const Key('end')));
+      const available = totalWidth - dividerThickness;
 
-    expect(startSize.width, equals(startSize.width.floorToDouble()));
-    expect(startSize.width, equals(99.0));
-    expect(endSize.width, closeTo(available - startSize.width, 1e-6));
-  });
+      // Now snaps to a whole *physical* pixel (was a whole logical pixel), so
+      // it stays crisp at fractional device-pixel ratios. The leading extent
+      // lands on a device-pixel boundary near the requested 0.331 * available.
+      final dpr = tester.view.devicePixelRatio;
+      final physical = startSize.width * dpr;
+      expect((physical - physical.roundToDouble()).abs(), lessThan(1e-6));
+      expect(startSize.width, closeTo(available * 0.331, 1.0));
+      expect(endSize.width, closeTo(available - startSize.width, 1e-6));
+    },
+  );
 
   testWidgets('LimitedBox fallback is used when unconstrained and opted in', (
     tester,

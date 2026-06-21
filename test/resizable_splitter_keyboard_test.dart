@@ -41,11 +41,15 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.pageDown);
     expect(controller.value, closeTo(0.61, 1e-6));
 
+    // Home/End jump to the real legal bounds. With minPanelSize 100 and
+    // available 392, the end pane's pixel minimum caps the start at 292/392, so
+    // End lands there - not the looser maxRatio 0.8 that was never visible
+    // (the old code stored 0.8 while the layout showed 292/392).
     await tester.sendKeyEvent(LogicalKeyboardKey.home);
-    expect(controller.value, 0.2);
+    expect(controller.value, closeTo(100 / 392, 1e-6));
 
     await tester.sendKeyEvent(LogicalKeyboardKey.end);
-    expect(controller.value, 0.8);
+    expect(controller.value, closeTo(292 / 392, 1e-6));
   });
 
   testWidgets(
@@ -77,8 +81,10 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
       expect(controller.value, closeTo(0.6, 1e-6));
 
+      // pageDown lands on the real maximum: minPanelSize 100 caps the start at
+      // 294/394 (the old code reported the never-visible 1.0).
       await tester.sendKeyEvent(LogicalKeyboardKey.pageDown);
-      expect(controller.value, closeTo(1.0, 1e-6));
+      expect(controller.value, closeTo(294 / 394, 1e-6));
     },
   );
 
@@ -142,11 +148,13 @@ void main() {
     await tester.tap(handle);
     await tester.pump();
 
+    // Steps move the *effective* position. available 314, minPanelSize 100, so
+    // the start is pinned at >= 100 (0.318); the caps then land honestly.
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
-    expect(controller.value, closeTo(0.45, 1e-6));
+    expect(controller.value, closeTo(100 / 314 + 0.2, 1e-6));
 
     await tester.sendKeyEvent(LogicalKeyboardKey.pageDown);
-    expect(controller.value, closeTo(0.9, 1e-6));
+    expect(controller.value, closeTo(214 / 314, 1e-6));
   });
 
   testWidgets('widget override keeps keyboard interaction enabled', (
