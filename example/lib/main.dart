@@ -7,6 +7,20 @@ void main() {
   runApp(const ResizableSplitterExampleApp());
 }
 
+/// Builds a state-dependent divider color from idle/hover/active colors, the
+/// idiomatic way to brand the rail across its [WidgetState]s.
+WidgetStateProperty<Color?> _dividerColors({
+  required Color idle,
+  required Color hover,
+  required Color active,
+}) {
+  return WidgetStateProperty.resolveWith<Color?>((states) {
+    if (states.contains(WidgetState.dragged)) return active;
+    if (states.contains(WidgetState.hovered)) return hover;
+    return idle;
+  });
+}
+
 class ResizableSplitterExampleApp extends StatelessWidget {
   const ResizableSplitterExampleApp({super.key});
 
@@ -117,10 +131,14 @@ class _SplitterDemoPageState extends State<SplitterDemoPage> {
       body: ResizableSplitter(
         axis: Axis.horizontal,
         controller: _controller,
-        dividerThickness: 10,
-        dividerColor: colorScheme.primary.withAlpha(60),
-        dividerHoverColor: colorScheme.primary.withAlpha(90),
-        dividerActiveColor: colorScheme.primary.withAlpha(130),
+        divider: SplitterDividerStyle(
+          thickness: 10,
+          color: _dividerColors(
+            idle: colorScheme.primary.withAlpha(60),
+            hover: colorScheme.primary.withAlpha(90),
+            active: colorScheme.primary.withAlpha(130),
+          ),
+        ),
         enableKeyboard: true,
         overlayEnabled: useOverlay,
         startConstraints: SplitterPaneConstraints(minExtent: 220),
@@ -407,10 +425,14 @@ class _VerticalWorkspacePreview extends StatelessWidget {
         endConstraints: SplitterPaneConstraints(minExtent: 160),
         minStartFraction: 0.2,
         maxStartFraction: 0.8,
-        dividerThickness: 8,
-        dividerColor: colorScheme.primary.withAlpha(70),
-        dividerHoverColor: colorScheme.primary.withAlpha(100),
-        dividerActiveColor: colorScheme.primary.withAlpha(140),
+        divider: SplitterDividerStyle(
+          thickness: 8,
+          color: _dividerColors(
+            idle: colorScheme.primary.withAlpha(70),
+            hover: colorScheme.primary.withAlpha(100),
+            active: colorScheme.primary.withAlpha(140),
+          ),
+        ),
         start: _Panel(
           title: 'Today\'s schedule',
           color: colorScheme.surfaceContainerHighest,
@@ -644,10 +666,14 @@ class _OverviewExampleState extends State<_OverviewExample> {
           Expanded(
             child: ResizableSplitter(
               controller: _controller,
-              dividerThickness: 8,
-              dividerColor: colorScheme.secondary.withAlpha(70),
-              dividerHoverColor: colorScheme.secondary.withAlpha(100),
-              dividerActiveColor: colorScheme.secondary.withAlpha(150),
+              divider: SplitterDividerStyle(
+                thickness: 8,
+                color: _dividerColors(
+                  idle: colorScheme.secondary.withAlpha(70),
+                  hover: colorScheme.secondary.withAlpha(100),
+                  active: colorScheme.secondary.withAlpha(150),
+                ),
+              ),
               snap: const SplitterSnapBehavior(
                 points: <double>[0.35, 0.5, 0.7],
               ),
@@ -706,28 +732,32 @@ class _StylingExampleState extends State<_StylingExample> {
       padding: const EdgeInsets.all(16),
       child: ResizableSplitter(
         controller: _controller,
-        dividerThickness: 14,
-        dividerColor: colorScheme.tertiaryContainer,
-        dividerHoverColor: colorScheme.tertiary,
-        dividerActiveColor: colorScheme.error,
-        handleBuilder: (context, details) {
-          final accent = details.isDragging
-              ? colorScheme.onTertiary
-              : colorScheme.onTertiaryContainer;
-          final gripColor = Theme.of(context).colorScheme.onPrimaryContainer;
-          return Center(
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 120),
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                color: accent.withAlpha(details.isDragging ? 80 : 40),
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: accent.withAlpha(120), width: 1),
+        divider: SplitterDividerStyle(
+          thickness: 14,
+          color: _dividerColors(
+            idle: colorScheme.tertiaryContainer,
+            hover: colorScheme.tertiary,
+            active: colorScheme.error,
+          ),
+          builder: (context, details) {
+            final accent = details.isDragging
+                ? colorScheme.onTertiary
+                : colorScheme.onTertiaryContainer;
+            final gripColor = Theme.of(context).colorScheme.onPrimaryContainer;
+            return Center(
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 120),
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: accent.withAlpha(details.isDragging ? 80 : 40),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: accent.withAlpha(120), width: 1),
+                ),
+                child: _HandleGripDots(axis: details.axis, color: gripColor),
               ),
-              child: _HandleGripDots(axis: details.axis, color: gripColor),
-            ),
-          );
-        },
+            );
+          },
+        ),
         start: _GradientPanel(
           title: 'Theme preview',
           colors: [colorScheme.tertiaryContainer, colorScheme.primaryContainer],

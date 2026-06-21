@@ -26,7 +26,7 @@ void main() {
       rtlHost(
         ResizableSplitter(
           controller: controller,
-          dividerThickness: 8,
+          divider: const SplitterDividerStyle(thickness: 8),
           startConstraints: const SplitterPaneConstraints(),
           endConstraints: const SplitterPaneConstraints(),
           semanticsLabel: 'handle',
@@ -83,7 +83,7 @@ void main() {
       rtlHost(
         ResizableSplitter(
           initialRatio: 0.25,
-          dividerThickness: 8,
+          divider: const SplitterDividerStyle(thickness: 8),
           startConstraints: const SplitterPaneConstraints(),
           endConstraints: const SplitterPaneConstraints(),
           semanticsLabel: 'handle',

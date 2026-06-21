@@ -92,7 +92,9 @@ void main() {
 
       final theme = ThemeData.light().copyWith(
         extensions: const <ThemeExtension<dynamic>>[
-          ResizableSplitterThemeOverrides(dividerThickness: 20),
+          ResizableSplitterThemeData(
+            divider: SplitterDividerStyle(thickness: 20),
+          ),
         ],
       );
 
@@ -105,15 +107,19 @@ void main() {
                 width: 400,
                 height: 240,
                 child: ResizableSplitterTheme(
-                  data: const ResizableSplitterThemeData(dividerThickness: 10),
+                  data: const ResizableSplitterThemeData(
+                    divider: SplitterDividerStyle(thickness: 10),
+                  ),
                   child: ResizableSplitter(
                     semanticsLabel: 'handle',
                     start: const SizedBox(),
                     end: const SizedBox(),
-                    handleBuilder: (_, details) {
-                      builtThickness = details.thickness;
-                      return const SizedBox.shrink();
-                    },
+                    divider: SplitterDividerStyle(
+                      builder: (_, details) {
+                        builtThickness = details.thickness;
+                        return const SizedBox.shrink();
+                      },
+                    ),
                   ),
                 ),
               ),
@@ -124,6 +130,110 @@ void main() {
 
       // Local theme (10) wins over the global extension (20).
       expect(builtThickness, 10);
+    });
+
+    testWidgets(
+      'a partial local override keeps the app extension value (no clobber)',
+      (tester) async {
+        double? builtThickness;
+
+        // The app-wide extension supplies the thickness.
+        final theme = ThemeData.light().copyWith(
+          extensions: const <ThemeExtension<dynamic>>[
+            ResizableSplitterThemeData(
+              divider: SplitterDividerStyle(thickness: 20),
+            ),
+          ],
+        );
+
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: theme,
+            home: Scaffold(
+              body: Center(
+                child: SizedBox(
+                  width: 400,
+                  height: 240,
+                  // The local theme touches an unrelated field only. It must
+                  // not reset the thickness the extension supplied: every theme
+                  // field is nullable, so "unset" falls through instead of
+                  // re-asserting a default.
+                  child: ResizableSplitterTheme(
+                    data: const ResizableSplitterThemeData(
+                      blockerColor: Color(0xFFFF0000),
+                    ),
+                    child: ResizableSplitter(
+                      semanticsLabel: 'handle',
+                      start: const SizedBox(),
+                      end: const SizedBox(),
+                      divider: SplitterDividerStyle(
+                        builder: (_, details) {
+                          builtThickness = details.thickness;
+                          return const SizedBox.shrink();
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+
+        // The extension's 20 survives. The old non-nullable theme clobbered it
+        // back to the 6.0 default whenever any local theme was present.
+        expect(builtThickness, 20);
+      },
+    );
+
+    testWidgets('a local divider style merges per field over the extension', (
+      tester,
+    ) async {
+      double? builtThickness;
+
+      final theme = ThemeData.light().copyWith(
+        extensions: const <ThemeExtension<dynamic>>[
+          ResizableSplitterThemeData(
+            divider: SplitterDividerStyle(thickness: 18),
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: theme,
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 400,
+                height: 240,
+                // The local divider style sets only the color; the thickness
+                // must fall through to the extension rather than being dropped.
+                child: ResizableSplitterTheme(
+                  data: const ResizableSplitterThemeData(
+                    divider: SplitterDividerStyle(
+                      color: WidgetStatePropertyAll<Color?>(Color(0xFF00FF00)),
+                    ),
+                  ),
+                  child: ResizableSplitter(
+                    semanticsLabel: 'handle',
+                    start: const SizedBox(),
+                    end: const SizedBox(),
+                    divider: SplitterDividerStyle(
+                      builder: (_, details) {
+                        builtThickness = details.thickness;
+                        return const SizedBox.shrink();
+                      },
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(builtThickness, 18);
     });
   });
 
@@ -139,8 +249,10 @@ void main() {
         host(
           width: totalWidth,
           child: ResizableSplitter(
-            dividerThickness: thickness,
-            handleHitSlop: slop,
+            divider: const SplitterDividerStyle(
+              thickness: thickness,
+              hitSlop: slop,
+            ),
             startConstraints: const SplitterPaneConstraints(),
             endConstraints: const SplitterPaneConstraints(),
             semanticsLabel: 'handle',
@@ -169,8 +281,10 @@ void main() {
           width: 400,
           child: ResizableSplitter(
             controller: controller,
-            dividerThickness: thickness,
-            handleHitSlop: slop,
+            divider: const SplitterDividerStyle(
+              thickness: thickness,
+              hitSlop: slop,
+            ),
             startConstraints: const SplitterPaneConstraints(),
             endConstraints: const SplitterPaneConstraints(),
             semanticsLabel: 'handle',
@@ -209,7 +323,7 @@ void main() {
           width: totalWidth,
           child: ResizableSplitter(
             controller: controller,
-            dividerThickness: thickness,
+            divider: const SplitterDividerStyle(thickness: thickness),
             startConstraints: const SplitterPaneConstraints(),
             endConstraints: const SplitterPaneConstraints(),
             semanticsLabel: 'handle',

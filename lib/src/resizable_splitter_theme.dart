@@ -1,6 +1,7 @@
 import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
+import 'package:resizable_splitter/src/split_divider_style.dart';
 
 /// How the splitter should behave when the main-axis constraints are unbounded.
 enum UnboundedBehavior {
@@ -11,228 +12,26 @@ enum UnboundedBehavior {
   limitedBox,
 }
 
-/// Shared styling and behavior overrides for [ResizableSplitter] widgets.
+/// Shared styling and behavior for [ResizableSplitter] widgets.
+///
+/// Every field is nullable, and an unset field genuinely means "unset": it
+/// falls through to the next layer rather than re-asserting a default. The
+/// resolution order, lowest precedence first, is the built-in default, the
+/// app-wide `ThemeData` extension, a local [ResizableSplitterTheme], then the
+/// explicit constructor argument on the widget. Because nothing here carries a
+/// default, layering a partial override (for example a local theme that sets
+/// only [blockerColor]) can never clobber a value a broader scope supplied.
+///
+/// Use it in two interchangeable ways:
+///  * app-wide, via `ThemeData(extensions: [ResizableSplitterThemeData(...)])`;
+///  * for a subtree, via [ResizableSplitterTheme].
 @immutable
-class ResizableSplitterThemeData {
-  /// Creates theme data with optional overrides for splitter presentation.
+class ResizableSplitterThemeData
+    extends ThemeExtension<ResizableSplitterThemeData> {
+  /// Creates theme data. Every field defaults to null, meaning "defer".
   const ResizableSplitterThemeData({
-    this.dividerThickness = 6.0,
-    this.dividerColor,
-    this.dividerHoverColor,
-    this.dividerActiveColor,
+    this.divider,
     this.blockerColor,
-    this.handleHitSlop = 0.0,
-    this.overlayEnabled = true,
-    this.enableKeyboard = true,
-    this.enableHaptics = true,
-    this.keyboardStep = 0.01,
-    this.pageStep = 0.1,
-    this.unboundedBehavior = UnboundedBehavior.flexExpand,
-    this.fallbackMainAxisExtent = 500.0,
-    this.antiAliasingWorkaround = false,
-  }) : assert(dividerThickness >= 0, 'dividerThickness must be non-negative'),
-       assert(handleHitSlop >= 0, 'handleHitSlop must be non-negative'),
-       assert(
-         fallbackMainAxisExtent > 0,
-         'fallbackMainAxisExtent must be greater than zero',
-       );
-
-  /// Thickness of the divider in logical pixels.
-  final double dividerThickness;
-
-  /// Idle color for the divider.
-  final Color? dividerColor;
-
-  /// Divider color when hovered.
-  final Color? dividerHoverColor;
-
-  /// Divider color when dragged.
-  final Color? dividerActiveColor;
-
-  /// Optional overlay tint while dragging.
-  final Color? blockerColor;
-
-  /// Extra invisible padding around the handle to ease hit testing.
-  final double handleHitSlop;
-
-  /// Whether the overlay shield should be inserted during drags.
-  final bool overlayEnabled;
-
-  /// Whether keyboard interaction is enabled by default.
-  final bool enableKeyboard;
-
-  /// Whether haptic feedback fires on drag start and keyboard adjustments.
-  final bool enableHaptics;
-
-  /// Ratio delta applied when pressing arrow keys.
-  final double keyboardStep;
-
-  /// Ratio delta applied when pressing page keys.
-  final double pageStep;
-
-  /// Strategy when encountering unbounded main-axis constraints.
-  final UnboundedBehavior unboundedBehavior;
-
-  /// Fallback extent used when opting into [UnboundedBehavior.limitedBox].
-  final double fallbackMainAxisExtent;
-
-  /// Whether to snap the leading panel size to whole pixels.
-  final bool antiAliasingWorkaround;
-
-  /// Returns a copy of this theme with the provided fields replaced.
-  ResizableSplitterThemeData copyWith({
-    double? dividerThickness,
-    Color? dividerColor,
-    Color? dividerHoverColor,
-    Color? dividerActiveColor,
-    Color? blockerColor,
-    double? handleHitSlop,
-    bool? overlayEnabled,
-    bool? enableKeyboard,
-    bool? enableHaptics,
-    double? keyboardStep,
-    double? pageStep,
-    UnboundedBehavior? unboundedBehavior,
-    double? fallbackMainAxisExtent,
-    bool? antiAliasingWorkaround,
-  }) {
-    return ResizableSplitterThemeData(
-      dividerThickness: dividerThickness ?? this.dividerThickness,
-      dividerColor: dividerColor ?? this.dividerColor,
-      dividerHoverColor: dividerHoverColor ?? this.dividerHoverColor,
-      dividerActiveColor: dividerActiveColor ?? this.dividerActiveColor,
-      blockerColor: blockerColor ?? this.blockerColor,
-      handleHitSlop: handleHitSlop ?? this.handleHitSlop,
-      overlayEnabled: overlayEnabled ?? this.overlayEnabled,
-      enableKeyboard: enableKeyboard ?? this.enableKeyboard,
-      enableHaptics: enableHaptics ?? this.enableHaptics,
-      keyboardStep: keyboardStep ?? this.keyboardStep,
-      pageStep: pageStep ?? this.pageStep,
-      unboundedBehavior: unboundedBehavior ?? this.unboundedBehavior,
-      fallbackMainAxisExtent:
-          fallbackMainAxisExtent ?? this.fallbackMainAxisExtent,
-      antiAliasingWorkaround:
-          antiAliasingWorkaround ?? this.antiAliasingWorkaround,
-    );
-  }
-
-  /// Returns a copy of this theme with missing values filled from [overrides].
-  ResizableSplitterThemeData mergeOverrides(
-    ResizableSplitterThemeOverrides? overrides,
-  ) {
-    if (overrides == null) return this;
-    return ResizableSplitterThemeData(
-      dividerThickness: overrides.dividerThickness ?? dividerThickness,
-      dividerColor: overrides.dividerColor ?? dividerColor,
-      dividerHoverColor: overrides.dividerHoverColor ?? dividerHoverColor,
-      dividerActiveColor: overrides.dividerActiveColor ?? dividerActiveColor,
-      blockerColor: overrides.blockerColor ?? blockerColor,
-      handleHitSlop: overrides.handleHitSlop ?? handleHitSlop,
-      overlayEnabled: overrides.overlayEnabled ?? overlayEnabled,
-      enableKeyboard: overrides.enableKeyboard ?? enableKeyboard,
-      enableHaptics: overrides.enableHaptics ?? enableHaptics,
-      keyboardStep: overrides.keyboardStep ?? keyboardStep,
-      pageStep: overrides.pageStep ?? pageStep,
-      unboundedBehavior: overrides.unboundedBehavior ?? unboundedBehavior,
-      fallbackMainAxisExtent:
-          overrides.fallbackMainAxisExtent ?? fallbackMainAxisExtent,
-      antiAliasingWorkaround:
-          overrides.antiAliasingWorkaround ?? antiAliasingWorkaround,
-    );
-  }
-
-  /// Overlays a more specific [local] theme on top of this base, with [local]
-  /// taking precedence. Nullable fields fall back to this base when [local]
-  /// leaves them unset (so an app-wide extension can still supply colors a
-  /// local theme omits); the remaining fields always come from [local].
-  ///
-  /// Used by [ResizableSplitterTheme.of] so a local `ResizableSplitterTheme`
-  /// overrides the global `ThemeExtension`, matching the documented precedence.
-  ResizableSplitterThemeData mergeTheme(ResizableSplitterThemeData local) {
-    return ResizableSplitterThemeData(
-      dividerThickness: local.dividerThickness,
-      dividerColor: local.dividerColor ?? dividerColor,
-      dividerHoverColor: local.dividerHoverColor ?? dividerHoverColor,
-      dividerActiveColor: local.dividerActiveColor ?? dividerActiveColor,
-      blockerColor: local.blockerColor ?? blockerColor,
-      handleHitSlop: local.handleHitSlop,
-      overlayEnabled: local.overlayEnabled,
-      enableKeyboard: local.enableKeyboard,
-      enableHaptics: local.enableHaptics,
-      keyboardStep: local.keyboardStep,
-      pageStep: local.pageStep,
-      unboundedBehavior: local.unboundedBehavior,
-      fallbackMainAxisExtent: local.fallbackMainAxisExtent,
-      antiAliasingWorkaround: local.antiAliasingWorkaround,
-    );
-  }
-}
-
-/// Provides [ResizableSplitterThemeData] to descendants.
-class ResizableSplitterTheme extends StatelessWidget {
-  /// Creates a theme boundary for [ResizableSplitter] widgets.
-  const ResizableSplitterTheme({
-    super.key,
-    required this.data,
-    required this.child,
-  });
-
-  /// Theme values applied to descendant splitters.
-  final ResizableSplitterThemeData data;
-
-  /// The subtree receiving the themed values.
-  final Widget child;
-
-  static const _default = ResizableSplitterThemeData();
-
-  /// Retrieves the nearest [ResizableSplitterThemeData].
-  ///
-  /// Precedence, lowest to highest: Material defaults, then the app-wide
-  /// `ThemeData.extension<ResizableSplitterThemeOverrides>()`, then a local
-  /// [ResizableSplitterTheme]. The local theme is more specific, so it
-  /// overrides the global extension (constructor parameters, resolved by the
-  /// widget, sit above all of these).
-  static ResizableSplitterThemeData of(BuildContext context) {
-    final inherited = context
-        .dependOnInheritedWidgetOfExactType<_InheritedSplitterTheme>();
-    final overridesExt = Theme.of(
-      context,
-    ).extension<ResizableSplitterThemeOverrides>();
-    final base = _default.mergeOverrides(overridesExt);
-    final local = inherited?.theme.data;
-    return local == null ? base : base.mergeTheme(local);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return _InheritedSplitterTheme(theme: this, child: child);
-  }
-}
-
-class _InheritedSplitterTheme extends InheritedWidget {
-  /// Creates an inherited widget that exposes [ResizableSplitterThemeData].
-  const _InheritedSplitterTheme({required this.theme, required super.child});
-
-  /// The theme wrapper that owns the exposed data.
-  final ResizableSplitterTheme theme;
-
-  /// Rebuild descendants when the underlying theme data changes.
-  @override
-  bool updateShouldNotify(_InheritedSplitterTheme oldWidget) =>
-      theme.data != oldWidget.theme.data;
-}
-
-/// Theme extension enabling app-wide overrides without wrapping widgets.
-class ResizableSplitterThemeOverrides
-    extends ThemeExtension<ResizableSplitterThemeOverrides> {
-  /// Creates a theme extension with optional overrides.
-  const ResizableSplitterThemeOverrides({
-    this.dividerThickness,
-    this.dividerColor,
-    this.dividerHoverColor,
-    this.dividerActiveColor,
-    this.blockerColor,
-    this.handleHitSlop,
     this.overlayEnabled,
     this.enableKeyboard,
     this.enableHaptics,
@@ -241,59 +40,54 @@ class ResizableSplitterThemeOverrides
     this.unboundedBehavior,
     this.fallbackMainAxisExtent,
     this.antiAliasingWorkaround,
-  });
+  }) : assert(
+         keyboardStep == null || keyboardStep >= 0,
+         'keyboardStep must be non-negative',
+       ),
+       assert(
+         pageStep == null || pageStep >= 0,
+         'pageStep must be non-negative',
+       ),
+       assert(
+         fallbackMainAxisExtent == null || fallbackMainAxisExtent > 0,
+         'fallbackMainAxisExtent must be greater than zero',
+       );
 
-  /// Divider thickness override.
-  final double? dividerThickness;
+  /// Divider appearance and grab configuration.
+  final SplitterDividerStyle? divider;
 
-  /// Idle divider color override.
-  final Color? dividerColor;
-
-  /// Hover divider color override.
-  final Color? dividerHoverColor;
-
-  /// Active divider color override.
-  final Color? dividerActiveColor;
-
-  /// Drag overlay tint override.
+  /// Optional overlay tint while dragging.
   final Color? blockerColor;
 
-  /// Handle hit test padding override.
-  final double? handleHitSlop;
-
-  /// Drag overlay toggle override.
+  /// Whether the overlay shield is inserted during drags.
   final bool? overlayEnabled;
 
-  /// Keyboard enablement override.
+  /// Whether keyboard interaction is enabled.
   final bool? enableKeyboard;
 
-  /// Haptic feedback enablement override.
+  /// Whether haptic feedback fires on drag start and keyboard adjustments.
   final bool? enableHaptics;
 
-  /// Arrow-key step override.
+  /// Ratio delta applied when pressing arrow keys.
   final double? keyboardStep;
 
-  /// Page-key step override.
+  /// Ratio delta applied when pressing page keys.
   final double? pageStep;
 
-  /// Unbounded constraints behavior override.
+  /// Strategy when encountering unbounded main-axis constraints.
   final UnboundedBehavior? unboundedBehavior;
 
-  /// LimitedBox fallback extent override.
+  /// Fallback extent used when opting into [UnboundedBehavior.limitedBox].
   final double? fallbackMainAxisExtent;
 
-  /// Anti-alias workaround override.
+  /// Whether to snap the leading panel size to whole physical pixels.
   final bool? antiAliasingWorkaround;
 
-  /// Returns a copy of this extension with the provided values replaced.
+  /// Returns a copy with the provided fields replaced.
   @override
-  ResizableSplitterThemeOverrides copyWith({
-    double? dividerThickness,
-    Color? dividerColor,
-    Color? dividerHoverColor,
-    Color? dividerActiveColor,
+  ResizableSplitterThemeData copyWith({
+    SplitterDividerStyle? divider,
     Color? blockerColor,
-    double? handleHitSlop,
     bool? overlayEnabled,
     bool? enableKeyboard,
     bool? enableHaptics,
@@ -303,13 +97,9 @@ class ResizableSplitterThemeOverrides
     double? fallbackMainAxisExtent,
     bool? antiAliasingWorkaround,
   }) {
-    return ResizableSplitterThemeOverrides(
-      dividerThickness: dividerThickness ?? this.dividerThickness,
-      dividerColor: dividerColor ?? this.dividerColor,
-      dividerHoverColor: dividerHoverColor ?? this.dividerHoverColor,
-      dividerActiveColor: dividerActiveColor ?? this.dividerActiveColor,
+    return ResizableSplitterThemeData(
+      divider: divider ?? this.divider,
       blockerColor: blockerColor ?? this.blockerColor,
-      handleHitSlop: handleHitSlop ?? this.handleHitSlop,
       overlayEnabled: overlayEnabled ?? this.overlayEnabled,
       enableKeyboard: enableKeyboard ?? this.enableKeyboard,
       enableHaptics: enableHaptics ?? this.enableHaptics,
@@ -323,28 +113,38 @@ class ResizableSplitterThemeOverrides
     );
   }
 
-  /// Linearly interpolates between two extensions.
+  /// Overlays [other] on top of this data, field by field. A non-null field in
+  /// [other] wins; unset fields fall through to this. The nested [divider] is
+  /// merged the same way, so a local divider style layers over the base instead
+  /// of replacing it wholesale.
+  ResizableSplitterThemeData merge(ResizableSplitterThemeData? other) {
+    if (other == null) return this;
+    return ResizableSplitterThemeData(
+      divider: divider == null ? other.divider : divider!.merge(other.divider),
+      blockerColor: other.blockerColor ?? blockerColor,
+      overlayEnabled: other.overlayEnabled ?? overlayEnabled,
+      enableKeyboard: other.enableKeyboard ?? enableKeyboard,
+      enableHaptics: other.enableHaptics ?? enableHaptics,
+      keyboardStep: other.keyboardStep ?? keyboardStep,
+      pageStep: other.pageStep ?? pageStep,
+      unboundedBehavior: other.unboundedBehavior ?? unboundedBehavior,
+      fallbackMainAxisExtent:
+          other.fallbackMainAxisExtent ?? fallbackMainAxisExtent,
+      antiAliasingWorkaround:
+          other.antiAliasingWorkaround ?? antiAliasingWorkaround,
+    );
+  }
+
+  /// Linearly interpolates between two theme data objects.
   @override
-  ResizableSplitterThemeOverrides lerp(
-    covariant ResizableSplitterThemeOverrides? other,
+  ResizableSplitterThemeData lerp(
+    covariant ResizableSplitterThemeData? other,
     double t,
   ) {
     if (other == null) return this;
-    return ResizableSplitterThemeOverrides(
-      dividerThickness: lerpDouble(dividerThickness, other.dividerThickness, t),
-      dividerColor: Color.lerp(dividerColor, other.dividerColor, t),
-      dividerHoverColor: Color.lerp(
-        dividerHoverColor,
-        other.dividerHoverColor,
-        t,
-      ),
-      dividerActiveColor: Color.lerp(
-        dividerActiveColor,
-        other.dividerActiveColor,
-        t,
-      ),
+    return ResizableSplitterThemeData(
+      divider: SplitterDividerStyle.lerp(divider, other.divider, t),
       blockerColor: Color.lerp(blockerColor, other.blockerColor, t),
-      handleHitSlop: lerpDouble(handleHitSlop, other.handleHitSlop, t),
       overlayEnabled: t < 0.5 ? overlayEnabled : other.overlayEnabled,
       enableKeyboard: t < 0.5 ? enableKeyboard : other.enableKeyboard,
       enableHaptics: t < 0.5 ? enableHaptics : other.enableHaptics,
@@ -362,7 +162,89 @@ class ResizableSplitterThemeOverrides
     );
   }
 
-  /// Converts this extension into a theme data object using [base] as fallback.
-  ResizableSplitterThemeData asThemeData(ResizableSplitterThemeData base) =>
-      base.mergeOverrides(this);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ResizableSplitterThemeData &&
+          other.divider == divider &&
+          other.blockerColor == blockerColor &&
+          other.overlayEnabled == overlayEnabled &&
+          other.enableKeyboard == enableKeyboard &&
+          other.enableHaptics == enableHaptics &&
+          other.keyboardStep == keyboardStep &&
+          other.pageStep == pageStep &&
+          other.unboundedBehavior == unboundedBehavior &&
+          other.fallbackMainAxisExtent == fallbackMainAxisExtent &&
+          other.antiAliasingWorkaround == antiAliasingWorkaround;
+
+  @override
+  int get hashCode => Object.hash(
+    divider,
+    blockerColor,
+    overlayEnabled,
+    enableKeyboard,
+    enableHaptics,
+    keyboardStep,
+    pageStep,
+    unboundedBehavior,
+    fallbackMainAxisExtent,
+    antiAliasingWorkaround,
+  );
+
+  @override
+  String toString() =>
+      'ResizableSplitterThemeData(divider: $divider, '
+      'blockerColor: $blockerColor, overlayEnabled: $overlayEnabled, '
+      'enableKeyboard: $enableKeyboard, enableHaptics: $enableHaptics, '
+      'keyboardStep: $keyboardStep, pageStep: $pageStep, '
+      'unboundedBehavior: $unboundedBehavior, '
+      'fallbackMainAxisExtent: $fallbackMainAxisExtent, '
+      'antiAliasingWorkaround: $antiAliasingWorkaround)';
+}
+
+/// Provides [ResizableSplitterThemeData] to a subtree.
+class ResizableSplitterTheme extends StatelessWidget {
+  /// Creates a theme boundary for [ResizableSplitter] widgets.
+  const ResizableSplitterTheme({
+    super.key,
+    required this.data,
+    required this.child,
+  });
+
+  /// Theme values applied to descendant splitters.
+  final ResizableSplitterThemeData data;
+
+  /// The subtree receiving the themed values.
+  final Widget child;
+
+  /// Resolves the effective theme for [context].
+  ///
+  /// Precedence, lowest to highest: the app-wide
+  /// `ThemeData.extension<ResizableSplitterThemeData>()`, then a local
+  /// [ResizableSplitterTheme]. Because every field is nullable, a more specific
+  /// scope only overrides the fields it actually sets; the rest fall through.
+  /// Constructor parameters on the widget sit above both.
+  static ResizableSplitterThemeData of(BuildContext context) {
+    final inherited = context
+        .dependOnInheritedWidgetOfExactType<_InheritedSplitterTheme>();
+    final extension = Theme.of(context).extension<ResizableSplitterThemeData>();
+    final base = extension ?? const ResizableSplitterThemeData();
+    final local = inherited?.theme.data;
+    return local == null ? base : base.merge(local);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _InheritedSplitterTheme(theme: this, child: child);
+  }
+}
+
+class _InheritedSplitterTheme extends InheritedWidget {
+  const _InheritedSplitterTheme({required this.theme, required super.child});
+
+  final ResizableSplitterTheme theme;
+
+  @override
+  bool updateShouldNotify(_InheritedSplitterTheme oldWidget) =>
+      theme.data != oldWidget.theme.data;
 }

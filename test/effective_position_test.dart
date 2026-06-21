@@ -21,7 +21,7 @@ void main() {
           height: 240,
           child: ResizableSplitter(
             controller: controller,
-            dividerThickness: 8,
+            divider: const SplitterDividerStyle(thickness: 8),
             startConstraints: const SplitterPaneConstraints(minExtent: 200),
             endConstraints: const SplitterPaneConstraints(),
             semanticsLabel: 'handle',

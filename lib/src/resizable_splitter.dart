@@ -9,6 +9,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:resizable_splitter/src/resizable_splitter_theme.dart';
+import 'package:resizable_splitter/src/split_divider_style.dart';
 import 'package:resizable_splitter/src/split_pane_constraints.dart';
 import 'package:resizable_splitter/src/split_position.dart';
 import 'package:resizable_splitter/src/split_snap_behavior.dart';
@@ -24,36 +25,13 @@ extension _AxisHelpers on Axis {
       isH ? SystemMouseCursors.resizeColumn : SystemMouseCursors.resizeRow;
 }
 
-/// Public handle details passed to [ResizableSplitter.handleBuilder].
-class SplitterHandleDetails {
-  /// Captures the current handle interaction state for custom builders.
-  const SplitterHandleDetails({
-    required this.isDragging,
-    required this.isHovering,
-    required this.axis,
-    required this.thickness,
-  });
-
-  /// Whether the handle is currently being dragged by the user.
-  final bool isDragging;
-
-  /// Whether the pointer is hovering over the handle.
-  final bool isHovering;
-
-  /// The axis (horizontal/vertical) of the associated splitter.
-  final Axis axis;
-
-  /// Thickness of the handle in logical pixels.
-  final double thickness;
-}
-
-/// A controller for managing splitter position (0.0–1.0).
+/// A controller for managing splitter position (0.0-1.0).
 ///
 /// Maintains the split ratio and exposes simple APIs to update or animate it.
 /// A global pointer router prevents “stuck drags” when platform views steal
 /// pointer events. The router attaches only when a [WidgetsBinding] is
 /// available, so controllers created in pure Dart tests or before `runApp`
-/// stay functional—the enhanced drag cleanup simply activates once Flutter is
+/// stay functional - the enhanced drag cleanup simply activates once Flutter is
 /// initialized.
 class SplitterController extends ValueNotifier<double> {
   /// Creates a splitter controller with the given initial ratio.
@@ -284,7 +262,8 @@ class _GlobalPointerRouter {
 /// - Smooth dragging, keyboard navigation, and accessible semantics.
 /// - Works with embedded platform views (e.g., WebViews) via an overlay shield
 ///   to stop pointer events from being stolen.
-/// - Extensive customization via colors and a custom [handleBuilder].
+/// - Extensive customization via [divider] ([SplitterDividerStyle]): a
+///   state-dependent color, thickness, grab slop, and a custom grip builder.
 ///
 /// If the incoming constraints along [axis] are unbounded or zero, the
 /// splitter cannot resize, so it shows the two panels without the divider:
@@ -296,8 +275,9 @@ class _GlobalPointerRouter {
 ///
 /// Theme precedence: explicit constructor values override
 /// [ResizableSplitterTheme], which in turn overrides
-/// `Theme.of(context).extension<ResizableSplitterThemeOverrides>()`. When no
-/// overrides are provided, colors fall back to the ambient [ThemeData]
+/// `Theme.of(context).extension<ResizableSplitterThemeData>()`. Every theme
+/// field is nullable, so a partial override only replaces the fields it sets.
+/// When nothing is provided, colors fall back to the ambient [ThemeData]
 /// (via [ColorScheme]) and numeric values fall back to the defaults documented
 /// on each parameter.
 class ResizableSplitter extends StatefulWidget {
@@ -313,54 +293,28 @@ class ResizableSplitter extends StatefulWidget {
     this.endConstraints = const SplitterPaneConstraints(minExtent: 100),
     this.minStartFraction = 0.0,
     this.maxStartFraction = 1.0,
-    double? dividerThickness,
-    this.dividerColor,
-    this.dividerHoverColor,
-    this.dividerActiveColor,
+    this.divider,
     this.onRatioChanged,
     this.onDragStart,
     this.onDragEnd,
-    bool? enableKeyboard,
-    bool? enableHaptics,
-    double? keyboardStep,
-    double? pageStep,
+    this.enableKeyboard,
+    this.enableHaptics,
+    this.keyboardStep,
+    this.pageStep,
     this.semanticsLabel,
     this.blockerColor,
-    bool? overlayEnabled,
+    this.overlayEnabled,
     this.snap,
-    this.handleBuilder,
     this.holdScrollWhileDragging = false,
-    double? handleHitSlop,
     this.doubleTapResetTo,
     this.resizable = true,
     this.onHandleTap,
     this.onHandleDoubleTap,
     this.constraintPolicy = SplitterConstraintPolicy.favorStart,
-    UnboundedBehavior? unboundedBehavior,
-    double? fallbackMainAxisExtent,
-    bool? antiAliasingWorkaround,
-  }) : enableKeyboard = enableKeyboard ?? true,
-       _enableKeyboardExplicit = enableKeyboard != null,
-       enableHaptics = enableHaptics ?? true,
-       _enableHapticsExplicit = enableHaptics != null,
-       overlayEnabled = overlayEnabled ?? true,
-       _overlayEnabledExplicit = overlayEnabled != null,
-       unboundedBehavior = unboundedBehavior ?? UnboundedBehavior.flexExpand,
-       _unboundedBehaviorExplicit = unboundedBehavior != null,
-       antiAliasingWorkaround = antiAliasingWorkaround ?? false,
-       _antiAliasingWorkaroundExplicit = antiAliasingWorkaround != null,
-       dividerThickness = dividerThickness ?? _defaultDividerThickness,
-       _dividerThicknessExplicit = dividerThickness != null,
-       keyboardStep = keyboardStep ?? _defaultKeyboardStep,
-       _keyboardStepExplicit = keyboardStep != null,
-       pageStep = pageStep ?? _defaultPageStep,
-       _pageStepExplicit = pageStep != null,
-       handleHitSlop = handleHitSlop ?? _defaultHandleHitSlop,
-       _handleHitSlopExplicit = handleHitSlop != null,
-       fallbackMainAxisExtent =
-           fallbackMainAxisExtent ?? _defaultFallbackMainAxisExtent,
-       _fallbackExtentExplicit = fallbackMainAxisExtent != null,
-       assert(
+    this.unboundedBehavior,
+    this.fallbackMainAxisExtent,
+    this.antiAliasingWorkaround,
+  }) : assert(
          initialRatio >= 0.0 && initialRatio <= 1.0,
          'initialRatio must be between 0.0 and 1.0',
        ),
@@ -375,14 +329,6 @@ class ResizableSplitter extends StatefulWidget {
        assert(
          minStartFraction <= maxStartFraction,
          'minStartFraction must be <= maxStartFraction',
-       ),
-       assert(
-         handleHitSlop == null || handleHitSlop >= 0,
-         'handleHitSlop must be non-negative',
-       ),
-       assert(
-         dividerThickness == null || dividerThickness >= 0,
-         'dividerThickness must be non-negative',
        ),
        assert(
          keyboardStep == null || keyboardStep >= 0,
@@ -441,18 +387,11 @@ class ResizableSplitter extends StatefulWidget {
   /// Highest fraction of the available space the start pane may take (0.0-1.0).
   final double maxStartFraction;
 
-  /// Thickness of the divider handle in pixels.
-  final double dividerThickness;
-  final bool _dividerThicknessExplicit;
-
-  /// Color of the divider in its idle state.
-  final Color? dividerColor;
-
-  /// Color of the divider when hovered.
-  final Color? dividerHoverColor;
-
-  /// Color of the divider when being dragged.
-  final Color? dividerActiveColor;
+  /// Divider appearance and grab configuration: thickness, a state-dependent
+  /// color, the grab [SplitterDividerStyle.hitSlop], and a custom grip
+  /// [SplitterDividerStyle.builder]. Unset fields fall back to
+  /// [ResizableSplitterTheme], then to the built-in defaults.
+  final SplitterDividerStyle? divider;
 
   /// Called when the split ratio changes (e.g., dragging or keyboard).
   final ValueChanged<double>? onRatioChanged;
@@ -463,24 +402,20 @@ class ResizableSplitter extends StatefulWidget {
   /// Called when a drag gesture ends.
   final ValueChanged<double>? onDragEnd;
 
-  /// Whether to enable keyboard navigation with arrow keys.
-  final bool enableKeyboard;
-  final bool _enableKeyboardExplicit;
+  /// Whether to enable keyboard navigation with arrow keys. Defaults to true.
+  final bool? enableKeyboard;
 
   /// Whether haptic feedback fires on drag start and keyboard adjustments.
   ///
   /// Defaults to true. On platforms without a haptic engine (web, most
   /// desktops) the calls are silent no-ops regardless.
-  final bool enableHaptics;
-  final bool _enableHapticsExplicit;
+  final bool? enableHaptics;
 
-  /// Step applied with Arrow keys (e.g., 0.01 = 1%).
-  final double keyboardStep;
-  final bool _keyboardStepExplicit;
+  /// Step applied with Arrow keys (e.g., 0.01 = 1%). Defaults to 0.01.
+  final double? keyboardStep;
 
-  /// Step applied with PageUp/PageDown keys (e.g., 0.1 = 10%).
-  final double pageStep;
-  final bool _pageStepExplicit;
+  /// Step applied with PageUp/PageDown keys (e.g., 0.1 = 10%). Defaults to 0.1.
+  final double? pageStep;
 
   /// Accessibility label for the divider.
   final String? semanticsLabel;
@@ -488,22 +423,14 @@ class ResizableSplitter extends StatefulWidget {
   /// The blocked color when dragged.
   final Color? blockerColor;
 
-  /// Whether the protective overlay is used while dragging.
-  final bool overlayEnabled;
-  final bool _overlayEnabledExplicit;
+  /// Whether the protective overlay is used while dragging. Defaults to true.
+  final bool? overlayEnabled;
 
   /// Optional snap points; a drag settles onto the nearest within tolerance.
   final SplitterSnapBehavior? snap;
 
-  /// Custom handle builder to replace the inner “grip” UI.
-  final Widget Function(BuildContext, SplitterHandleDetails)? handleBuilder;
-
   /// Whether to temporarily hold the nearest Scrollable's position while dragging.
   final bool holdScrollWhileDragging;
-
-  /// Extra, invisible padding around the handle to make it easier to grab.
-  final double handleHitSlop;
-  final bool _handleHitSlopExplicit;
 
   /// Optional ratio to jump to on double-tap.
   final double? doubleTapResetTo;
@@ -520,17 +447,17 @@ class ResizableSplitter extends StatefulWidget {
   /// Policy applied when both panes cannot meet their minimums at once.
   final SplitterConstraintPolicy constraintPolicy;
 
-  /// Fallback layout behavior when constraints are unbounded along the main axis.
-  final UnboundedBehavior unboundedBehavior;
-  final bool _unboundedBehaviorExplicit;
+  /// Fallback layout behavior when constraints are unbounded along the main
+  /// axis. Defaults to [UnboundedBehavior.flexExpand].
+  final UnboundedBehavior? unboundedBehavior;
 
-  /// Extent in pixels to use when [unboundedBehavior] is [UnboundedBehavior.limitedBox].
-  final double fallbackMainAxisExtent;
-  final bool _fallbackExtentExplicit;
+  /// Extent in pixels to use when [unboundedBehavior] is
+  /// [UnboundedBehavior.limitedBox]. Defaults to 500.
+  final double? fallbackMainAxisExtent;
 
-  /// Floors the leading panel size to whole pixels to avoid anti-alias gaps.
-  final bool antiAliasingWorkaround;
-  final bool _antiAliasingWorkaroundExplicit;
+  /// Floors the leading panel size to whole physical pixels to avoid anti-alias
+  /// gaps. Defaults to false.
+  final bool? antiAliasingWorkaround;
 
   @override
   State<ResizableSplitter> createState() => _ResizableSplitterState();
@@ -673,32 +600,34 @@ class _ResizableSplitterState extends State<ResizableSplitter>
   @override
   Widget build(BuildContext context) {
     final theme = ResizableSplitterTheme.of(context);
+    final dividerStyle = widget.divider;
+    final themeDivider = theme.divider;
 
-    final dividerThickness = widget._dividerThicknessExplicit
-        ? widget.dividerThickness
-        : theme.dividerThickness;
+    // Each effective value resolves widget -> theme -> built-in default. Null
+    // means "unset" at every layer, so a partial override never clobbers a
+    // value supplied by a broader scope.
+    final dividerThickness =
+        dividerStyle?.thickness ??
+        themeDivider?.thickness ??
+        ResizableSplitter._defaultDividerThickness;
+    final handleHitSlop =
+        dividerStyle?.hitSlop ??
+        themeDivider?.hitSlop ??
+        ResizableSplitter._defaultHandleHitSlop;
+    final handleBuilder = dividerStyle?.builder ?? themeDivider?.builder;
+    final dividerColor = dividerStyle?.color ?? themeDivider?.color;
 
-    final keyboardStep = widget._keyboardStepExplicit
-        ? widget.keyboardStep
-        : theme.keyboardStep;
-
-    final pageStep = widget._pageStepExplicit
-        ? widget.pageStep
-        : theme.pageStep;
-
-    final handleHitSlop = widget._handleHitSlopExplicit
-        ? widget.handleHitSlop
-        : theme.handleHitSlop;
-
-    final overlayEnabled = widget._overlayEnabledExplicit
-        ? widget.overlayEnabled
-        : theme.overlayEnabled;
-    final enableKeyboard = widget._enableKeyboardExplicit
-        ? widget.enableKeyboard
-        : theme.enableKeyboard;
-    final enableHaptics = widget._enableHapticsExplicit
-        ? widget.enableHaptics
-        : theme.enableHaptics;
+    final keyboardStep =
+        widget.keyboardStep ??
+        theme.keyboardStep ??
+        ResizableSplitter._defaultKeyboardStep;
+    final pageStep =
+        widget.pageStep ?? theme.pageStep ?? ResizableSplitter._defaultPageStep;
+    final overlayEnabled =
+        widget.overlayEnabled ?? theme.overlayEnabled ?? true;
+    final enableKeyboard =
+        widget.enableKeyboard ?? theme.enableKeyboard ?? true;
+    final enableHaptics = widget.enableHaptics ?? theme.enableHaptics ?? true;
 
     // The divider reserves its visible thickness plus the invisible grab slop
     // on either side. Panels share whatever is left, so the slop widens the
@@ -706,23 +635,19 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     final dividerExtent = dividerThickness + 2 * handleHitSlop;
 
     final blockerColor = widget.blockerColor ?? theme.blockerColor;
-    final dividerColor = widget.dividerColor ?? theme.dividerColor;
-    final dividerHoverColor =
-        widget.dividerHoverColor ?? theme.dividerHoverColor;
-    final dividerActiveColor =
-        widget.dividerActiveColor ?? theme.dividerActiveColor;
 
-    final unboundedBehavior = widget._unboundedBehaviorExplicit
-        ? widget.unboundedBehavior
-        : theme.unboundedBehavior;
+    final unboundedBehavior =
+        widget.unboundedBehavior ??
+        theme.unboundedBehavior ??
+        UnboundedBehavior.flexExpand;
 
-    final fallbackExtent = widget._fallbackExtentExplicit
-        ? widget.fallbackMainAxisExtent
-        : theme.fallbackMainAxisExtent;
+    final fallbackExtent =
+        widget.fallbackMainAxisExtent ??
+        theme.fallbackMainAxisExtent ??
+        ResizableSplitter._defaultFallbackMainAxisExtent;
 
-    final antiAliasingWorkaround = widget._antiAliasingWorkaroundExplicit
-        ? widget.antiAliasingWorkaround
-        : theme.antiAliasingWorkaround;
+    final antiAliasingWorkaround =
+        widget.antiAliasingWorkaround ?? theme.antiAliasingWorkaround ?? false;
 
     final controller = _attachedController ?? _effectiveController;
 
@@ -767,8 +692,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
                         handleHitSlop: handleHitSlop,
                         blockerColor: blockerColor,
                         dividerColor: dividerColor,
-                        dividerHoverColor: dividerHoverColor,
-                        dividerActiveColor: dividerActiveColor,
+                        handleBuilder: handleBuilder,
                         antiAliasingWorkaround: antiAliasingWorkaround,
                         controller: controller,
                       );
@@ -814,8 +738,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
               handleHitSlop: handleHitSlop,
               blockerColor: blockerColor,
               dividerColor: dividerColor,
-              dividerHoverColor: dividerHoverColor,
-              dividerActiveColor: dividerActiveColor,
+              handleBuilder: handleBuilder,
               antiAliasingWorkaround: antiAliasingWorkaround,
               controller: controller,
             );
@@ -836,9 +759,9 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     required bool overlayEnabled,
     required double handleHitSlop,
     required Color? blockerColor,
-    required Color? dividerColor,
-    required Color? dividerHoverColor,
-    required Color? dividerActiveColor,
+    required WidgetStateProperty<Color?>? dividerColor,
+    required Widget Function(BuildContext, SplitterHandleDetails)?
+    handleBuilder,
     required bool antiAliasingWorkaround,
     required SplitterController controller,
   }) {
@@ -882,8 +805,6 @@ class _ResizableSplitterState extends State<ResizableSplitter>
           solution: solution,
           blockerColor: blockerColor,
           dividerColor: dividerColor,
-          dividerHoverColor: dividerHoverColor,
-          dividerActiveColor: dividerActiveColor,
           onRatioChanged: widget.onRatioChanged,
           onDragStart: widget.onDragStart,
           onDragEnd: widget.onDragEnd,
@@ -895,7 +816,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
           semanticsLabel: widget.semanticsLabel,
           overlayEnabled: overlayEnabled && widget.resizable,
           snap: widget.snap,
-          handleBuilder: widget.handleBuilder,
+          handleBuilder: handleBuilder,
           holdScrollWhileDragging:
               widget.holdScrollWhileDragging && widget.resizable,
           handleHitSlop: handleHitSlop,
@@ -924,8 +845,6 @@ class _DividerHandle extends StatefulWidget {
     required this.solution,
     required this.dividerColor,
     required this.blockerColor,
-    required this.dividerHoverColor,
-    required this.dividerActiveColor,
     required this.onRatioChanged,
     required this.onDragStart,
     required this.onDragEnd,
@@ -951,10 +870,8 @@ class _DividerHandle extends StatefulWidget {
   final double thickness;
   final SplitterSolver solver;
   final SplitterSolution solution;
-  final Color? dividerColor;
+  final WidgetStateProperty<Color?>? dividerColor;
   final Color? blockerColor;
-  final Color? dividerHoverColor;
-  final Color? dividerActiveColor;
   final ValueChanged<double>? onRatioChanged;
   final ValueChanged<double>? onDragStart;
   final ValueChanged<double>? onDragEnd;
@@ -993,26 +910,6 @@ class _DividerHandleState extends State<_DividerHandle> {
     if (widget.enableHaptics) unawaited(HapticFeedback.selectionClick());
   }
 
-  late BoxDecoration _idleDecoration;
-  late BoxDecoration _hoverDecoration;
-  late BoxDecoration _activeDecoration;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _updateDecorations();
-  }
-
-  @override
-  void didUpdateWidget(_DividerHandle oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.dividerColor != widget.dividerColor ||
-        oldWidget.dividerHoverColor != widget.dividerHoverColor ||
-        oldWidget.dividerActiveColor != widget.dividerActiveColor) {
-      _updateDecorations();
-    }
-  }
-
   @override
   void dispose() {
     if (_isDragging) {
@@ -1027,24 +924,21 @@ class _DividerHandleState extends State<_DividerHandle> {
     super.dispose();
   }
 
-  void _updateDecorations() {
+  /// Resolves the divider color for the active [states], falling back to a tint
+  /// derived from the ambient [ColorScheme] when the style leaves it unset. The
+  /// merge of widget-over-theme already happened upstream, so [dividerColor] is
+  /// the single resolved property here.
+  Color _resolveDividerColor(Set<WidgetState> states) {
+    final resolved = widget.dividerColor?.resolve(states);
+    if (resolved != null) return resolved;
     final cs = Theme.of(context).colorScheme;
-    final theme = ResizableSplitterTheme.of(context);
-    // Calm splitter colors derived from the surrounding theme unless overridden.
-    final baseColor =
-        widget.dividerColor ?? theme.dividerColor ?? cs.outlineVariant;
-    final hoverColor =
-        widget.dividerHoverColor ??
-        theme.dividerHoverColor ??
-        cs.onSurface.withAlpha(20);
-    final activeColor =
-        widget.dividerActiveColor ??
-        theme.dividerActiveColor ??
-        cs.onSurface.withAlpha(31);
-
-    _idleDecoration = BoxDecoration(color: baseColor);
-    _hoverDecoration = BoxDecoration(color: hoverColor);
-    _activeDecoration = BoxDecoration(color: activeColor);
+    if (states.contains(WidgetState.dragged)) {
+      return cs.onSurface.withAlpha(31);
+    }
+    if (states.contains(WidgetState.hovered)) {
+      return cs.onSurface.withAlpha(20);
+    }
+    return cs.outlineVariant;
   }
 
   void _onDragStart(DragStartDetails details) {
@@ -1321,14 +1215,14 @@ class _DividerHandleState extends State<_DividerHandle> {
 
   @override
   Widget build(BuildContext context) {
-    BoxDecoration currentDecoration;
-    if (_isDragging) {
-      currentDecoration = _activeDecoration;
-    } else if (_isHovering) {
-      currentDecoration = _hoverDecoration;
-    } else {
-      currentDecoration = _idleDecoration;
-    }
+    final states = <WidgetState>{
+      if (!widget.resizable) WidgetState.disabled,
+      if (_isHovering) WidgetState.hovered,
+      if (_isDragging) WidgetState.dragged,
+    };
+    final currentDecoration = BoxDecoration(
+      color: _resolveDividerColor(states),
+    );
 
     final grip =
         widget.handleBuilder?.call(

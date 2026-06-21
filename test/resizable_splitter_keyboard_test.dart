@@ -22,7 +22,7 @@ void main() {
         ResizableSplitter(
           controller: controller,
           semanticsLabel: 'handle',
-          dividerThickness: 8,
+          divider: const SplitterDividerStyle(thickness: 8),
           minStartFraction: 0.2,
           maxStartFraction: 0.8,
           start: const SizedBox(),
@@ -120,7 +120,7 @@ void main() {
 
     final theme = ThemeData.light().copyWith(
       extensions: const <ThemeExtension<dynamic>>[
-        ResizableSplitterThemeOverrides(keyboardStep: 0.2, pageStep: 0.45),
+        ResizableSplitterThemeData(keyboardStep: 0.2, pageStep: 0.45),
       ],
     );
 
@@ -164,7 +164,7 @@ void main() {
 
     final theme = ThemeData.light().copyWith(
       extensions: const <ThemeExtension<dynamic>>[
-        ResizableSplitterThemeOverrides(enableKeyboard: false),
+        ResizableSplitterThemeData(enableKeyboard: false),
       ],
     );
 

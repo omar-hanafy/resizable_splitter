@@ -17,7 +17,7 @@ void main() {
     await tester.pumpWidget(
       host(
         const ResizableSplitter(
-          dividerThickness: 8,
+          divider: SplitterDividerStyle(thickness: 8),
           start: SizedBox(),
           end: SizedBox(),
         ),

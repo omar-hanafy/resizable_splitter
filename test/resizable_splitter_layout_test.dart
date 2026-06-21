@@ -29,7 +29,7 @@ void main() {
       frame(
         child: ResizableSplitter(
           initialRatio: 0.1,
-          dividerThickness: dividerThickness,
+          divider: const SplitterDividerStyle(thickness: dividerThickness),
           startConstraints: const SplitterPaneConstraints(minExtent: 200),
           endConstraints: const SplitterPaneConstraints(minExtent: 50),
           semanticsLabel: 'handle',
@@ -56,7 +56,7 @@ void main() {
       frame(
         child: ResizableSplitter(
           initialRatio: 0.8,
-          dividerThickness: dividerThickness,
+          divider: const SplitterDividerStyle(thickness: dividerThickness),
           startConstraints: const SplitterPaneConstraints(minExtent: 200),
           endConstraints: const SplitterPaneConstraints(minExtent: 150),
           semanticsLabel: 'handle',
@@ -89,7 +89,7 @@ void main() {
           controller: controller,
           startConstraints: const SplitterPaneConstraints(),
           endConstraints: const SplitterPaneConstraints(),
-          dividerThickness: dividerThickness,
+          divider: const SplitterDividerStyle(thickness: dividerThickness),
           semanticsLabel: 'handle',
           start: Container(key: const Key('top')),
           end: Container(key: const Key('bottom')),
@@ -117,7 +117,7 @@ void main() {
         child: ResizableSplitter(
           axis: Axis.vertical,
           initialRatio: 0.7,
-          dividerThickness: dividerThickness,
+          divider: const SplitterDividerStyle(thickness: dividerThickness),
           startConstraints: const SplitterPaneConstraints(minExtent: 180),
           endConstraints: const SplitterPaneConstraints(minExtent: 140),
           semanticsLabel: 'handle',
@@ -142,11 +142,13 @@ void main() {
           semanticsLabel: 'handle',
           start: const SizedBox(),
           end: const SizedBox(),
-          handleBuilder: (_, details) {
-            expect(details.thickness, 6.0);
-            expect(details.axis, Axis.horizontal);
-            return Container(key: const Key('customGrip'));
-          },
+          divider: SplitterDividerStyle(
+            builder: (_, details) {
+              expect(details.thickness, 6.0);
+              expect(details.axis, Axis.horizontal);
+              return Container(key: const Key('customGrip'));
+            },
+          ),
         ),
       ),
     );
@@ -164,7 +166,7 @@ void main() {
       frame(
         width: totalWidth,
         child: ResizableSplitter(
-          dividerThickness: dividerThickness,
+          divider: const SplitterDividerStyle(thickness: dividerThickness),
           constraintPolicy: SplitterConstraintPolicy.favorEnd,
           startConstraints: const SplitterPaneConstraints(minExtent: 200),
           endConstraints: const SplitterPaneConstraints(minExtent: 140),
@@ -193,7 +195,7 @@ void main() {
       frame(
         width: totalWidth,
         child: ResizableSplitter(
-          dividerThickness: dividerThickness,
+          divider: const SplitterDividerStyle(thickness: dividerThickness),
           constraintPolicy: SplitterConstraintPolicy.proportional,
           startConstraints: const SplitterPaneConstraints(minExtent: 180),
           endConstraints: const SplitterPaneConstraints(minExtent: 120),
@@ -225,7 +227,7 @@ void main() {
           width: totalWidth,
           child: ResizableSplitter(
             controller: controller,
-            dividerThickness: dividerThickness,
+            divider: const SplitterDividerStyle(thickness: dividerThickness),
             startConstraints: const SplitterPaneConstraints(),
             endConstraints: const SplitterPaneConstraints(),
             antiAliasingWorkaround: true,
@@ -361,7 +363,9 @@ void main() {
                   width: totalWidth,
                   child: ResizableSplitter(
                     controller: controller,
-                    dividerThickness: dividerThickness,
+                    divider: const SplitterDividerStyle(
+                      thickness: dividerThickness,
+                    ),
                     startConstraints: const SplitterPaneConstraints(),
                     endConstraints: const SplitterPaneConstraints(),
                     antiAliasingWorkaround: false,

@@ -34,7 +34,7 @@ void main() {
         host(
           child: ResizableSplitter(
             controller: controller,
-            dividerThickness: dividerThickness,
+            divider: const SplitterDividerStyle(thickness: dividerThickness),
             semanticsLabel: 'handle',
             startConstraints: const SplitterPaneConstraints(),
             endConstraints: const SplitterPaneConstraints(),
@@ -101,7 +101,7 @@ void main() {
                       child: ResizableSplitter(
                         axis: Axis.vertical,
                         controller: controller,
-                        dividerThickness: 12,
+                        divider: const SplitterDividerStyle(thickness: 12),
                         semanticsLabel: 'handle',
                         start: Container(color: Colors.orange),
                         end: Container(color: Colors.blue),
@@ -152,7 +152,7 @@ void main() {
         width: totalWidth,
         child: ResizableSplitter(
           controller: controller,
-          dividerThickness: dividerThickness,
+          divider: const SplitterDividerStyle(thickness: dividerThickness),
           semanticsLabel: 'handle',
           minStartFraction: 0.3,
           maxStartFraction: 0.9,
@@ -184,7 +184,7 @@ void main() {
       host(
         child: ResizableSplitter(
           controller: controller,
-          dividerThickness: 8,
+          divider: const SplitterDividerStyle(thickness: 8),
           semanticsLabel: 'handle',
           start: const SizedBox(),
           end: const SizedBox(),
@@ -214,7 +214,7 @@ void main() {
         width: totalWidth,
         child: ResizableSplitter(
           controller: controller,
-          dividerThickness: dividerThickness,
+          divider: const SplitterDividerStyle(thickness: dividerThickness),
           semanticsLabel: 'handle',
           startConstraints: const SplitterPaneConstraints(minExtent: 130),
           endConstraints: const SplitterPaneConstraints(),
@@ -249,7 +249,7 @@ void main() {
         child: ResizableSplitter(
           axis: Axis.vertical,
           controller: controller,
-          dividerThickness: dividerThickness,
+          divider: const SplitterDividerStyle(thickness: dividerThickness),
           semanticsLabel: 'handle',
           startConstraints: const SplitterPaneConstraints(minExtent: 150),
           endConstraints: const SplitterPaneConstraints(minExtent: 120),
@@ -285,7 +285,7 @@ void main() {
             child: showSplitter
                 ? ResizableSplitter(
                     controller: controller,
-                    dividerThickness: 10,
+                    divider: const SplitterDividerStyle(thickness: 10),
                     semanticsLabel: 'handle',
                     start: const SizedBox(),
                     end: const SizedBox(),
@@ -446,7 +446,7 @@ void main() {
 
     final theme = ThemeData.light().copyWith(
       extensions: const <ThemeExtension<dynamic>>[
-        ResizableSplitterThemeOverrides(overlayEnabled: false),
+        ResizableSplitterThemeData(overlayEnabled: false),
       ],
     );
 
@@ -495,7 +495,7 @@ void main() {
 
     final theme = ThemeData.light().copyWith(
       extensions: const <ThemeExtension<dynamic>>[
-        ResizableSplitterThemeOverrides(overlayEnabled: false),
+        ResizableSplitterThemeData(overlayEnabled: false),
       ],
     );
 
