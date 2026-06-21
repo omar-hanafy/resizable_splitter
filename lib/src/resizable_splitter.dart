@@ -102,6 +102,12 @@ class SplitterController extends ValueNotifier<SplitterPosition> {
   double get effectiveFraction => _effectiveFraction;
   double _effectiveFraction;
 
+  // Which pane is collapsed (null = neither). Collapse is a flag, not a value
+  // write: a collapsed pane bypasses its minimum via the solver while the
+  // request in [value] is left untouched, so expanding restores the prior
+  // position for free with no remembered copy to keep in sync.
+  SplitterPane? _collapsedPane;
+
   // Updated by the attached splitter after each solve so [effectiveFraction]
   // tracks the constrained, on-screen ratio. Not a notification source: the
   // request in [value] is canonical and already drives rebuilds.
@@ -113,7 +119,12 @@ class SplitterController extends ValueNotifier<SplitterPosition> {
   /// press, reset, or direct assignment) takes over from a running animation.
   @override
   set value(SplitterPosition newValue) {
-    if (!_isAnimationTick) _animator?.cancel();
+    if (!_isAnimationTick) {
+      _animator?.cancel();
+      // A direct position write is a fresh intent that supersedes a collapse:
+      // drop the flag so the new position takes effect immediately.
+      _collapsedPane = null;
+    }
     // A fractional request resolves without the layout, so refresh the cache
     // eagerly; the splitter overwrites it with the constrained value on layout.
     if (newValue is FractionSplitterPosition) {
@@ -136,6 +147,34 @@ class SplitterController extends ValueNotifier<SplitterPosition> {
     assert(to >= 0.0 && to <= 1.0, 'to must be between 0.0 and 1.0');
     value = SplitterPosition.fraction(to);
   }
+
+  /// Which pane, if any, is currently collapsed; null when neither is.
+  SplitterPane? get collapsedPane => _collapsedPane;
+
+  /// Whether either pane is currently collapsed.
+  bool get isCollapsed => _collapsedPane != null;
+
+  /// Collapses [pane] to its [SplitterPaneConstraints.collapsedExtent],
+  /// bypassing that pane's minimum. The request in [value] is left untouched, so
+  /// [expand] restores the prior position. Collapsing the already-collapsed pane
+  /// is a no-op; collapsing the other pane just moves the collapse across.
+  void collapse(SplitterPane pane) {
+    if (_collapsedPane == pane) return;
+    _collapsedPane = pane;
+    notifyListeners();
+  }
+
+  /// Expands a collapsed pane, restoring the position held before it collapsed
+  /// (the untouched [value]). A no-op when neither pane is collapsed.
+  void expand() {
+    if (_collapsedPane == null) return;
+    _collapsedPane = null;
+    notifyListeners();
+  }
+
+  /// Collapses [pane] if it is not already collapsed, otherwise expands.
+  void toggleCollapse(SplitterPane pane) =>
+      _collapsedPane == pane ? expand() : collapse(pane);
 
   /// Animates the split ratio to [target].
   ///
@@ -495,6 +534,10 @@ class _ResizableSplitterState extends State<ResizableSplitter>
   SplitterController? _internalController;
   SplitterController? _attachedController;
 
+  // The collapse state last surfaced to onChanged, so a collapse/expand is
+  // reported exactly once (not on every rebuild while it stays collapsed).
+  SplitterPane? _reportedCollapsePane;
+
   // vsync animation state backing SplitterController.animateTo.
   double _animBegin = 0;
   double _animEnd = 0;
@@ -554,6 +597,9 @@ class _ResizableSplitterState extends State<ResizableSplitter>
         .._attach(this)
         .._attachAnimator(this);
       _attachedController = newController;
+      // Sync to the incoming controller so a swap does not fire a phantom
+      // collapse/restore for state that was never this controller's.
+      _reportedCollapsePane = newController._collapsedPane;
     }
   }
 
@@ -619,6 +665,35 @@ class _ResizableSplitterState extends State<ResizableSplitter>
       _setAnimatedValue(_animEnd);
       _completeAnimation();
     }
+  }
+
+  // Surfaces a collapse/expand transition to onChanged exactly once, tagged with
+  // the matching source, after the frame settles. Called from _buildBounded with
+  // the freshly solved geometry, so the reported extents match what is drawn.
+  void _maybeReportCollapseChange(
+    SplitterController controller,
+    SplitterSolver solver,
+    SplitterSolution solution,
+  ) {
+    final pane = controller._collapsedPane;
+    if (pane == _reportedCollapsePane) return;
+    final source = pane != null
+        ? SplitterChangeSource.collapse
+        : SplitterChangeSource.restore;
+    _reportedCollapsePane = pane;
+    final onChanged = widget.onChanged;
+    if (onChanged == null) return;
+    final details = SplitterChangeDetails(
+      requestedPosition: controller.value,
+      effectiveFraction: solution.effectiveFraction,
+      startExtent: solution.startExtent,
+      endExtent: solution.endExtent,
+      availableExtent: solver.available,
+      source: source,
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) onChanged(details);
+    });
   }
 
   @override
@@ -801,6 +876,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     // One solver drives both the layout here and every ratio decision inside
     // the handle, so the two can never disagree on the legal bounds, and an
     // inverted clamp (the historic cramped-drag crash) is impossible.
+    final collapsedPane = controller._collapsedPane;
     final solver = SplitterSolver(
       available: availableSize,
       start: widget.startConstraints,
@@ -808,6 +884,8 @@ class _ResizableSplitterState extends State<ResizableSplitter>
       minStartFraction: widget.minStartFraction,
       maxStartFraction: widget.maxStartFraction,
       policy: widget.constraintPolicy,
+      startCollapsed: collapsedPane == SplitterPane.start,
+      endCollapsed: collapsedPane == SplitterPane.end,
     );
 
     final solution = solver.solve(
@@ -819,6 +897,11 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     // Keep the controller's effective-fraction read-out in step with the
     // constrained, on-screen ratio it just resolved to.
     controller._setEffectiveFraction(solution.effectiveFraction);
+
+    // Report a collapse/expand transition once, after the frame, so the change
+    // callbacks stay honest about every layout change and its source without
+    // calling user code mid-build.
+    _maybeReportCollapseChange(controller, solver, solution);
 
     final first = solution.startExtent;
     final second = solution.endExtent;

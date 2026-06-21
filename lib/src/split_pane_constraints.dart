@@ -69,6 +69,15 @@ class SplitterPaneConstraints {
       'collapsedExtent: $collapsedExtent)';
 }
 
+/// Identifies one of the two panes of a split.
+enum SplitterPane {
+  /// The leading pane (left in LTR, right in RTL; top on a vertical axis).
+  start,
+
+  /// The trailing pane (right in LTR, left in RTL; bottom on a vertical axis).
+  end,
+}
+
 /// Policy applied when both panes cannot satisfy their hard limits at once.
 ///
 /// This is the final tie-break in the constraint hierarchy: it only takes effect
