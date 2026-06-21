@@ -141,7 +141,20 @@ Branch `feat/resizable-splitter-2.0`. 90 tests green, `dart analyze` clean.
   from the keyboard flag, honest value previews, text direction, focus-on-press.
   DEFERRED to 6: public `focusNode`/`autofocus`/`onFocusChange`, value formatter.
 
-Status: 94 tests green, analyze clean, through Sub-project 5.
+- IN PROGRESS Sub-project 6 (API restructure, clean break - no deprecations per
+  owner direction). DONE: (1) `startPanel`/`endPanel` -> `start`/`end`; (2) pane
+  constraints grouped into `startConstraints`/`endConstraints`
+  (`SplitterPaneConstraints`) + `minStartFraction`/`maxStartFraction` +
+  `constraintPolicy` (removed `CrampedBehavior`; default min stays 100px so
+  behavior is preserved; `maxExtent` now exposes per-pane maximums); (3) snapping
+  grouped into `SplitterSnapBehavior`; (4) dropped the `Axis` re-export.
+  REMAINING: divider style grouping + single nullable theme +
+  `WidgetStateProperty` (these are coupled - the theme partial-override clobber
+  fix lives here); `initialPosition: SplitterPosition` input (pixel pinning) +
+  `SplitterPosition` on the controller; rich callbacks
+  (`onChanged`/`onChangeStart`/`onChangeEnd` with `SplitterChangeDetails`).
+
+Status: 94 tests green, analyze clean, through Sub-project 6 increment 4.
 
 Interim notes for the next session:
 - The controller value is a single `double` (requested/effective fraction). The
