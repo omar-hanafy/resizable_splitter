@@ -249,11 +249,44 @@ finish, so no phantom programmatic onChanged). The drag got the matching fix: a
 controller when the controller/axis is swapped mid-drag (shared `_teardownDrag`).
 Status: 161 tests green, analyze clean (package + tests + example).
 
-REMAINING from the review (next candidates): #10 overlay `maybeOf` graceful
-degrade; #7 unify geometry so pixel snapping is consistent across solve sites;
-#4 honest callback contract / centralized dispatch (product-shaped); #5 collapse
-respects `collapsible` (needs a model decision); #6 solver surplus policy
-(product-shaped); #11 unbounded cross axis.
+DONE Review #10 (overlay graceful degrade). `_insertOverlay` used `Overlay.of`,
+which throws with no Overlay ancestor; now `Overlay.maybeOf` + skip the shield
+(with a debug warning) so the splitter works outside a MaterialApp.
+
+DONE Review #7 (consistent pixel snapping / unify geometry). `devicePixelRatio` +
+`snapToDevicePixels` moved from per-`solve` args onto `SplitterSolver`, so the
+one solver per layout snaps identically for layout, drag, keyboard, snap,
+semantics, and preview - callbacks can't report an extent the layout never drew.
+
+DONE Review #11 (unbounded cross axis). A bounded main axis with an unbounded
+cross axis (e.g. a horizontal splitter in a Column) threw an infinite-size error
+from the layout Stack; it now sizes to the panes (loose fit) when the cross axis
+is unbounded, bounded path unchanged.
+
+Status after this pass: 167 tests green, analyze clean (package + tests +
+example), publish dry-run 0 warnings.
+
+OWNER-GATED (product/behavior decisions - deliberately not invented):
+- #4 honest callback contract: today `onChanged` fires for drag/keyboard/snap/
+  semantics/collapse but NOT for `jumpTo`/`updateRatio`/`reset`/`animateTo`/
+  restoration. Making it fire for those (or splitting into
+  onInteractionStart/Update/End + a controller listenable, as the review offers)
+  changes what consumers observe - pick the model. Recommendation: keep
+  `onChanged` interaction-only (its current behavior) and let programmatic
+  changes be observed via `controller`/`layoutListenable` (now available); only
+  document the contract precisely. Low-risk, no API churn.
+- #5 collapse model: `SplitterPaneConstraints.collapsible` is never enforced (any
+  pane can collapse), and `collapsedExtent` may exceed `minExtent`/`maxExtent`
+  ("collapse" could enlarge). Recommendation: replace `collapsible` (bool) +
+  `collapsedExtent` with a single nullable `collapsedExtent` (null = not
+  collapsible), assert it is `<= minExtent`, and have the widget ignore a
+  collapse request for a non-collapsible pane. Breaking but small; needs the
+  owner's nod on the shape + the "collapse a fixed pane" policy.
+- #6 solver surplus policy: `favorStart`/`favorEnd`/`proportional` only define the
+  shortage case (mins don't fit); the surplus case (maxes can't fill) currently
+  violates a max silently. Recommendation: add a `SplitterSurplusPolicy`
+  (giveToStart/giveToEnd/proportional/leaveGap) with a documented default. New
+  public enum + default = product call.
 
 ## Working agreements
 
