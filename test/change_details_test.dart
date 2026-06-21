@@ -123,4 +123,48 @@ void main() {
 
     expect(sources, contains(SplitterChangeSource.keyboard));
   });
+
+  testWidgets('change details carry the real request: a pin at start, a '
+      'fraction after moving (review #9)', (tester) async {
+    final controller = SplitterController(
+      initialPosition: const SplitterPosition.startPixels(120),
+    );
+    SplitterChangeDetails? start;
+    SplitterChangeDetails? lastChange;
+
+    await tester.pumpWidget(
+      host(
+        ResizableSplitter(
+          controller: controller,
+          divider: const SplitterDividerStyle(thickness: 8),
+          startConstraints: const SplitterPaneConstraints(),
+          endConstraints: const SplitterPaneConstraints(),
+          semanticsLabel: 'handle',
+          onChangeStart: (d) => start = d,
+          onChanged: (d) => lastChange = d,
+          start: const SizedBox(),
+          end: const SizedBox(),
+        ),
+      ),
+    );
+
+    final handle = find.bySemanticsLabel('handle');
+    final gesture = await tester.startGesture(tester.getCenter(handle));
+    await tester.pump();
+
+    // At drag start the request is still the pixel pin - not a fraction
+    // fabricated from the effective value - even though it shows at 120/400.
+    expect(start, isNotNull);
+    expect(start!.requestedPosition, const SplitterPosition.startPixels(120));
+    expect(start!.effectiveFraction, closeTo(120 / 400, 1e-6));
+
+    // Moving the divider releases the pin: the request becomes a fraction.
+    await gesture.moveBy(const Offset(40, 0));
+    await tester.pump();
+    expect(lastChange, isNotNull);
+    expect(lastChange!.requestedPosition, isA<FractionSplitterPosition>());
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+  });
 }

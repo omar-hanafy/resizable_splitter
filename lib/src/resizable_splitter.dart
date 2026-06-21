@@ -1284,15 +1284,18 @@ class _DividerHandleState extends State<_DividerHandle> {
       widget.localMainAxisOf(globalPosition) ??
       (widget.axis.isH ? globalPosition.dx : globalPosition.dy);
 
-  /// Builds the change payload for [fraction], resolving the effective layout
-  /// through the shared solver so the reported extents match what is drawn.
+  /// Builds the change payload for the effective [fraction], resolving the
+  /// layout through the shared solver so the reported extents match what is
+  /// drawn. [requestedPosition] is the controller's *actual* request - which may
+  /// be a pixel pin - rather than a fraction fabricated from the effective value,
+  /// so a drag that starts on a pinned pane reports the pin honestly.
   SplitterChangeDetails _changeDetails(
     double fraction,
     SplitterChangeSource source,
   ) {
     final solution = widget.solver.solve(SplitterPosition.fraction(fraction));
     return SplitterChangeDetails(
-      requestedPosition: SplitterPosition.fraction(fraction),
+      requestedPosition: widget.controller.value.position,
       effectiveFraction: solution.effectiveFraction,
       startExtent: solution.startExtent,
       endExtent: solution.endExtent,
