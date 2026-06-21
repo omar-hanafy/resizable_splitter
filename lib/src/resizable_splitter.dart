@@ -1040,7 +1040,11 @@ class _DividerHandleState extends State<_DividerHandle> {
     final currentPos = widget.axis.isH
         ? details.globalPosition.dx
         : details.globalPosition.dy;
-    final delta = currentPos - _dragStartPosition!;
+    // In RTL the start pane sits on the right, so dragging the divider right (a
+    // positive delta) must shrink it. Vertical axes are unaffected.
+    final isRtl =
+        widget.axis.isH && Directionality.maybeOf(context) == TextDirection.rtl;
+    final delta = (currentPos - _dragStartPosition!) * (isRtl ? -1.0 : 1.0);
     final deltaRatio = delta / available;
 
     // Resolve through the shared solver so the stored value tracks what is
@@ -1396,24 +1400,24 @@ class _DividerHandleState extends State<_DividerHandle> {
     );
 
     if (widget.enableKeyboard && widget.resizable) {
+      final isRtl =
+          widget.axis.isH && Directionality.of(context) == TextDirection.rtl;
+      final decreaseKey = widget.axis.isH
+          ? (isRtl
+                ? LogicalKeyboardKey.arrowRight
+                : LogicalKeyboardKey.arrowLeft)
+          : LogicalKeyboardKey.arrowUp;
+      final increaseKey = widget.axis.isH
+          ? (isRtl
+                ? LogicalKeyboardKey.arrowLeft
+                : LogicalKeyboardKey.arrowRight)
+          : LogicalKeyboardKey.arrowDown;
       divider = FocusableActionDetector(
         focusNode: widget.focusNode,
         shortcuts: <LogicalKeySet, Intent>{
-          // Fine step
-          LogicalKeySet(
-            widget.axis.isH
-                ? LogicalKeyboardKey.arrowLeft
-                : LogicalKeyboardKey.arrowUp,
-          ): _AdjustIntent(
-            -widget.keyboardStep,
-          ),
-          LogicalKeySet(
-            widget.axis.isH
-                ? LogicalKeyboardKey.arrowRight
-                : LogicalKeyboardKey.arrowDown,
-          ): _AdjustIntent(
-            widget.keyboardStep,
-          ),
+          // Fine step (left/right swap under RTL on the horizontal axis).
+          LogicalKeySet(decreaseKey): _AdjustIntent(-widget.keyboardStep),
+          LogicalKeySet(increaseKey): _AdjustIntent(widget.keyboardStep),
           // Page step
           LogicalKeySet(LogicalKeyboardKey.pageUp): _AdjustIntent(
             -widget.pageStep,
