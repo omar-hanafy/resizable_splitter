@@ -11,8 +11,11 @@ so the stored value can no longer disagree with what is drawn.
 
 ### Breaking changes
 
-- `SplitterController.value` is now a `SplitterPosition` (was `double`). Read the
-  on-screen ratio with `controller.effectiveFraction`.
+- `SplitterController.value` is now an atomic `SplitterState` (the requested
+  `SplitterPosition` plus any collapsed pane); was `double` in 1.x. Set the
+  position with `controller.jumpTo(SplitterPosition)`, read it with
+  `controller.position`, and the on-screen ratio with
+  `controller.effectiveFraction`.
 - `initialRatio` -> `initialPosition` (a `SplitterPosition`).
 - Divider styling grouped into `divider: SplitterDividerStyle(...)`, replacing
   `dividerThickness` / `dividerColor` / `dividerHoverColor` /
@@ -39,6 +42,14 @@ so the stored value can no longer disagree with what is drawn.
 
 ### Added
 
+- `SplitterController.layout` / `layoutListenable`: the resolved on-screen
+  geometry (`SplitterLayout` - effective fraction, both pane extents, available
+  extent, `isConstrained`, `collapsedPane`) as an observable separate from the
+  request. A pixel pin's fraction shifts when the container resizes without the
+  request changing, so this is the signal for that class of change. `null` before
+  the first layout (no pretending a pixel request already has a fraction).
+- `SplitterState` (the atomic controller value) and `SplitterController.jumpTo`
+  / `position`.
 - Pixel pinning: `SplitterPosition.startPixels` / `endPixels` keep a pane's pixel
   width as the container resizes (true fixed sidebars).
 - Collapse/expand: `controller.collapse(SplitterPane.start | SplitterPane.end)`,
@@ -52,6 +63,12 @@ so the stored value can no longer disagree with what is drawn.
 
 ### Fixed
 
+- Collapse is now part of the atomic controller value, so collapsing and then
+  writing an equal value can no longer silently desync the controller from the
+  UI (it reported expanded while the pane stayed collapsed).
+- `effectiveFraction` now reports the true on-screen value and updates on
+  container resize (via `layoutListenable`); it no longer leaks the unclamped
+  request after settling onto a constrained target.
 - Stored ratio now equals the visible ratio: honest drag/keyboard callbacks, and
   the ~200px drag dead zone and cramped-drag crash are gone by construction.
 - RTL: drag and arrow keys move with the pointer; the start pane lays out on the

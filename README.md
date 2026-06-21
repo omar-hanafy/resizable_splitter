@@ -81,8 +81,13 @@ const SplitterPosition.startPixels(280);
 const SplitterPosition.endPixels(320);
 ```
 
-`controller.value` holds the request (a `SplitterPosition`); read the on-screen
-ratio with `controller.effectiveFraction`.
+`controller.value` holds the request as an atomic `SplitterState` (the requested
+`SplitterPosition` plus any collapsed pane). Read the request with
+`controller.position` and the on-screen ratio with `controller.effectiveFraction`.
+The resolved on-screen geometry is a separate observable, `controller.layout`
+(a `SplitterLayout?`), with `controller.layoutListenable` for changes the request
+alone does not signal - such as a pixel pin's fraction shifting as the container
+resizes.
 
 ## Controller
 
@@ -95,17 +100,26 @@ controller.isDraggingListenable.addListener(() {
   if (controller.isDragging) debugPrint('drag started');
 });
 
-controller.updateRatio(0.4);            // clamp to [0,1] with a noise threshold
-controller.value = const SplitterPosition.fraction(0.6);
-controller.reset();                     // back to 0.5
-await controller.animateTo(0.8);        // vsync animation; cancels on drag
+controller.updateRatio(0.4);                  // clamp to [0,1] with a threshold
+controller.jumpTo(const SplitterPosition.fraction(0.6)); // set the request
+controller.reset();                           // back to 0.5
+await controller.animateTo(0.8);              // vsync animation; cancels on drag
 
-controller.collapse(SplitterPane.start);  // shrink the start pane
-controller.expand();                      // restore the prior position
+controller.collapse(SplitterPane.start);      // shrink the start pane
+controller.expand();                          // restore the prior position
+
+// controller.value is the atomic request (a SplitterState). Track the resolved
+// on-screen geometry separately - it changes on resize even when the request
+// does not:
+controller.layoutListenable.addListener(() {
+  debugPrint('on-screen ratio: ${controller.layout?.effectiveFraction}');
+});
 ```
 
 Provide a `controller` to persist or drive the position, or omit it and let the
-splitter manage one internally.
+splitter manage one internally. Set the position with `jumpTo` (or `updateRatio`
+/ `reset` / `animateTo`); assigning `controller.value` directly takes a full
+`SplitterState`.
 
 ## Constraints and policy
 
@@ -295,7 +309,8 @@ A drag inserts an invisible shield over the tree so embedded platform views
 | 1.x | 2.0 |
 | --- | --- |
 | `initialRatio: 0.5` | `initialPosition: SplitterPosition.fraction(0.5)` |
-| `controller.value` *(double)* | `controller.value` *(SplitterPosition)*; ratio via `controller.effectiveFraction` |
+| `controller.value = 0.6` *(double)* | `controller.jumpTo(SplitterPosition.fraction(0.6))` |
+| `controller.value` *(read, double)* | `controller.position` *(SplitterPosition)* / `controller.effectiveFraction` *(double)*; `controller.value` is now a `SplitterState` |
 | `dividerThickness`, `dividerColor`, `dividerHoverColor`, `dividerActiveColor`, `handleHitSlop`, `handleBuilder` | `divider: SplitterDividerStyle(thickness, color, hitSlop, builder)` |
 | `minPanelSize`, `minStartPanelSize`, `minEndPanelSize` | `startConstraints` / `endConstraints: SplitterPaneConstraints(minExtent: ...)` |
 | `minRatio`, `maxRatio` | `minStartFraction`, `maxStartFraction` |

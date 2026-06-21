@@ -213,6 +213,26 @@ OWNER-GATED REMAINING (deliberately not done autonomously):
   support-policy decision (broader compatibility vs simpler source).
 - Optional: integration tests (the widget suite already covers the surface).
 
+## Post-release hardening (second pass on the external review, 2026-06-22)
+
+After the 2.0 surface was release-ready, a deeper re-read of the external review
+flagged that the patches so far did not make the controller/event/animation state
+machine production-grade. Walking the review's "Recommended 2.0 sequence":
+
+DONE Sub-project 9 (atomic controller state + resolved-layout listenable;
+recommendation #1). `SplitterController` now extends
+`ValueNotifier<SplitterState>` ({position, collapsedPane}); collapse moved out of
+a side-channel field into the value, so the "collapse then write an equal value"
+desync (review issue #1) is unrepresentable. A separate
+`SplitterLayout`/`layoutListenable` publishes the resolved on-screen geometry, so
+a pixel pin's fraction shift on resize is observable (review issue #8) - the
+notifier primes synchronously (fresh read-outs) and flushes post-frame (no
+setState-in-build). `jumpTo(SplitterPosition)` replaces the `value =
+SplitterPosition` ergonomic. New value types `SplitterState`/`SplitterLayout` are
+exported and property-tested; invariant tests lock #1 and #8. Spec:
+`2026-06-22-resizable-splitter-9-atomic-state.md`. Status: 155 tests green,
+analyze clean (package + tests + example).
+
 ## Working agreements
 
 - TDD: tests first, lock invariants (not just reported inputs).
