@@ -602,6 +602,17 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     setState(() => _previewFraction = fraction);
   }
 
+  // Converts a global pointer position to the splitter's local main-axis
+  // coordinate, so a drag stays correct under a Transform (scale/rotate). The
+  // splitter's own box is stationary during a drag (unlike the moving handle),
+  // which is why the conversion is anchored here rather than on the handle.
+  double? _localMainAxisOf(Offset globalPosition) {
+    final box = context.findRenderObject();
+    if (box is! RenderBox || !box.attached) return null;
+    final local = box.globalToLocal(globalPosition);
+    return widget.axis.isH ? local.dx : local.dy;
+  }
+
   // Mirrors the live controller position into the restorable so it persists.
   void _handlePositionChanged() {
     if (!_restorationReady) return;
@@ -1000,6 +1011,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
       onPreviewChanged: widget.deferredResize && widget.resizable
           ? _setPreview
           : null,
+      localMainAxisOf: _localMainAxisOf,
     );
 
     // During a deferred drag the panes hold their committed size; a lightweight
@@ -1112,6 +1124,7 @@ class _DividerHandle extends StatefulWidget {
     this.onDoubleTap,
     this.deferred = false,
     this.onPreviewChanged,
+    required this.localMainAxisOf,
   });
 
   final Axis axis;
@@ -1147,6 +1160,10 @@ class _DividerHandle extends StatefulWidget {
   /// Reports the live preview fraction during a deferred drag (null on release).
   final ValueChanged<double?>? onPreviewChanged;
 
+  /// Maps a global pointer position to the splitter's local main-axis
+  /// coordinate so drag math is transform-safe. Returns null if unavailable.
+  final double? Function(Offset globalPosition) localMainAxisOf;
+
   @override
   State<_DividerHandle> createState() => _DividerHandleState();
 }
@@ -1165,6 +1182,13 @@ class _DividerHandleState extends State<_DividerHandle> {
   void _haptic() {
     if (widget.enableHaptics) unawaited(HapticFeedback.selectionClick());
   }
+
+  // The pointer's position along the main axis in the splitter's local frame
+  // (transform-safe), falling back to the raw global coordinate if the render
+  // box is unavailable.
+  double _mainAxisPosition(Offset globalPosition) =>
+      widget.localMainAxisOf(globalPosition) ??
+      (widget.axis.isH ? globalPosition.dx : globalPosition.dy);
 
   /// Builds the change payload for [fraction], resolving the effective layout
   /// through the shared solver so the reported extents match what is drawn.
@@ -1232,9 +1256,7 @@ class _DividerHandleState extends State<_DividerHandle> {
       .._setDragging(true);
 
     _dragStartRatio = widget.solution.effectiveFraction;
-    _dragStartPosition = widget.axis.isH
-        ? details.globalPosition.dx
-        : details.globalPosition.dy;
+    _dragStartPosition = _mainAxisPosition(details.globalPosition);
 
     final pointerId = _takePendingPointer(details.globalPosition) ?? -1;
     _activePointer = pointerId;
@@ -1268,9 +1290,7 @@ class _DividerHandleState extends State<_DividerHandle> {
       return;
     }
 
-    final currentPos = widget.axis.isH
-        ? details.globalPosition.dx
-        : details.globalPosition.dy;
+    final currentPos = _mainAxisPosition(details.globalPosition);
     // In RTL the start pane sits on the right, so dragging the divider right (a
     // positive delta) must shrink it. Vertical axes are unaffected.
     final isRtl =
