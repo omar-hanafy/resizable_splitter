@@ -169,15 +169,36 @@ Branch `feat/resizable-splitter-2.0`. 90 tests green, `dart analyze` clean.
 DONE Sub-project 6 (all increments). Status: 114 tests green, analyze clean
 (package + example).
 
-Interim notes for the next session:
-- The controller value is a single `double` (requested/effective fraction). The
-  sealed `SplitterPosition` public input (pixel pinning) lands in Sub-project 6.
-- `handleHitSlop` still reserves layout (`thickness + 2*slop`); the overlap fix
-  arrives with the render object (Sub-project 7). The two `review_fixes`
-  hit-slop tests still assert the interim behavior and will migrate then.
-- Next major phase = Sub-project 6 (API restructure + deprecation bridge) and 7
-  (render object + features). 6 carries public-API shape decisions; 7 is the
-  highest-risk piece to land without visual verification.
+DONE Sub-project 7 (layout guarantees + features). Delivered in the widget layer
+rather than a custom `MultiChildRenderObject` (locked decision #5's blessed
+fallback): tracing the hit test showed the grab region must sit *on top* of the
+panels to win in its slop zone - which a Stack overlay provides and a render
+object would also have to, plus re-implement Flex for arbitrary children. See
+`2026-06-21-resizable-splitter-7-render-features.md`. Increments:
+- 7a `handleHitSlop` now overlaps the panels (Stack + `Positioned.directional`
+  catcher over a `thickness`-only Flex footprint); slop can no longer eat layout.
+  The interim `review_fixes` footprint test migrated to the overlap invariant.
+- 7b overflow-safe footprint (the divider clamps to the container, so a tiny
+  parent cannot overflow the Flex) + per-pane `ClipRect`. Cross-axis stretch was
+  intentionally NOT forced (`CrossAxisAlignment.stretch` throws under an
+  unbounded cross axis; fill-capable panes already fill a bounded one).
+- 7c collapse/expand + restore: `SplitterPane` + controller
+  `collapse`/`expand`/`toggleCollapse` + `collapsedPane`/`isCollapsed`. Collapse
+  is a flag that never writes `value`, so restore is free; emits collapse/restore
+  change events.
+- 7d state restoration via `restorationId` (a private
+  `RestorableSplitterPosition`; default = the controller's current value, so a
+  first run with no saved state never clobbers an external controller).
+- 7e deferred resize (`deferredResize`): a preview line tracks the drag and the
+  panes settle once on release, reusing the snap+commit path.
+Status: 127 tests green, analyze clean (package + example).
+
+Remaining:
+- Sub-project 3 tail: transform-safe local coordinates, a custom drag recognizer
+  with real pointer ids + multi-drag sessions, pixel-space snap tolerance.
+- Sub-project 8: platform barrier (`dragBarrierBuilder`), integration tests, CI
+  matrix, pana, publish dry-run, de-sugar `(_, _)` wildcards + reconsider the
+  Flutter floor, README/CHANGELOG (document the breaking changes), bump to 2.0.0.
 
 ## Working agreements
 
