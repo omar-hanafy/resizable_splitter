@@ -157,15 +157,17 @@ Branch `feat/resizable-splitter-2.0`. 90 tests green, `dart analyze` clean.
   `onDragStart`/`onDragEnd` -> `onChanged`/`onChangeStart`/`onChangeEnd` carrying
   `SplitterChangeDetails` (request + effective + extents + `SplitterChangeSource`),
   matching Slider's shape.
-  OPEN DECISION (owner): the `SplitterPosition` controller + pixel pinning. True
-  persistent pinning needs `SplitterController.value` to change from `double` to
-  `SplitterPosition` - the highest-blast-radius public break, with a product nuance
-  (does a drag re-pin to pixels or release to a fraction?). Paused for an owner
-  steer on scope/timing (full model now vs widget `initialPosition` only vs defer
-  to Sub-project 7 where it meets state restoration).
+  (7) `SplitterPosition` controller + pixel pinning (owner chose the full model).
+  `SplitterController.value` is now a `SplitterPosition` (was `double`); the
+  splitter re-resolves it each frame, so `startPixels`/`endPixels` keep their
+  pixel width across container resizes (true pinned sidebars). A drag/keyboard
+  adjustment writes a fractional position (the pin releases on interaction, the
+  standard behavior). `controller.effectiveFraction` is the on-screen read-out;
+  `initialRatio` -> `initialPosition: SplitterPosition` on the widget. Locked by
+  `pixel_pinning_test.dart`.
 
-Status: 110 tests green, analyze clean (package + example), through Sub-project 6
-increment 6 (theme/divider + rich callbacks).
+DONE Sub-project 6 (all increments). Status: 114 tests green, analyze clean
+(package + example).
 
 Interim notes for the next session:
 - The controller value is a single `double` (requested/effective fraction). The
