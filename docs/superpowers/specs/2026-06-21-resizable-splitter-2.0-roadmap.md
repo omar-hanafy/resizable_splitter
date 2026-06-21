@@ -147,14 +147,25 @@ Branch `feat/resizable-splitter-2.0`. 90 tests green, `dart analyze` clean.
   (`SplitterPaneConstraints`) + `minStartFraction`/`maxStartFraction` +
   `constraintPolicy` (removed `CrampedBehavior`; default min stays 100px so
   behavior is preserved; `maxExtent` now exposes per-pane maximums); (3) snapping
-  grouped into `SplitterSnapBehavior`; (4) dropped the `Axis` re-export.
-  REMAINING: divider style grouping + single nullable theme +
-  `WidgetStateProperty` (these are coupled - the theme partial-override clobber
-  fix lives here); `initialPosition: SplitterPosition` input (pixel pinning) +
-  `SplitterPosition` on the controller; rich callbacks
-  (`onChanged`/`onChangeStart`/`onChangeEnd` with `SplitterChangeDetails`).
+  grouped into `SplitterSnapBehavior`; (4) dropped the `Axis` re-export;
+  (5) single nullable theme + `SplitterDividerStyle` + `WidgetStateProperty`
+  (collapsed `ResizableSplitterThemeData`/`ResizableSplitterThemeOverrides` into
+  one all-nullable `ThemeExtension`, fixing the partial-override clobber bug by
+  construction; grouped the divider params under `divider:`; state-dependent
+  color via `WidgetStateProperty<Color?>`; moved `SplitterHandleDetails` to
+  `split_divider_style.dart`); (6) rich callbacks - `onRatioChanged`/
+  `onDragStart`/`onDragEnd` -> `onChanged`/`onChangeStart`/`onChangeEnd` carrying
+  `SplitterChangeDetails` (request + effective + extents + `SplitterChangeSource`),
+  matching Slider's shape.
+  OPEN DECISION (owner): the `SplitterPosition` controller + pixel pinning. True
+  persistent pinning needs `SplitterController.value` to change from `double` to
+  `SplitterPosition` - the highest-blast-radius public break, with a product nuance
+  (does a drag re-pin to pixels or release to a fraction?). Paused for an owner
+  steer on scope/timing (full model now vs widget `initialPosition` only vs defer
+  to Sub-project 7 where it meets state restoration).
 
-Status: 94 tests green, analyze clean, through Sub-project 6 increment 4.
+Status: 110 tests green, analyze clean (package + example), through Sub-project 6
+increment 6 (theme/divider + rich callbacks).
 
 Interim notes for the next session:
 - The controller value is a single `double` (requested/effective fraction). The
