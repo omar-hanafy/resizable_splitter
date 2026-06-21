@@ -1369,6 +1369,23 @@ class _DividerHandleState extends State<_DividerHandle> {
       widget.solver.solve(widget.controller.value.position).effectiveFraction;
 
   @override
+  void didUpdateWidget(_DividerHandle oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_isDragging) return;
+    // A drag is anchored to the controller and axis it began on. If the parent
+    // swaps either mid-drag (or turns off resizing), end the drag cleanly on the
+    // ORIGINAL controller, so it is not left flagged as dragging with a live
+    // pointer-router registration and drag callback while a different controller
+    // takes over. The interruption commits no position and fires no onChangeEnd.
+    if (!identical(oldWidget.controller, widget.controller) ||
+        oldWidget.axis != widget.axis ||
+        !widget.resizable) {
+      widget.onPreviewChanged?.call(null);
+      _teardownDrag(oldWidget.controller);
+    }
+  }
+
+  @override
   void dispose() {
     if (_isDragging) {
       widget.controller._setDragging(false);
@@ -1509,15 +1526,35 @@ class _DividerHandleState extends State<_DividerHandle> {
       }
     }
 
+    _teardownDrag(widget.controller);
+
+    if (mounted) {
+      widget.onChangeEnd?.call(
+        _changeDetails(
+          snapped ?? _effective,
+          snapped != null
+              ? SplitterChangeSource.snap
+              : SplitterChangeSource.drag,
+        ),
+      );
+    }
+  }
+
+  // Releases [controller] from the active drag and clears all per-drag state.
+  // The controller is passed explicitly because the parent can swap
+  // widget.controller mid-drag, and the drag must be torn down on the controller
+  // it began on - not whichever is current. Commits no position.
+  void _teardownDrag(SplitterController controller) {
     if (mounted) {
       setState(() => _isDragging = false);
     } else {
       _isDragging = false;
     }
 
-    widget.controller._setDragging(false);
-    widget.controller._setDragCallback(null);
-    SplitterController._globalRouter.endDrag(widget.controller);
+    controller
+      .._setDragging(false)
+      .._setDragCallback(null);
+    SplitterController._globalRouter.endDrag(controller);
     _removeOverlay();
     _scrollHold?.cancel();
     _scrollHold = null;
@@ -1530,17 +1567,6 @@ class _DividerHandleState extends State<_DividerHandle> {
       _pendingPointers.removeWhere((pointer) => pointer.id == _activePointer);
     }
     _activePointer = null;
-
-    if (mounted) {
-      widget.onChangeEnd?.call(
-        _changeDetails(
-          snapped ?? _effective,
-          snapped != null
-              ? SplitterChangeSource.snap
-              : SplitterChangeSource.drag,
-        ),
-      );
-    }
   }
 
   double? _maybeSnap(double value) {

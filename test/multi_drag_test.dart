@@ -72,4 +72,62 @@ void main() {
     expect(a.isDragging, isFalse);
     expect(b.isDragging, isFalse);
   });
+
+  testWidgets('swapping the controller mid-drag releases the old one, not the '
+      'new one (review #3)', (tester) async {
+    final a = SplitterController();
+    final b = SplitterController();
+    var useA = true;
+    late StateSetter setOuter;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 408,
+              height: 120,
+              child: StatefulBuilder(
+                builder: (context, setState) {
+                  setOuter = setState;
+                  return ResizableSplitter(
+                    controller: useA ? a : b,
+                    divider: const SplitterDividerStyle(thickness: 8),
+                    startConstraints: const SplitterPaneConstraints(),
+                    endConstraints: const SplitterPaneConstraints(),
+                    semanticsLabel: 'handle',
+                    start: const SizedBox(),
+                    end: const SizedBox(),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    // Start a drag on controller A.
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.bySemanticsLabel('handle')),
+    );
+    await tester.pump();
+    await gesture.moveBy(const Offset(20, 0));
+    await tester.pump();
+    expect(a.isDragging, isTrue);
+
+    // Swap the controller out from under the active drag.
+    setOuter(() => useA = false);
+    await tester.pump();
+
+    // The old controller is released (not stranded as dragging), and the new
+    // controller - which never started a drag - was not flagged either.
+    expect(a.isDragging, isFalse);
+    expect(b.isDragging, isFalse);
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(a.isDragging, isFalse);
+    expect(b.isDragging, isFalse);
+  });
 }
