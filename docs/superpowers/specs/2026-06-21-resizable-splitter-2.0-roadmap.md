@@ -110,6 +110,35 @@ lib/
 Solver and session classes stay private; only the model/widget/theme/position
 types are exported.
 
+## Progress log (2026-06-21)
+
+Branch `feat/resizable-splitter-2.0`. 90 tests green, `dart analyze` clean.
+
+- DONE Sub-project 1 (Foundation): `SplitterPosition`, `SplitterPaneConstraints`,
+  `SplitterConstraintPolicy`, `SplitterSolver`/`SplitterSolution`,
+  `SplitterValue`/`SplitterChangeDetails`/`SplitterChangeSource`. Pure, exported
+  (solver kept internal). Locked by a ~4000-case property sweep.
+- DONE Sub-project 2 (Integration): widget + handle now route geometry and every
+  interaction through the solver on the EFFECTIVE fraction. Eliminated: the
+  cramped-drag crash class, the drag dead zone, dishonest drag/keyboard
+  callbacks, NaN-to-layout, and the proportional 50/50 bug. Also: physical-pixel
+  anti-alias snap, snap matching in effective space, haptics-on-change, overlay
+  dispose, transparent barrier honored. Tests migrated to the honest values;
+  `effective_position_test.dart` locks the invariants.
+- PARTIAL Sub-project 3 (Interaction): RTL done (drag + arrows + layout,
+  `rtl_test.dart`). Controller value-setter hardened to reject NaN / out-of-range
+  at the source. REMAINING: transform-safe local coordinates, a custom drag
+  recognizer with real pointer ids + multi-drag sessions keyed by pointer,
+  pixel-space snap tolerance.
+
+Interim notes for the next session:
+- The controller value is currently the requested/effective fraction in a single
+  `double`. The full sealed `SplitterPosition` request on the controller (pixel
+  pinning) lands in Sub-project 4.
+- `handleHitSlop` still reserves layout (`thickness + 2*slop`); the overlap fix
+  arrives with the render object (Sub-project 7). The two `review_fixes`
+  hit-slop tests still assert the interim behavior and will migrate then.
+
 ## Working agreements
 
 - TDD: tests first, lock invariants (not just reported inputs).
