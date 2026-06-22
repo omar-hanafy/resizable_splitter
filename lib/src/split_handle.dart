@@ -136,7 +136,10 @@ class _DividerHandleState extends State<_DividerHandle> {
   // never double-fire, snap on a cancel, or strand the controller.
   _DragSession? _session;
   bool get _isDragging => _session != null;
-  bool _isHovering = false;
+  // MouseRegion covers the full grab target, including transparent slop over
+  // the panes. Store the local pointer position and derive visual hover from
+  // the visible bar bounds so hidden slop can grab without painting as hover.
+  Offset? _hoverLocalPosition;
   // Whether the keyboard focus highlight should show. Driven by
   // FocusableActionDetector.onShowFocusHighlight, so it tracks Flutter's focus
   // highlight mode (a ring for keyboard traversal, not for touch). Only ever set
@@ -164,6 +167,32 @@ class _DividerHandleState extends State<_DividerHandle> {
   double _mainAxisPosition(Offset globalPosition) =>
       widget.localMainAxisOf(globalPosition) ??
       (widget.axis.isH ? globalPosition.dx : globalPosition.dy);
+
+  bool get _isHovering {
+    final localPosition = _hoverLocalPosition;
+    if (localPosition == null || !widget.resizable || widget.thickness <= 0) {
+      return false;
+    }
+    final crossAxisPosition = widget.axis.isH
+        ? localPosition.dx
+        : localPosition.dy;
+    final visibleStart = widget.interactiveSlop;
+    final visibleEnd = visibleStart + widget.thickness;
+    return crossAxisPosition >= visibleStart && crossAxisPosition <= visibleEnd;
+  }
+
+  void _updateHoverPosition(PointerEvent event) {
+    if (event.kind != PointerDeviceKind.mouse) return;
+    final wasHovering = _isHovering;
+    _hoverLocalPosition = event.localPosition;
+    if (wasHovering != _isHovering && mounted) setState(() {});
+  }
+
+  void _clearHoverPosition() {
+    final wasHovering = _isHovering;
+    _hoverLocalPosition = null;
+    if (wasHovering && mounted) setState(() {});
+  }
 
   /// Builds the change payload for the effective [fraction], resolving the
   /// layout through the shared solver so the reported extents match what is
@@ -510,6 +539,7 @@ class _DividerHandleState extends State<_DividerHandle> {
 
   void _rememberPointer(PointerDownEvent event) {
     if (!widget.resizable || _isDragging) return;
+    _updateHoverPosition(event);
 
     final isPrimaryMouse =
         event.kind == PointerDeviceKind.mouse &&
@@ -534,6 +564,7 @@ class _DividerHandleState extends State<_DividerHandle> {
   }
 
   void _handlePointerMove(PointerMoveEvent event) {
+    _updateHoverPosition(event);
     if (_isDragging) return;
 
     for (final pointer in _pendingPointers) {
@@ -545,10 +576,12 @@ class _DividerHandleState extends State<_DividerHandle> {
   }
 
   void _handlePointerUp(PointerEvent event) {
+    _updateHoverPosition(event);
     _pendingPointers.removeWhere((pointer) => pointer.id == event.pointer);
   }
 
   void _handlePointerCancel(PointerEvent event) {
+    if (event.kind == PointerDeviceKind.mouse) _clearHoverPosition();
     _pendingPointers.removeWhere((pointer) => pointer.id == event.pointer);
     // The recognizer's onEnd (which Flutter fires next, for both a release and
     // a cancel) reads this to settle a cancel as a cancel, not a completion.
@@ -733,8 +766,9 @@ class _DividerHandleState extends State<_DividerHandle> {
         cursor: widget.resizable
             ? widget.axis.cursor
             : SystemMouseCursors.basic,
-        onEnter: (_) => setState(() => _isHovering = true),
-        onExit: (_) => setState(() => _isHovering = false),
+        onEnter: _updateHoverPosition,
+        onHover: _updateHoverPosition,
+        onExit: (_) => _clearHoverPosition(),
         child: Listener(
           behavior: HitTestBehavior.opaque,
           onPointerDown: _rememberPointer,
