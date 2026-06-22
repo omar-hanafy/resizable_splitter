@@ -29,7 +29,8 @@ enum _DragEndReason {
 /// available, so controllers created in pure Dart tests or before `runApp`
 /// stay functional - the enhanced drag cleanup simply activates once Flutter is
 /// initialized.
-class SplitterController extends ValueNotifier<SplitterState> {
+class SplitterController extends ValueNotifier<SplitterState>
+    with Diagnosticable {
   /// Creates a splitter controller at [initialPosition] (default: centered).
   ///
   /// The controller stores the requested [SplitterPosition]; the splitter
@@ -286,6 +287,30 @@ class SplitterController extends ValueNotifier<SplitterState> {
   /// Resets the global pointer router. For testing only.
   @visibleForTesting
   static void resetGlobalRouter() => _globalRouter.dispose();
+
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties
+      ..add(DiagnosticsProperty<SplitterPosition>('position', position))
+      ..add(DoubleProperty('effectiveFraction', effectiveFraction))
+      ..add(DiagnosticsProperty<bool>('isAttached', isAttached))
+      ..add(DiagnosticsProperty<bool>('isDragging', isDragging))
+      ..add(
+        DiagnosticsProperty<SplitterPane?>(
+          'collapsedPane',
+          collapsedPane,
+          defaultValue: null,
+        ),
+      )
+      ..add(
+        DiagnosticsProperty<SplitterLayout?>(
+          'layout',
+          layout,
+          defaultValue: null,
+        ),
+      );
+  }
 }
 
 /// The resolved-layout observable behind [SplitterController.layoutListenable].

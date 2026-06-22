@@ -296,6 +296,58 @@ class ResizableSplitter extends StatefulWidget {
 
   @override
   State<ResizableSplitter> createState() => _ResizableSplitterState();
+
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties
+      ..add(EnumProperty<Axis>('axis', axis))
+      ..add(DiagnosticsProperty<bool>('resizable', resizable))
+      ..add(
+        DiagnosticsProperty<SplitterPosition>(
+          'initialPosition',
+          initialPosition,
+        ),
+      )
+      ..add(
+        FlagProperty(
+          'controller',
+          value: controller != null,
+          ifTrue: 'external',
+          ifFalse: 'internal',
+          showName: true,
+        ),
+      )
+      ..add(
+        DiagnosticsProperty<SplitterPaneConstraints>(
+          'startConstraints',
+          startConstraints,
+        ),
+      )
+      ..add(
+        DiagnosticsProperty<SplitterPaneConstraints>(
+          'endConstraints',
+          endConstraints,
+        ),
+      )
+      ..add(
+        EnumProperty<SplitterConstraintPolicy>(
+          'constraintPolicy',
+          constraintPolicy,
+        ),
+      )
+      ..add(
+        EnumProperty<SplitterSurplusPolicy>('surplusPolicy', surplusPolicy),
+      )
+      ..add(
+        FlagProperty(
+          'deferredResize',
+          value: deferredResize,
+          ifTrue: 'deferred',
+        ),
+      )
+      ..add(StringProperty('restorationId', restorationId, defaultValue: null));
+  }
 }
 
 class _ResizableSplitterState extends State<ResizableSplitter>
@@ -614,6 +666,42 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) onChanged(details);
     });
+  }
+
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    final controller = _attachedController ?? _internalController;
+    final layout = controller?.layout;
+    properties
+      ..add(
+        DiagnosticsProperty<SplitterLayout?>(
+          'layout',
+          layout,
+          defaultValue: null,
+        ),
+      )
+      ..add(
+        EnumProperty<SplitterResolution?>(
+          'resolution',
+          layout?.resolution,
+          defaultValue: null,
+        ),
+      )
+      ..add(
+        FlagProperty(
+          'animating',
+          value: _animSession != null,
+          ifTrue: 'animating',
+        ),
+      )
+      ..add(
+        FlagProperty(
+          'previewing',
+          value: _previewFraction != null,
+          ifTrue: 'previewing',
+        ),
+      );
   }
 
   @override
