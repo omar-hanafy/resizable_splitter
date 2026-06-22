@@ -623,8 +623,14 @@ class ResizableSplitter extends StatefulWidget {
   /// real request, which may be a pixel pin.
   final ValueChanged<SplitterChangeDetails>? onChangeStart;
 
-  /// Called when a drag gesture ends, with the settled position. The source is
-  /// [SplitterChangeSource.snap] when a snap point claimed the release.
+  /// Called when a drag gesture ends, balancing every [onChangeStart] with
+  /// exactly one end so a consumer can pair them (e.g. to clear a "dragging"
+  /// flag). [SplitterChangeDetails.end] reports how it ended:
+  /// [SplitterChangeEnd.committed] for a normal release (the source is
+  /// [SplitterChangeSource.snap] when a snap point claimed it) or
+  /// [SplitterChangeEnd.canceled] for a system cancel (nothing is committed).
+  /// The one unbalanced case is a drag force-ended by reconfiguring or disposing
+  /// the splitter mid-gesture, which fires no end.
   final ValueChanged<SplitterChangeDetails>? onChangeEnd;
 
   /// Whether to enable keyboard navigation with arrow keys. Defaults to true.
@@ -1621,8 +1627,9 @@ class _DividerHandleState extends State<_DividerHandle> {
   /// so a drag that starts on a pinned pane reports the pin honestly.
   SplitterChangeDetails _changeDetails(
     double fraction,
-    SplitterChangeSource source,
-  ) {
+    SplitterChangeSource source, {
+    SplitterChangeEnd? end,
+  }) {
     final solution = widget.solver.solve(SplitterPosition.fraction(fraction));
     return SplitterChangeDetails(
       requestedPosition: widget.controller.value.position,
@@ -1631,6 +1638,7 @@ class _DividerHandleState extends State<_DividerHandle> {
       endExtent: solution.endExtent,
       availableExtent: widget.solver.available,
       source: source,
+      end: end,
     );
   }
 
@@ -1788,13 +1796,29 @@ class _DividerHandleState extends State<_DividerHandle> {
 
     SplitterChangeDetails? endDetails;
     try {
-      if (reason == _DragEndReason.completed) endDetails = _settle(session);
+      switch (reason) {
+        case _DragEndReason.completed:
+          // A real release: settle (commit / snap) and report a committed end.
+          endDetails = _settle(session);
+        case _DragEndReason.canceled:
+          // A system cancel: commit nothing and do not snap, but still report a
+          // balanced end (marked canceled) so every onChangeStart has its end.
+          endDetails = _changeDetails(
+            _effective,
+            SplitterChangeSource.drag,
+            end: SplitterChangeEnd.canceled,
+          );
+        case _DragEndReason.interrupted:
+          // A mid-drag reconfiguration tears down from didUpdateWidget; calling
+          // back during a parent rebuild would be unsafe, so fire no end.
+          endDetails = null;
+      }
     } finally {
       _teardown(session);
     }
 
-    // onChangeEnd fires only on a real release, after teardown (so the
-    // controller already reads isDragging == false), and never if settle threw.
+    // Fire after teardown (so the controller already reads isDragging == false),
+    // and never if settle threw (endDetails stays null).
     if (endDetails != null && mounted) widget.onChangeEnd?.call(endDetails);
   }
 
@@ -1825,6 +1849,7 @@ class _DividerHandleState extends State<_DividerHandle> {
     return _changeDetails(
       snapped ?? _effective,
       snapped != null ? SplitterChangeSource.snap : SplitterChangeSource.drag,
+      end: SplitterChangeEnd.committed,
     );
   }
 

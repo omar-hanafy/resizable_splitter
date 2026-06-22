@@ -96,9 +96,10 @@ void main() {
     expect(controller.effectiveFraction, closeTo(0.75, 1e-6));
   });
 
-  testWidgets('a canceled drag does not snap or fire a successful end '
-      '(a cancel is not a release)', (tester) async {
+  testWidgets('a canceled drag fires a balanced end marked canceled, without '
+      'snapping or committing', (tester) async {
     final controller = SplitterController();
+    SplitterChangeDetails? start;
     SplitterChangeDetails? end;
 
     await tester.pumpWidget(
@@ -110,6 +111,7 @@ void main() {
           endConstraints: const SplitterPaneConstraints(),
           semanticsLabel: 'handle',
           snap: SplitterSnapBehavior(points: [0.75], tolerance: 0.2),
+          onChangeStart: (d) => start = d,
           onChangeEnd: (d) => end = d,
           start: const SizedBox(),
           end: const SizedBox(),
@@ -127,11 +129,52 @@ void main() {
     await gesture.cancel();
     await tester.pumpAndSettle();
 
-    // A cancel is not a successful release: it must neither settle onto the
-    // snap point nor report a drag/snap end.
+    // A cancel does not settle onto the snap point nor commit a new position.
     expect(controller.effectiveFraction, closeTo(atCancel, 1e-6));
     expect(controller.effectiveFraction, isNot(closeTo(0.75, 1e-6)));
-    expect(end, isNull);
+    // But the start is still balanced by exactly one end, marked canceled, so a
+    // consumer can always pair the two (e.g. to clear a "dragging" flag).
+    expect(start, isNotNull);
+    expect(end, isNotNull);
+    expect(end!.end, SplitterChangeEnd.canceled);
+    // It reports a drag, never a snap (a cancel never claims a snap point).
+    expect(end!.source, SplitterChangeSource.drag);
+  });
+
+  testWidgets('a completed drag fires an end marked committed', (tester) async {
+    final controller = SplitterController();
+    SplitterChangeDetails? changed;
+    SplitterChangeDetails? end;
+
+    await tester.pumpWidget(
+      host(
+        ResizableSplitter(
+          controller: controller,
+          divider: const SplitterDividerStyle(thickness: 8),
+          startConstraints: const SplitterPaneConstraints(),
+          endConstraints: const SplitterPaneConstraints(),
+          semanticsLabel: 'handle',
+          onChanged: (d) => changed = d,
+          onChangeEnd: (d) => end = d,
+          start: const SizedBox(),
+          end: const SizedBox(),
+        ),
+      ),
+    );
+
+    final handle = find.bySemanticsLabel('handle');
+    final gesture = await tester.startGesture(tester.getCenter(handle));
+    await tester.pump();
+    await gesture.moveBy(const Offset(40, 0));
+    await tester.pump();
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    // onChanged carries no end-reason; only the terminal onChangeEnd does.
+    expect(changed, isNotNull);
+    expect(changed!.end, isNull);
+    expect(end, isNotNull);
+    expect(end!.end, SplitterChangeEnd.committed);
   });
 
   testWidgets('a keyboard adjust reports SplitterChangeSource.keyboard', (

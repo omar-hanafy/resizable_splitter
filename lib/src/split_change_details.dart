@@ -33,6 +33,26 @@ enum SplitterChangeSource {
   restore,
 }
 
+/// How an interaction that began with [ResizableSplitter.onChangeStart] ended,
+/// reported in the [SplitterChangeDetails] passed to
+/// [ResizableSplitter.onChangeEnd].
+///
+/// `onChangeStart` and `onChangeEnd` are balanced: every start is followed by
+/// exactly one end (for a normal pointer release or a system cancel), so a
+/// consumer can pair them - to toggle a "dragging" flag, say - and still tell a
+/// committed release from a cancel. (A drag force-ended by reconfiguring or
+/// disposing the widget mid-gesture is the one exception: it fires no end, as
+/// calling back during a lifecycle change would be unsafe.)
+enum SplitterChangeEnd {
+  /// The pointer lifted and the final position was committed (a snap may have
+  /// claimed it - see [SplitterChangeDetails.source]).
+  committed,
+
+  /// The gesture was canceled by the system before commit. Nothing new is
+  /// committed; the divider stays where it was when the cancel arrived.
+  canceled,
+}
+
 /// The payload delivered to the change callbacks: a snapshot of both what was
 /// requested and what is actually shown, tagged with the [source] that produced
 /// it.
@@ -52,6 +72,7 @@ class SplitterChangeDetails {
     required this.endExtent,
     required this.availableExtent,
     required this.source,
+    this.end,
   });
 
   /// The position that was requested (the user/controller intent).
@@ -72,6 +93,10 @@ class SplitterChangeDetails {
   /// What triggered this change.
   final SplitterChangeSource source;
 
+  /// How the interaction ended. Non-null only in [ResizableSplitter.onChangeEnd];
+  /// null for [ResizableSplitter.onChangeStart] and `onChanged`.
+  final SplitterChangeEnd? end;
+
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -82,7 +107,8 @@ class SplitterChangeDetails {
           other.startExtent == startExtent &&
           other.endExtent == endExtent &&
           other.availableExtent == availableExtent &&
-          other.source == source;
+          other.source == source &&
+          other.end == end;
 
   @override
   int get hashCode => Object.hash(
@@ -93,11 +119,13 @@ class SplitterChangeDetails {
     endExtent,
     availableExtent,
     source,
+    end,
   );
 
   @override
   String toString() =>
       'SplitterChangeDetails(source: ${source.name}, '
-      'requested: $requestedPosition, effective: $effectiveFraction, '
-      'start: $startExtent, end: $endExtent, available: $availableExtent)';
+      'end: ${end?.name}, requested: $requestedPosition, '
+      'effective: $effectiveFraction, startExtent: $startExtent, '
+      'endExtent: $endExtent, available: $availableExtent)';
 }
