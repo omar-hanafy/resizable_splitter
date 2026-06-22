@@ -3,10 +3,12 @@
 // A robust, high-performance split view that plays nicely with platform views.
 
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:resizable_splitter/src/resizable_splitter_theme.dart';
 import 'package:resizable_splitter/src/split_animation.dart';
@@ -23,12 +25,11 @@ import 'package:resizable_splitter/src/split_change_details.dart';
 part 'split_controller.dart';
 part 'split_handle.dart';
 part 'split_restoration.dart';
+part 'render_resizable_splitter.dart';
 
 /// Axis helpers to eliminate H/V duplication.
 extension _AxisHelpers on Axis {
   bool get isH => this == Axis.horizontal;
-
-  double size(Size s) => isH ? s.width : s.height;
 
   SystemMouseCursor get cursor =>
       isH ? SystemMouseCursors.resizeColumn : SystemMouseCursors.resizeRow;
@@ -43,9 +44,9 @@ extension _AxisHelpers on Axis {
 ///   state-dependent color, thickness, grab slop, and a custom grip builder.
 ///
 /// If the incoming constraints along [axis] are unbounded or zero, the
-/// splitter cannot resize, so it shows the two panels without the divider:
-/// [Expanded] when the extent is a finite zero, or at their intrinsic size
-/// when truly unbounded (flexing into an unbounded axis would throw). Opt into
+/// splitter cannot resize, so under the default
+/// [UnboundedBehavior.shrinkToChildren] it shows the two panels without the
+/// divider, sized to their content. Opt into
 /// [UnboundedBehavior.useFallbackExtent] (via [ResizableSplitterTheme] or the
 /// constructor) to give the handle a finite sandbox while preserving side
 /// panels.
@@ -367,8 +368,20 @@ class _ResizableSplitterState extends State<ResizableSplitter>
   bool _hasReportedInitialCollapse = false;
 
   // The preview fraction shown during a deferred drag (null when not
-  // previewing). The panes stay at the committed position; only this line moves.
-  double? _previewFraction;
+  // previewing). The panes stay at the committed position; the render object
+  // listens to this notifier and repaints only the preview line as it moves.
+  late final ValueNotifier<double?> _previewFraction = ValueNotifier<double?>(
+    null,
+  );
+
+  // The resolved geometry the render object publishes from each layout pass. The
+  // handle listens to it for drag/keyboard/semantics; the state mirrors it to
+  // the controller and reports collapse transitions from it.
+  late final _SplitterGeometryNotifier _geometry = _SplitterGeometryNotifier();
+
+  // Bumped on dispose and on a controller swap so a stale post-frame flush or
+  // collapse report scheduled for an older controller/generation is dropped.
+  int _layoutPublicationGeneration = 0;
 
   // Persists the divider position when widget.restorationId is set. The mixin
   // owns and disposes it; _restorationReady gates writes until it is registered.
@@ -417,9 +430,11 @@ class _ResizableSplitterState extends State<ResizableSplitter>
   }
 
   // Updates the deferred-drag preview line (the panes stay put until release).
+  // No setState: the render object listens to the notifier and repaints just the
+  // preview line, without rebuilding the widget subtree.
   void _setPreview(double? fraction) {
-    if (!mounted || _previewFraction == fraction) return;
-    setState(() => _previewFraction = fraction);
+    if (!mounted || _previewFraction.value == fraction) return;
+    _previewFraction.value = fraction;
   }
 
   // Converts a global pointer position to the splitter's local main-axis
@@ -478,6 +493,11 @@ class _ResizableSplitterState extends State<ResizableSplitter>
         ));
 
     if (!identical(_attachedController, newController)) {
+      // Invalidate any pending post-frame flush/report scheduled for the
+      // outgoing controller, and drop the geometry it produced so the handle
+      // does not briefly read the old controller's layout.
+      _layoutPublicationGeneration++;
+      if (_geometry.prime(null)) _scheduleGeometryFlush();
       // End any in-flight animation on the outgoing controller; it must not
       // continue ticking onto the incoming one.
       _animationController.stop();
@@ -528,6 +548,10 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     // RestorationMixin unregisters the property but does not dispose it; do it
     // here to avoid leaking the listener (review A#6).
     _restorablePosition.dispose();
+    // Invalidate pending post-frame callbacks, then dispose the notifiers.
+    _layoutPublicationGeneration++;
+    _previewFraction.dispose();
+    _geometry.dispose();
     super.dispose();
   }
 
@@ -612,14 +636,53 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     session.resolve(SplitterAnimationStatus.completed);
   }
 
+  // The render object's performLayout publishes its resolved geometry here. This
+  // runs DURING layout, so it must never notify synchronously: it primes the
+  // notifiers (value-only, no listeners fired) and defers every notification to
+  // a post-frame flush. A geometry built for a since-swapped controller is
+  // ignored; everything else is mirrored to the attached controller.
+  void _handleResolvedGeometry(_ResolvedSplitterGeometry? geometry) {
+    final controller = _attachedController ?? _effectiveController;
+    if (geometry != null && !identical(geometry.controller, controller)) {
+      return;
+    }
+    if (_geometry.prime(geometry)) _scheduleGeometryFlush();
+    _publishLayout(controller, geometry?.layout);
+    if (geometry != null) {
+      _maybeReportCollapseChange(
+        controller,
+        geometry.solver,
+        geometry.solution,
+      );
+    }
+  }
+
   // Primes the controller's resolved layout synchronously (so its read-outs are
   // fresh this frame) and schedules the listener notification after the frame,
-  // so it never triggers a listener's setState during build. No-ops when the
-  // layout is unchanged.
-  void _publishLayout(SplitterController controller, SplitterLayout layout) {
+  // so it never triggers a listener's setState during build. Generation- and
+  // controller-guarded so a stale post-frame flush (after a swap or disposal) is
+  // dropped. No-ops when the layout is unchanged.
+  void _publishLayout(SplitterController controller, SplitterLayout? layout) {
     if (!controller._primeLayout(layout)) return;
+    final generation = _layoutPublicationGeneration;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) controller._flushLayout();
+      if (!mounted ||
+          generation != _layoutPublicationGeneration ||
+          !identical(_attachedController, controller)) {
+        return;
+      }
+      controller._flushLayout();
+    });
+  }
+
+  // Fires the deferred geometry notification post-frame, so the handle's
+  // ValueListenableBuilder never rebuilds mid-layout. Generation-guarded so a
+  // controller swap drops a stale flush.
+  void _scheduleGeometryFlush() {
+    final generation = _layoutPublicationGeneration;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || generation != _layoutPublicationGeneration) return;
+      _geometry.flush();
     });
   }
 
@@ -661,8 +724,14 @@ class _ResizableSplitterState extends State<ResizableSplitter>
       availableExtent: solver.available,
       source: source,
     );
+    final generation = _layoutPublicationGeneration;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) onChanged(details);
+      if (!mounted ||
+          generation != _layoutPublicationGeneration ||
+          !identical(_attachedController, controller)) {
+        return;
+      }
+      onChanged(details);
     });
   }
 
@@ -696,7 +765,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
       ..add(
         FlagProperty(
           'previewing',
-          value: _previewFraction != null,
+          value: _previewFraction.value != null,
           ifTrue: 'previewing',
         ),
       );
@@ -736,15 +805,11 @@ class _ResizableSplitterState extends State<ResizableSplitter>
         widget.enableKeyboard ?? theme.enableKeyboard ?? true;
     final enableHaptics = widget.enableHaptics ?? theme.enableHaptics ?? true;
 
-    // The divider reserves only its visible thickness (not the interactive grab
-    // target): any extent beyond the bar is applied by the catcher overlay in
-    // _buildBounded, which sits on top of the panels and overlaps their edges
-    // instead of reducing panel layout. Decoupling the grab region (overlay)
-    // from the layout footprint (Flex) makes it structurally impossible for the
-    // target to eat layout. The footprint is also clamped to the container per
-    // layout below, so a parent smaller than the thickness shrinks the divider
-    // to fit rather than overflowing.
-
+    // The render object reserves only the divider's visible thickness for
+    // layout (clamped to the container, so a parent smaller than the thickness
+    // shrinks it rather than overflowing); the interactive grab slop on each
+    // side overlaps the panes via the render object's hit test without reducing
+    // pane layout.
     final dragBarrierColor = widget.dragBarrierColor ?? theme.dragBarrierColor;
 
     final unboundedBehavior =
@@ -778,211 +843,79 @@ class _ResizableSplitterState extends State<ResizableSplitter>
 
     final controller = _attachedController ?? _effectiveController;
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final maxSize = widget.axis.size(constraints.biggest);
-
-        if (!maxSize.isFinite || maxSize <= 0) {
-          if (unboundedBehavior == UnboundedBehavior.useFallbackExtent) {
-            return LimitedBox(
-              maxWidth: widget.axis.isH ? fallbackExtent : double.infinity,
-              maxHeight: widget.axis.isH ? double.infinity : fallbackExtent,
-              child: LayoutBuilder(
-                builder: (context, bounded) {
-                  final boundedMax = widget.axis.size(bounded.biggest);
-                  if (!boundedMax.isFinite || boundedMax <= 0) {
-                    return Flex(
-                      direction: widget.axis,
-                      children: [
-                        Expanded(child: widget.start),
-                        Expanded(child: widget.end),
-                      ],
-                    );
-                  }
-
-                  return ValueListenableBuilder<SplitterState>(
-                    valueListenable: controller,
-                    builder: (_, state, _) {
-                      // Clamp the divider to the container so it can never make
-                      // the Flex overflow; the panes share whatever is left.
-                      final effectiveThickness = dividerThickness.clamp(
-                        0.0,
-                        boundedMax,
-                      );
-                      final availableSize = boundedMax - effectiveThickness;
-                      return _buildBounded(
-                        position: state.position,
-                        availableSize: availableSize,
-                        dividerThickness: effectiveThickness,
-                        enableKeyboard: enableKeyboard,
-                        enableHaptics: enableHaptics,
-                        keyboardStep: keyboardStep,
-                        pageStep: pageStep,
-                        shieldPlatformViews: shieldPlatformViews,
-                        interactiveExtent: interactiveExtent,
-                        dragBarrierColor: dragBarrierColor,
-                        dividerColor: dividerColor,
-                        handleBuilder: handleBuilder,
-                        config: solverConfig,
-                        crossAxisBounded: _crossAxisBounded(bounded),
-                        controller: controller,
-                        semantics: semanticsLabels,
-                      );
-                    },
-                  );
-                },
-              ),
-            );
-          }
-
-          // shrinkToChildren fallback. Expanded requires a bounded main axis - under
-          // a truly unbounded constraint RenderFlex throws ("children have
-          // non-zero flex but incoming constraints are unbounded"). So only
-          // flex when finite (e.g. a zero extent); otherwise let the panels
-          // take their intrinsic size. Use useFallbackExtent for a working splitter
-          // under unbounded constraints.
-          final bounded = maxSize.isFinite;
-          return Flex(
-            direction: widget.axis,
-            children: bounded
-                ? [Expanded(child: widget.start), Expanded(child: widget.end)]
-                : [widget.start, widget.end],
-          );
-        }
-
-        return ValueListenableBuilder<SplitterState>(
-          valueListenable: controller,
-          builder: (_, state, _) {
-            // Clamp the divider to the container so it can never make the Flex
-            // overflow; the panes share whatever is left.
-            final effectiveThickness = dividerThickness.clamp(0.0, maxSize);
-            final availableSize = maxSize - effectiveThickness;
-
-            return _buildBounded(
-              position: state.position,
-              availableSize: availableSize,
-              dividerThickness: effectiveThickness,
-              enableKeyboard: enableKeyboard,
-              enableHaptics: enableHaptics,
-              keyboardStep: keyboardStep,
-              pageStep: pageStep,
-              shieldPlatformViews: shieldPlatformViews,
-              interactiveExtent: interactiveExtent,
-              dragBarrierColor: dragBarrierColor,
-              dividerColor: dividerColor,
-              handleBuilder: handleBuilder,
-              config: solverConfig,
-              crossAxisBounded: _crossAxisBounded(constraints),
-              controller: controller,
-              semantics: semanticsLabels,
-            );
-          },
-        );
-      },
+    // A position change re-pushes the request into the render object (which
+    // re-solves it in performLayout); the panes are the same widget instances,
+    // so their subtrees are not rebuilt.
+    final child = ValueListenableBuilder<SplitterState>(
+      valueListenable: controller,
+      builder: (_, state, _) => _buildBounded(
+        state: state,
+        dividerThickness: dividerThickness,
+        interactiveExtent: interactiveExtent,
+        enableKeyboard: enableKeyboard,
+        enableHaptics: enableHaptics,
+        keyboardStep: keyboardStep,
+        pageStep: pageStep,
+        shieldPlatformViews: shieldPlatformViews,
+        dragBarrierColor: dragBarrierColor,
+        dividerColor: dividerColor,
+        handleBuilder: handleBuilder,
+        config: solverConfig,
+        controller: controller,
+        semantics: semanticsLabels,
+      ),
     );
+
+    // No LayoutBuilder, so intrinsic queries reach the render object. The render
+    // object handles a bounded main axis and, for shrinkToChildren, shrink-wraps
+    // an unbounded main axis itself. useFallbackExtent instead caps an unbounded
+    // main axis to a finite sandbox via LimitedBox (which forwards intrinsics,
+    // unlike LayoutBuilder); a bounded axis passes straight through it.
+    if (unboundedBehavior == UnboundedBehavior.useFallbackExtent) {
+      return LimitedBox(
+        maxWidth: widget.axis.isH ? fallbackExtent : double.infinity,
+        maxHeight: widget.axis.isH ? double.infinity : fallbackExtent,
+        child: child,
+      );
+    }
+    return child;
   }
 
-  // Whether the cross axis (perpendicular to [axis]) is bounded. When it is not,
-  // the layout Stack must size to the panes (loose) instead of expanding to an
-  // infinite cross extent, which RenderStack would reject.
-  bool _crossAxisBounded(BoxConstraints constraints) =>
-      (widget.axis.isH ? constraints.maxHeight : constraints.maxWidth).isFinite;
-
   Widget _buildBounded({
-    required SplitterPosition position,
-    required double availableSize,
+    required SplitterState state,
     required double dividerThickness,
+    required double interactiveExtent,
     required bool enableKeyboard,
     required bool enableHaptics,
     required double keyboardStep,
     required double pageStep,
     required bool shieldPlatformViews,
-    required double interactiveExtent,
     required Color? dragBarrierColor,
     required WidgetStateProperty<Color?>? dividerColor,
     required Widget Function(BuildContext, SplitterHandleDetails)?
     handleBuilder,
     required SplitterSolverConfig config,
-    required bool crossAxisBounded,
     required SplitterController controller,
     required SplitterSemanticsLabels semantics,
   }) {
     // The interactive target is centered on the visible bar; the extent past the
-    // bar becomes overhang (interactiveSlop) on each side that the catcher
-    // overlays onto the panels without reserving layout. A non-resizable divider
-    // uses no overhang, so it cannot cover and steal hits from the panes.
+    // bar becomes overhang (interactiveSlop) on each side that the render
+    // object's hit test overlays onto the panes without reserving layout. A
+    // non-resizable divider uses no overhang. This is computed from the raw
+    // thickness: the render object clamps the visible thickness to the
+    // container, but the interactive box width is `interactiveExtent` either way,
+    // so the handle's padding matches the box in every normal layout and differs
+    // only harmlessly when the container is smaller than the divider.
     final rawSlop = (interactiveExtent - dividerThickness) / 2;
     final interactiveSlop = widget.resizable && rawSlop > 0 ? rawSlop : 0.0;
-
-    // Raw configured minimums (not pre-clamped): the solver clamps internally
-    // and uses the raw values for proportional distribution, so a cramped
-    // layout keeps its configured proportions instead of collapsing to 50/50.
-    // One solver drives both the layout here and every ratio decision inside
-    // the handle, so the two can never disagree on the legal bounds, and an
-    // inverted clamp (the historic cramped-drag crash) is impossible.
-    final collapsedPane = controller.value.collapsedPane;
-    // The pixel-snap config lives on the solver, so every solve() it performs -
-    // here for layout, and inside the handle for drag/keyboard/snap/semantics/
-    // preview - snaps identically. The callbacks can never report a position the
-    // layout did not actually draw.
-    final solver = config.solverFor(
-      availableSize,
-      // Only an actually-collapsible pane resolves collapsed; a collapse request
-      // on a fixed pane is ignored by the layout (the request still lives on the
-      // controller). This is the request-vs-resolved split, like position vs
-      // effective fraction.
-      startCollapsed:
-          collapsedPane == SplitterPane.start &&
-          widget.startConstraints.collapsible,
-      endCollapsed:
-          collapsedPane == SplitterPane.end &&
-          widget.endConstraints.collapsible,
-    );
-
-    final solution = solver.solve(position);
-
-    // Publish the resolved geometry to the controller (after the frame, so the
-    // notification never fires mid-build). This is the on-screen read-out and
-    // the signal for layout changes the request alone cannot produce - e.g. a
-    // pixel pin's fraction shifting as the container resizes.
-    _publishLayout(
-      controller,
-      SplitterLayout(
-        effectiveFraction: solution.effectiveFraction,
-        startExtent: solution.startExtent,
-        endExtent: solution.endExtent,
-        availableExtent: solver.available,
-        minStartExtent: solution.minStartExtent,
-        maxStartExtent: solution.maxStartExtent,
-        resolution: solution.resolution,
-        // The resolved collapse, not the request.
-        collapsedPane: solution.startCollapsed
-            ? SplitterPane.start
-            : solution.endCollapsed
-            ? SplitterPane.end
-            : null,
-      ),
-    );
-
-    // Report a collapse/expand transition once, after the frame, so the change
-    // callbacks stay honest about every layout change and its source without
-    // calling user code mid-build.
-    _maybeReportCollapseChange(controller, solver, solution);
-
-    final first = solution.startExtent;
-    final second = solution.endExtent;
-    // Under SplitterSurplusPolicy.leaveGap the panes do not fill the space; the
-    // leftover becomes part of the middle slot (after the divider bar), so the
-    // two panes stay pinned to their edges with the gap between them.
-    final gap = (availableSize - first - second).clamp(0.0, availableSize);
-    final middleExtent = dividerThickness + gap;
 
     final divider = _DividerHandle(
       axis: widget.axis,
       controller: controller,
       thickness: dividerThickness,
-      solver: solver,
-      solution: solution,
+      // The handle reads its solver/solution live from here (published by the
+      // render object's performLayout) for drag/keyboard/snap/semantics.
+      geometryListenable: _geometry,
       dragBarrierColor: dragBarrierColor,
       dragBarrierBuilder: widget.dragBarrierBuilder,
       dividerColor: dividerColor,
@@ -1013,94 +946,32 @@ class _ResizableSplitterState extends State<ResizableSplitter>
       localMainAxisOf: _localMainAxisOf,
     );
 
-    // During a deferred drag the panes hold their committed size; a lightweight
-    // preview line tracks the pointer at the would-be boundary instead.
-    final previewFraction = _previewFraction;
-    final previewStart = previewFraction == null
-        ? null
-        : solver.solve(SplitterPosition.fraction(previewFraction)).startExtent;
+    final textDirection = Directionality.maybeOf(context) ?? TextDirection.ltr;
     final previewColor = Theme.of(context).colorScheme.primary;
 
-    // Layout + paint live in the Flex; the interactive handle is overlaid on top
-    // of the panels. The middle Flex slot is a transparent gap of exactly the
-    // visual thickness, and the handle (a `thickness + 2*slop` catcher) paints
-    // its bar over that gap while its grab slop overhangs the panel edges. The
-    // overlay sits above the panels, so it wins the hit test inside the slop -
-    // which a plain Flex child could never do (the opaque panel is hit-tested
-    // first in reverse paint order). `Positioned.directional` keeps the catcher
-    // aligned with the divider under RTL, where the start pane is on the right.
-    final textDirection = Directionality.maybeOf(context) ?? TextDirection.ltr;
-
-    return Stack(
-      // With an unbounded cross axis, StackFit.expand would force an infinite
-      // cross extent (RenderStack throws); size to the panes instead so a
-      // finite-main / unbounded-cross layout (e.g. a horizontal splitter in a
-      // Column) still renders.
-      fit: crossAxisBounded ? StackFit.expand : StackFit.loose,
-      children: [
-        Flex(
-          direction: widget.axis,
-          // With a bounded cross axis, stretch the panes so an intrinsically
-          // small child (e.g. Text) fills the splitter's cross extent instead of
-          // centering at its natural size (review A#12). Under an unbounded cross
-          // axis the Stack sizes to the panes, so keep them at their intrinsic
-          // size (stretch against an unbounded extent would throw).
-          crossAxisAlignment: crossAxisBounded
-              ? CrossAxisAlignment.stretch
-              : CrossAxisAlignment.center,
-          children: [
-            SizedBox(
-              width: widget.axis.isH ? first : null,
-              height: widget.axis.isH ? null : first,
-              // Clip each pane to its box so content cannot bleed across the
-              // divider into the other pane.
-              child: ClipRect(child: widget.start),
-            ),
-            SizedBox(
-              width: widget.axis.isH ? middleExtent : null,
-              height: widget.axis.isH ? null : middleExtent,
-            ),
-            SizedBox(
-              width: widget.axis.isH ? second : null,
-              height: widget.axis.isH ? null : second,
-              child: ClipRect(child: widget.end),
-            ),
-          ],
-        ),
-        if (widget.axis.isH)
-          Positioned.directional(
-            textDirection: textDirection,
-            start: first - interactiveSlop,
-            top: 0,
-            bottom: 0,
-            child: divider,
-          )
-        else
-          Positioned(
-            top: first - interactiveSlop,
-            left: 0,
-            right: 0,
-            child: divider,
-          ),
-        if (previewStart != null)
-          if (widget.axis.isH)
-            Positioned.directional(
-              textDirection: textDirection,
-              start: previewStart,
-              width: dividerThickness,
-              top: 0,
-              bottom: 0,
-              child: IgnorePointer(child: ColoredBox(color: previewColor)),
-            )
-          else
-            Positioned(
-              top: previewStart,
-              height: dividerThickness,
-              left: 0,
-              right: 0,
-              child: IgnorePointer(child: ColoredBox(color: previewColor)),
-            ),
-      ],
+    // The render object owns layout (solving the request against the real
+    // constraints in performLayout), painting (each pane clipped to its box),
+    // hit testing (the divider wins inside its slop), and publishing the
+    // resolved geometry back up through [_handleResolvedGeometry] - which mirrors
+    // it to the controller and reports collapse transitions. The handle is
+    // passed opaquely; the preview line is laid out by the render object and
+    // painted only while a deferred drag is previewing.
+    return _ResizableSplitterRenderWidget(
+      axis: widget.axis,
+      textDirection: textDirection,
+      position: state.position,
+      collapsedPane: state.collapsedPane,
+      dividerThickness: dividerThickness,
+      interactiveExtent: interactiveExtent,
+      resizable: widget.resizable,
+      config: config,
+      controller: controller,
+      previewListenable: _previewFraction,
+      onGeometryChanged: _handleResolvedGeometry,
+      start: widget.start,
+      end: widget.end,
+      divider: divider,
+      preview: IgnorePointer(child: ColoredBox(color: previewColor)),
     );
   }
 }

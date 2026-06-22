@@ -23,6 +23,10 @@ void main() {
         ),
       ),
     );
+    // The resolved geometry is published post-frame (the layoutListenable
+    // contract), so pump once to let the handle pick it up before reading the
+    // resolved slider value and actions.
+    await tester.pump();
 
     final semanticsHandle = tester.ensureSemantics();
     try {
@@ -67,6 +71,9 @@ void main() {
         ),
       ),
     );
+    // Resolved geometry is published post-frame; pump so the handle reflects the
+    // clamped effective ratio before the assertion.
+    await tester.pump();
 
     final semanticsHandle = tester.ensureSemantics();
     try {
@@ -113,6 +120,9 @@ void main() {
           ),
         ),
       );
+      // Resolved geometry is published post-frame; pump so the handle exposes
+      // its adjust actions before the assertion.
+      await tester.pump();
 
       final semanticsHandle = tester.ensureSemantics();
       try {

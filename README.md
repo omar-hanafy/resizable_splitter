@@ -363,6 +363,11 @@ ResizableSplitterTheme(
 );
 ```
 
+The layout is a dedicated `RenderObject` (not a `LayoutBuilder`), so the splitter
+also supports **intrinsic sizing**: place it under `IntrinsicWidth` /
+`IntrinsicHeight` and it reports a sensible intrinsic size (along the axis,
+`start + divider + end`; across it, the larger pane).
+
 ## Platform views
 
 A drag inserts an invisible shield over the tree so embedded platform views

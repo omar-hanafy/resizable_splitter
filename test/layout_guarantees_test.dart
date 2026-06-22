@@ -1,4 +1,7 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:resizable_splitter/resizable_splitter.dart';
 
@@ -70,27 +73,71 @@ void main() {
     expect(tester.getSize(find.byKey(const Key('top'))).height, 0);
   });
 
-  testWidgets('each pane is wrapped in a ClipRect so content cannot bleed', (
+  testWidgets('content cannot bleed across the divider (panes are clipped)', (
     tester,
   ) async {
+    // Behavioral clip guarantee (replaces the old ClipRect-count assertion, which
+    // coupled to the widget tree shape): an oversized start child must not paint
+    // into the end pane. Holds whether the clip is a ClipRect widget or the
+    // render object's own paint-time clip.
     await tester.pumpWidget(
       host(
-        child: ResizableSplitter(
-          startConstraints: const SplitterPaneConstraints(),
-          endConstraints: const SplitterPaneConstraints(),
-          semanticsLabel: 'handle',
-          start: Container(key: const Key('start')),
-          end: Container(key: const Key('end')),
+        width: 200,
+        height: 100,
+        child: const RepaintBoundary(
+          key: Key('boundary'),
+          child: ResizableSplitter(
+            divider: SplitterDividerStyle(thickness: 0),
+            startConstraints: SplitterPaneConstraints(),
+            endConstraints: SplitterPaneConstraints(),
+            semanticsLabel: 'handle',
+            start: OverflowBox(
+              alignment: Alignment.centerLeft,
+              maxWidth: 200,
+              child: SizedBox(
+                width: 200,
+                height: 100,
+                child: ColoredBox(color: Colors.red),
+              ),
+            ),
+            end: ColoredBox(color: Colors.white),
+          ),
         ),
       ),
     );
+    await tester.pumpAndSettle();
 
-    expect(
-      find.descendant(
-        of: find.byType(ResizableSplitter),
-        matching: find.byType(ClipRect),
-      ),
-      findsNWidgets(2),
-    );
+    // x=150 is inside the end pane ([100, 200]); the red start pane must be
+    // clipped out of it.
+    final color = await _sampleColor(tester, const Key('boundary'), 150, 50);
+    expect(color, isSameColorAs(Colors.white));
   });
+}
+
+Future<Color> _sampleColor(
+  WidgetTester tester,
+  Key boundaryKey,
+  int x,
+  int y,
+) async {
+  final boundary = tester.renderObject<RenderRepaintBoundary>(
+    find.byKey(boundaryKey),
+  );
+  // toImage()/toByteData() resolve on the engine, which needs real async - the
+  // default fake-async test zone would deadlock, so run them via runAsync.
+  final color = await tester.runAsync(() async {
+    final image = await boundary.toImage();
+    final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+    final bytes = data!.buffer.asUint8List();
+    final offset = (y * image.width + x) * 4;
+    final sampled = Color.fromARGB(
+      bytes[offset + 3],
+      bytes[offset],
+      bytes[offset + 1],
+      bytes[offset + 2],
+    );
+    image.dispose();
+    return sampled;
+  });
+  return color!;
 }

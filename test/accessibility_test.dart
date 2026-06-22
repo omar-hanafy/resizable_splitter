@@ -342,6 +342,9 @@ void main() {
           ),
         ),
       );
+      // Resolved geometry is published post-frame (the layoutListenable
+      // contract), so pump once before reading the bounds-gated actions.
+      await tester.pump();
 
       final handle = tester.ensureSemantics();
       try {

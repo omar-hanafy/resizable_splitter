@@ -108,6 +108,16 @@ so the stored value can no longer disagree with what is drawn.
   panes settle once on release - for expensive pane subtrees.
 - Customizable drag barrier (`dragBarrierBuilder`) over the platform-view shield.
 - `SplitterSnapBehavior.pixelTolerance` for a size-independent snap feel.
+- The bounded layout is backed by a dedicated `RenderObject` that resolves the
+  split in `performLayout` against the real constraints (no `LayoutBuilder`).
+  This is behavior-preserving - the public widget, controller, handle, and
+  solver are unchanged - but it adds **intrinsic sizing** and **dry layout**: a
+  `ResizableSplitter` can now sit under `IntrinsicWidth` / `IntrinsicHeight` (or
+  any parent that queries intrinsics) and size to its panes, where the previous
+  layout threw. Painting (each pane clipped to its box), clipping, and hit
+  testing (the divider winning inside its interactive slop) also move into the
+  render object. The resolved layout is published from the layout pass, so
+  `layoutListenable` notifies once per resolved change, after the frame.
 
 ### Fixed
 

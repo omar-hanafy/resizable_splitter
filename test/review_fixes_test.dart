@@ -55,32 +55,35 @@ void main() {
   });
 
   group('unbounded shrinkToChildren no longer throws', () {
-    testWidgets('splitter under an unbounded main axis with the default policy', (
-      tester,
-    ) async {
-      await tester.pumpWidget(
-        const MaterialApp(
-          home: Scaffold(
-            body: Center(
-              // Both axes unbounded: Expanded here would throw RenderFlex.
-              child: UnconstrainedBox(
-                child: ResizableSplitter(
-                  semanticsLabel: 'handle',
-                  start: SizedBox(width: 40, height: 40),
-                  end: SizedBox(width: 40, height: 40),
+    testWidgets(
+      'splitter under an unbounded main axis with the default policy',
+      (tester) async {
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: Scaffold(
+              body: Center(
+                // Both axes unbounded: Expanded here would throw RenderFlex.
+                child: UnconstrainedBox(
+                  child: ResizableSplitter(
+                    semanticsLabel: 'handle',
+                    start: SizedBox(key: Key('start'), width: 40, height: 40),
+                    end: SizedBox(key: Key('end'), width: 40, height: 40),
+                  ),
                 ),
               ),
             ),
           ),
-        ),
-      );
-      await tester.pump();
+        );
+        await tester.pump();
 
-      expect(tester.takeException(), isNull);
-      expect(find.byType(Flex), findsWidgets);
-      // shrinkToChildren was requested (the default), so no LimitedBox sandbox.
-      expect(find.byType(LimitedBox), findsNothing);
-    });
+        expect(tester.takeException(), isNull);
+        // shrinkToChildren (the default) shrink-wraps the two panes side by side
+        // with no divider gap and no fallback sandbox: 40 + 40 = 80 wide.
+        expect(tester.getSize(find.byKey(const Key('start'))).width, 40);
+        expect(tester.getSize(find.byKey(const Key('end'))).width, 40);
+        expect(tester.getSize(find.byType(ResizableSplitter)).width, 80);
+      },
+    );
   });
 
   group('theme precedence: local theme overrides the global extension', () {

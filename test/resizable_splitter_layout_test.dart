@@ -304,49 +304,47 @@ void main() {
     expect(endSize.width, closeTo(expectedAvailable / 2, 1e-6));
   });
 
-  testWidgets(
-    'widget override keeps shrinkToChildren even when theme uses LimitedBox',
-    (tester) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          home: ResizableSplitterTheme(
-            data: const ResizableSplitterThemeData(
-              unboundedBehavior: UnboundedBehavior.useFallbackExtent,
-              fallbackExtent: 420,
-            ),
-            child: Scaffold(
-              body: Align(
-                alignment: Alignment.topLeft,
-                child: SizedBox(
-                  width: 0,
-                  child: SizedBox(
-                    height: 200,
-                    child: ResizableSplitter(
-                      unboundedBehavior: UnboundedBehavior.shrinkToChildren,
-                      semanticsLabel: 'handle',
-                      start: Container(key: const Key('start')),
-                      end: Container(key: const Key('end')),
-                    ),
+  testWidgets('widget override keeps shrinkToChildren even when theme uses '
+      'useFallbackExtent', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: ResizableSplitterTheme(
+          data: ResizableSplitterThemeData(
+            unboundedBehavior: UnboundedBehavior.useFallbackExtent,
+            fallbackExtent: 420,
+          ),
+          child: Scaffold(
+            body: Align(
+              alignment: Alignment.topLeft,
+              child: SizedBox(
+                height: 200,
+                // Unbounded main axis (width): the two unbounded behaviors
+                // resolve it differently, so the override is observable.
+                child: UnconstrainedBox(
+                  constrainedAxis: Axis.vertical,
+                  child: ResizableSplitter(
+                    unboundedBehavior: UnboundedBehavior.shrinkToChildren,
+                    semanticsLabel: 'handle',
+                    start: SizedBox(key: Key('start'), width: 30),
+                    end: SizedBox(key: Key('end'), width: 50),
                   ),
                 ),
               ),
             ),
           ),
         ),
-      );
+      ),
+    );
 
-      await tester.pump();
+    await tester.pump();
 
-      expect(
-        find.byWidgetPredicate(
-          (widget) => widget is LimitedBox && widget.maxWidth == 420,
-        ),
-        findsNothing,
-      );
-
-      expect(find.byType(Flex), findsWidgets);
-    },
-  );
+    // The widget's shrinkToChildren overrides the theme's useFallbackExtent:
+    // the splitter shrink-wraps its panes (30 + 50 = 80) rather than expanding
+    // to the theme's 420-wide sandbox.
+    expect(tester.getSize(find.byType(ResizableSplitter)).width, 80);
+    expect(tester.getSize(find.byKey(const Key('start'))).width, 30);
+    expect(tester.getSize(find.byKey(const Key('end'))).width, 50);
+  });
 
   testWidgets(
     'widget override disables anti-alias workaround when theme enables',

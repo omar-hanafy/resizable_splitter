@@ -53,8 +53,7 @@ class _DividerHandle extends StatefulWidget {
     required this.axis,
     required this.controller,
     required this.thickness,
-    required this.solver,
-    required this.solution,
+    required this.geometryListenable,
     required this.dividerColor,
     required this.dragBarrierColor,
     required this.dragBarrierBuilder,
@@ -85,8 +84,14 @@ class _DividerHandle extends StatefulWidget {
   final Axis axis;
   final SplitterController controller;
   final double thickness;
-  final SplitterSolver solver;
-  final SplitterSolution solution;
+
+  /// The resolved geometry the render object published from its last layout
+  /// pass, or null before the first layout / while detached (the handle then
+  /// falls back to the controller's published layout). Event handlers read this
+  /// live, so a drag, key press, or assistive action is never a frame stale; the
+  /// build listens to it so the rendered semantics track a container resize that
+  /// leaves the request unchanged.
+  final ValueListenable<_ResolvedSplitterGeometry?> geometryListenable;
   final WidgetStateProperty<Color?>? dividerColor;
   final Color? dragBarrierColor;
   final Widget Function(BuildContext context)? dragBarrierBuilder;
@@ -161,6 +166,11 @@ class _DividerHandleState extends State<_DividerHandle> {
     if (widget.enableHaptics) unawaited(HapticFeedback.selectionClick());
   }
 
+  // The resolved geometry from the render object's last layout pass (read live),
+  // or null before the first layout / while detached. Event handlers read this
+  // so a drag, key press, or assistive action always uses the current solver.
+  _ResolvedSplitterGeometry? get _geometry => widget.geometryListenable.value;
+
   // The pointer's position along the main axis in the splitter's local frame
   // (transform-safe), falling back to the raw global coordinate if the render
   // box is unavailable.
@@ -229,13 +239,30 @@ class _DividerHandleState extends State<_DividerHandle> {
     SplitterChangeSource source, {
     SplitterChangeEnd? end,
   }) {
-    final solution = widget.solver.solve(SplitterPosition.fraction(fraction));
+    final geometry = _geometry;
+    if (geometry == null) {
+      // Before the first layout / while detached: report from the controller's
+      // published layout (or zeros) rather than solving with no configured
+      // solver.
+      final layout = widget.controller.layout;
+      return SplitterChangeDetails(
+        requestedPosition: widget.controller.value.position,
+        effectiveFraction:
+            layout?.effectiveFraction ?? fraction.clamp(0.0, 1.0).toDouble(),
+        startExtent: layout?.startExtent ?? 0,
+        endExtent: layout?.endExtent ?? 0,
+        availableExtent: layout?.availableExtent ?? 0,
+        source: source,
+        end: end,
+      );
+    }
+    final solution = geometry.solver.solve(SplitterPosition.fraction(fraction));
     return SplitterChangeDetails(
       requestedPosition: widget.controller.value.position,
       effectiveFraction: solution.effectiveFraction,
       startExtent: solution.startExtent,
       endExtent: solution.endExtent,
-      availableExtent: widget.solver.available,
+      availableExtent: geometry.solver.available,
       source: source,
       end: end,
     );
@@ -245,7 +272,10 @@ class _DividerHandleState extends State<_DividerHandle> {
   /// controller's requested position so synchronous adjustments accumulate
   /// against what is actually shown (not a stale build-time solution).
   double get _effective =>
-      widget.solver.solve(widget.controller.value.position).effectiveFraction;
+      _geometry?.solver
+          .solve(widget.controller.value.position)
+          .effectiveFraction ??
+      widget.controller.effectiveFraction;
 
   @override
   void didUpdateWidget(_DividerHandle oldWidget) {
@@ -302,6 +332,10 @@ class _DividerHandleState extends State<_DividerHandle> {
     if (!widget.resizable || _isDragging) return;
     if (!_isSupportedPointerKind(details.kind)) return;
 
+    final geometry = _geometry;
+    // No resolved geometry yet (not laid out): nothing to drag against.
+    if (geometry == null) return;
+
     final controller = widget.controller;
     final pointerId = _takePendingPointer(details.globalPosition) ?? -1;
     final isRtl =
@@ -311,9 +345,11 @@ class _DividerHandleState extends State<_DividerHandle> {
       pointerId: pointerId,
       axis: widget.axis,
       isRtl: isRtl,
-      startEffectiveFraction: widget.solution.effectiveFraction,
+      startEffectiveFraction: geometry.solver
+          .solve(controller.value.position)
+          .effectiveFraction,
       startLocalMainAxis: _mainAxisPosition(details.globalPosition),
-      availableExtent: widget.solver.available,
+      availableExtent: geometry.solver.available,
       deferred: widget.deferred,
       onPreviewChanged: widget.onPreviewChanged,
     );
@@ -345,12 +381,14 @@ class _DividerHandleState extends State<_DividerHandle> {
   void _onDragUpdate(DragUpdateDetails details) {
     final session = _session;
     if (session == null) return;
+    final geometry = _geometry;
+    if (geometry == null) return;
 
     // The session captured the start anchors and available extent, so the math
     // stays stable even if the container resizes mid-drag; the live solver still
     // clamps to current constraints (no dead zone, no inverted clamp).
     final currentPos = _mainAxisPosition(details.globalPosition);
-    final newRatio = session.fractionFor(currentPos, widget.solver);
+    final newRatio = session.fractionFor(currentPos, geometry.solver);
     _lastDragRatio = newRatio;
 
     if (session.deferred) {
@@ -478,10 +516,13 @@ class _DividerHandleState extends State<_DividerHandle> {
   }
 
   double? _maybeSnap(double value) {
+    final geometry = _geometry;
     final snap = widget.snap;
     final points = snap?.points;
-    if (snap == null || points == null || points.isEmpty) return null;
-    final available = widget.solver.available;
+    if (geometry == null || snap == null || points == null || points.isEmpty) {
+      return null;
+    }
+    final available = geometry.solver.available;
     if (available <= 0) return null;
 
     // A pixel tolerance is measured in logical pixels (size-independent);
@@ -494,7 +535,7 @@ class _DividerHandleState extends State<_DividerHandle> {
     var nearest = value;
     var bestDist = double.infinity;
     for (final p in points) {
-      final resolved = widget.solver
+      final resolved = geometry.solver
           .solve(SplitterPosition.fraction(p))
           .effectiveFraction;
       final d = (value - resolved).abs() * (usePixels ? available : 1.0);
@@ -654,17 +695,22 @@ class _DividerHandleState extends State<_DividerHandle> {
   /// The on-screen ratio for [ratio], honoring ratio caps and pixel minimums.
   /// Used for the semantics readout so it matches what the layout shows.
   double _effectiveRatio(double ratio) =>
-      widget.solver.solve(SplitterPosition.fraction(ratio)).effectiveFraction;
+      _geometry?.solver
+          .solve(SplitterPosition.fraction(ratio))
+          .effectiveFraction ??
+      ratio.clamp(0.0, 1.0).toDouble();
 
   void _nudge(double delta, SplitterChangeSource source) {
     if (!widget.resizable) return;
+    final geometry = _geometry;
+    if (geometry == null) return;
 
     // Step from the current *effective* position (re-solved fresh, so repeated
     // presses without a rebuild still accumulate), then re-solve to clamp. This
     // moves the divider by the step in what the user actually sees, instead of
     // nudging a stored value through a dead band.
     final base = _effective;
-    final newRatio = widget.solver
+    final newRatio = geometry.solver
         .solve(SplitterPosition.fraction(base + delta))
         .effectiveFraction;
     widget.controller.jumpTo(SplitterPosition.fraction(newRatio));
@@ -677,6 +723,16 @@ class _DividerHandleState extends State<_DividerHandle> {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the resolved geometry changes (e.g. a container resize that
+    // leaves the request unchanged), so the semantics value and affordances
+    // track what is actually drawn.
+    return ValueListenableBuilder<_ResolvedSplitterGeometry?>(
+      valueListenable: widget.geometryListenable,
+      builder: (context, _, _) => _buildHandle(context),
+    );
+  }
+
+  Widget _buildHandle(BuildContext context) {
     // Focus is only meaningful when the handle is a keyboard-navigable resize
     // affordance; gate it so a stale highlight (e.g. after keyboard support is
     // turned off) can never paint a ring on a non-interactive divider.
@@ -817,8 +873,11 @@ class _DividerHandleState extends State<_DividerHandle> {
     final effective = _effective;
     final labels = widget.semantics;
     String fmt(double ratio) => labels.formatValue(ratio.clamp(0.0, 1.0));
-    final canIncrease = widget.resizable && widget.solution.canIncreaseStart;
-    final canDecrease = widget.resizable && widget.solution.canDecreaseStart;
+    final solution = _geometry?.solution;
+    final canIncrease =
+        widget.resizable && (solution?.canIncreaseStart ?? false);
+    final canDecrease =
+        widget.resizable && (solution?.canDecreaseStart ?? false);
 
     divider = Semantics(
       slider: true,
@@ -888,12 +947,14 @@ class _DividerHandleState extends State<_DividerHandle> {
           _JumpIntent: CallbackAction<_JumpIntent>(
             onInvoke: (intent) {
               _showKeyboardFocusHighlight();
+              final geometry = _geometry;
+              if (geometry == null) return null;
               final previous = _effective;
               final dest = intent.toMin
-                  ? widget.solver
+                  ? geometry.solver
                         .solve(const SplitterPosition.fraction(0))
                         .effectiveFraction
-                  : widget.solver
+                  : geometry.solver
                         .solve(const SplitterPosition.fraction(1))
                         .effectiveFraction;
               widget.controller.jumpTo(SplitterPosition.fraction(dest));

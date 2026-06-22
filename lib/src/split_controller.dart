@@ -78,7 +78,10 @@ class SplitterController extends ValueNotifier<SplitterState>
       _owner = null;
       // No view is producing geometry anymore, so the published layout no
       // longer reflects anything on screen. Clear it (and notify) so [layout]
-      // reads null while detached, as its documentation promises.
+      // reads null while detached, as its documentation promises. Clearing the
+      // stale flag too keeps [effectiveFraction] deriving cleanly from the
+      // request while detached.
+      _layoutStale = false;
       if (_layout.prime(null)) _layout.flush();
     }
   }
@@ -143,7 +146,7 @@ class SplitterController extends ValueNotifier<SplitterState>
   // [effectiveFraction] are fresh within the frame the splitter solved in) and
   // returns whether it changed, so the splitter can defer the listener
   // notification out of the build phase.
-  bool _primeLayout(SplitterLayout layout) {
+  bool _primeLayout(SplitterLayout? layout) {
     _layoutStale = false;
     return _layout.prime(layout);
   }
