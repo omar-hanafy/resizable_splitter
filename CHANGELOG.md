@@ -108,6 +108,14 @@ so the stored value can no longer disagree with what is drawn.
   panes settle once on release - for expensive pane subtrees.
 - Customizable drag barrier (`dragBarrierBuilder`) over the platform-view shield.
 - `SplitterSnapBehavior.pixelTolerance` for a size-independent snap feel.
+- Live snap modes alongside the existing release snapping:
+  `SplitterSnapBehavior.magnetic` pulls the divider toward a point during the
+  drag and can be pushed through (no release-time jump), and
+  `SplitterSnapBehavior.sticky` captures onto a point and holds it until the
+  pointer escapes past a hysteresis radius. `SplitterSnapBehavior` is now a
+  sealed type (`ReleaseSnap` / `MagneticSnap` / `StickySnap`); the unnamed
+  `SplitterSnapBehavior(...)` constructor still builds release snapping, so
+  existing call sites are unchanged.
 - The bounded layout is backed by a dedicated `RenderObject` that resolves the
   split in `performLayout` against the real constraints (no `LayoutBuilder`).
   This is behavior-preserving - the public widget, controller, handle, and

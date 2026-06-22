@@ -22,7 +22,9 @@ enum SplitterChangeSource {
   /// The built-in double-tap reset reaching its target.
   doubleTapReset,
 
-  /// Settling onto a snap point at the end of a drag.
+  /// A snap point claiming the divider: either a live [StickySnap] capture
+  /// during the drag, or settling onto the nearest point when a [ReleaseSnap]
+  /// drag ends.
   snap,
 
   /// Collapsing a pane (`controller.collapse`).

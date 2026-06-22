@@ -18,6 +18,7 @@ import 'package:resizable_splitter/src/split_pane_constraints.dart';
 import 'package:resizable_splitter/src/split_position.dart';
 import 'package:resizable_splitter/src/split_semantics_labels.dart';
 import 'package:resizable_splitter/src/split_snap_behavior.dart';
+import 'package:resizable_splitter/src/split_snap_engine.dart';
 import 'package:resizable_splitter/src/split_solver.dart';
 import 'package:resizable_splitter/src/split_state.dart';
 import 'package:resizable_splitter/src/split_change_details.dart';
@@ -241,7 +242,14 @@ class ResizableSplitter extends StatefulWidget {
   /// Whether the protective overlay is used while dragging. Defaults to true.
   final bool? shieldPlatformViews;
 
-  /// Optional snap points; a drag settles onto the nearest within tolerance.
+  /// Optional snap behavior for the divider, or null for no snapping.
+  ///
+  /// The concrete mode chooses how a drag interacts with the points:
+  /// [ReleaseSnap] (the default, built by the unnamed
+  /// [SplitterSnapBehavior.new] factory) settles onto the nearest point on
+  /// release; [MagneticSnap] pulls the divider toward a point during the drag
+  /// and can be pushed through; [StickySnap] captures onto a point and holds it
+  /// until the pointer escapes past a hysteresis radius.
   final SplitterSnapBehavior? snap;
 
   /// Whether to temporarily hold the nearest Scrollable's position while dragging.

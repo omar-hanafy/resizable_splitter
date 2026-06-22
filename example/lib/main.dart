@@ -159,9 +159,12 @@ class _SplitterDemoPageState extends State<SplitterDemoPage> {
         enableKeyboard: true,
         shieldPlatformViews: useOverlay,
         startConstraints: SplitterPaneConstraints(minExtent: 220),
-        snap: SplitterSnapBehavior(
-          points: <double>[0.26, 0.32, 0.45],
-          tolerance: 0.04,
+        // Sticky, calm: only within 2% of 50% does the divider click onto it,
+        // holding until you pull ~3% past, then it pops free. The small radius
+        // means it engages only when you are close, with a small snap in and out.
+        snap: SplitterSnapBehavior.sticky(
+          points: <double>[0.5],
+          tolerance: 0.02,
         ),
         start: _NavigationPane(
           demos: _demos,
@@ -350,7 +353,10 @@ class _KeyboardDemo extends StatelessWidget {
         const _ExampleCard(child: _KeyboardExample()),
         const SizedBox(height: 24),
         const _Bullet('keyboardStep and pageStep tune the control feel'),
-        const _Bullet('Snap reports through onChanged when it activates'),
+        const _Bullet(
+          'Magnetic snapping eases the divider toward preferred '
+          'ratios as you drag, and can be pushed through',
+        ),
       ],
     );
   }
@@ -698,7 +704,6 @@ class _OverviewExampleState extends State<_OverviewExample> {
                   active: colorScheme.secondary.withAlpha(150),
                 ),
               ),
-              snap: SplitterSnapBehavior(points: <double>[0.35, 0.5, 0.7]),
               start: const _Panel(
                 title: 'Navigation',
                 color: Colors.transparent,
@@ -846,7 +851,7 @@ class _KeyboardExampleState extends State<_KeyboardExample> {
               controller: _controller,
               keyboardStep: 0.05,
               pageStep: 0.2,
-              snap: SplitterSnapBehavior(
+              snap: SplitterSnapBehavior.magnetic(
                 points: <double>[0.25, 0.5, 0.75],
                 tolerance: 0.06,
               ),

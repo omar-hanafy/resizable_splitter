@@ -19,6 +19,7 @@ class _DragSession {
     required this.startLocalMainAxis,
     required this.availableExtent,
     required this.deferred,
+    required this.snap,
     required this.onPreviewChanged,
   });
 
@@ -30,6 +31,10 @@ class _DragSession {
   final double startLocalMainAxis;
   final double availableExtent;
   final bool deferred;
+
+  /// The snap behavior captured at drag start, so the mode and points stay fixed
+  /// for the gesture even if the parent rebuilds.
+  final SplitterSnapBehavior? snap;
   final ValueChanged<double?>? onPreviewChanged;
 
   /// Maps the current local main-axis pointer position to a clamped effective
@@ -45,6 +50,21 @@ class _DragSession {
         .solve(SplitterPosition.fraction(startEffectiveFraction + deltaRatio))
         .effectiveFraction;
   }
+}
+
+/// The result of applying a live snap mode to one drag update: the fraction to
+/// request, the source to report, and whether it is a live mode (so the caller
+/// writes it exactly rather than through the chatty-update threshold).
+class _LiveSnapResult {
+  const _LiveSnapResult(
+    this.requestFraction,
+    this.source, {
+    required this.live,
+  });
+
+  final double requestFraction;
+  final SplitterChangeSource source;
+  final bool live;
 }
 
 /// Internal widget for the draggable divider handle.
@@ -157,7 +177,13 @@ class _DividerHandleState extends State<_DividerHandle> {
   // the recognizer's onEnd - is what lets _onDragEnd tell them apart so a cancel
   // never snaps or fires a successful onChangeEnd.
   bool _activePointerCanceled = false;
-  double? _lastDragRatio;
+  // The last fraction written to the controller/preview this drag, its source,
+  // and (for sticky) the captured point's index. These supersede a single
+  // "last ratio": a live mode's written request, its visible position, and the
+  // raw pointer are three different values.
+  double? _lastDragRequestFraction;
+  SplitterChangeSource? _lastDragSource;
+  int? _stickyCapturedIndex;
   OverlayEntry? _dragOverlay;
   ScrollHoldController? _scrollHold;
   final List<_PendingPointer> _pendingPointers = <_PendingPointer>[];
@@ -332,6 +358,7 @@ class _DividerHandleState extends State<_DividerHandle> {
     if (!identical(session.controller, widget.controller) ||
         session.axis != widget.axis ||
         session.deferred != widget.deferred ||
+        session.snap != widget.snap ||
         !widget.resizable) {
       _endDrag(_DragEndReason.interrupted);
     }
@@ -394,10 +421,13 @@ class _DividerHandleState extends State<_DividerHandle> {
       startLocalMainAxis: _mainAxisPosition(details.globalPosition),
       availableExtent: geometry.solver.available,
       deferred: widget.deferred,
+      snap: widget.snap,
       onPreviewChanged: widget.onPreviewChanged,
     );
     setState(() => _session = session);
-    _lastDragRatio = null;
+    _lastDragRequestFraction = null;
+    _lastDragSource = null;
+    _stickyCapturedIndex = null;
     _activePointerCanceled = false;
 
     controller
@@ -431,23 +461,80 @@ class _DividerHandleState extends State<_DividerHandle> {
     // stays stable even if the container resizes mid-drag; the live solver still
     // clamps to current constraints (no dead zone, no inverted clamp).
     final currentPos = _mainAxisPosition(details.globalPosition);
-    final newRatio = session.fractionFor(currentPos, geometry.solver);
-    _lastDragRatio = newRatio;
+    final rawPointer = session.fractionFor(currentPos, geometry.solver);
+    final applied = _applyLiveSnap(rawPointer, geometry, session.snap);
+    _lastDragRequestFraction = applied.requestFraction;
+    _lastDragSource = applied.source;
 
     if (session.deferred) {
       // Defer the resize: move only the preview line. The panes keep their
       // committed size and onChanged stays silent until the drag is released.
-      widget.onPreviewChanged?.call(newRatio);
+      session.onPreviewChanged?.call(applied.requestFraction);
       return;
     }
 
     final previous = _effective;
-    widget.controller.updateRatio(newRatio);
+    // Live modes (magnetic/sticky) need their exact request written so the
+    // divider can land on a point and not lag the visible value; release/none
+    // keep the per-update threshold that tames chatty pointer streams.
+    if (applied.live) {
+      _writeExactDragRequest(widget.controller, applied.requestFraction);
+    } else {
+      widget.controller.updateRatio(applied.requestFraction);
+    }
     final current = _effective;
     if ((current - previous).abs() > 1e-9) {
-      widget.onChanged?.call(
-        _changeDetails(current, SplitterChangeSource.drag),
-      );
+      widget.onChanged?.call(_changeDetails(current, applied.source));
+    }
+  }
+
+  // Transforms the raw pointer fraction for the active snap mode. Release/none
+  // pass through (release snapping settles on release); magnetic applies a
+  // continuous pull; sticky captures/holds/escapes, threading the captured
+  // index through [_stickyCapturedIndex].
+  _LiveSnapResult _applyLiveSnap(
+    double rawPointer,
+    _ResolvedSplitterGeometry geometry,
+    SplitterSnapBehavior? snap,
+  ) {
+    switch (snap) {
+      case null:
+      case ReleaseSnap():
+        _stickyCapturedIndex = null;
+        return _LiveSnapResult(
+          rawPointer,
+          SplitterChangeSource.drag,
+          live: false,
+        );
+      case MagneticSnap():
+        _stickyCapturedIndex = null;
+        final pulled = magneticPull(
+          pointer: rawPointer,
+          resolver: SnapResolver(snap, geometry.solver),
+          strength: snap.strength,
+        );
+        return _LiveSnapResult(pulled, SplitterChangeSource.drag, live: true);
+      case StickySnap():
+        final step = stickyStep(
+          pointer: rawPointer,
+          capturedIndex: _stickyCapturedIndex,
+          resolver: SnapResolver(snap, geometry.solver),
+          escapeFactor: snap.escapeFactor,
+        );
+        _stickyCapturedIndex = step.capturedIndex;
+        return _LiveSnapResult(step.requestFraction, step.source, live: true);
+    }
+  }
+
+  // Writes [fraction] to [controller] exactly (no update threshold), as a fresh
+  // fractional intent. The guard avoids a redundant write when the request is
+  // already in effect and no collapse needs clearing.
+  void _writeExactDragRequest(SplitterController controller, double fraction) {
+    final clamped = fraction.clamp(0.0, 1.0).toDouble();
+    final position = SplitterPosition.fraction(clamped);
+    if (controller.value.position != position ||
+        controller.value.collapsedPane != null) {
+      controller.jumpTo(position);
     }
   }
 
@@ -507,31 +594,35 @@ class _DividerHandleState extends State<_DividerHandle> {
   // end payload. May invoke onChanged; if that throws, [_endDrag]'s finally
   // still tears the drag down.
   SplitterChangeDetails _settle(_DragSession session) {
-    // In deferred mode the controller has not moved during the drag, so the
-    // target is the last preview; in live mode it equals the effective value.
-    final target = _lastDragRatio ?? _effective;
     session.onPreviewChanged?.call(null);
-    final snapped = _maybeSnap(target);
 
-    // No snap claimed the release: commit the exact final ratio. The per-update
-    // threshold can otherwise leave the handle a fraction short of where the
-    // pointer let go (and in deferred mode the controller has not moved at all).
-    if (snapped == null && _lastDragRatio != null) {
-      final previous = _effective;
-      session.controller.updateRatio(_lastDragRatio!, threshold: 0);
-      final current = _effective;
-      if ((current - previous).abs() > 1e-9) {
-        widget.onChanged?.call(
-          _changeDetails(current, SplitterChangeSource.drag),
-        );
+    // The live transform already settled magnetic/sticky during the drag, so the
+    // request is whatever was last written/previewed; in deferred mode that is
+    // the last preview (the controller has not moved yet).
+    var request = _lastDragRequestFraction ?? _effective;
+    var source = _lastDragSource ?? SplitterChangeSource.drag;
+
+    // Release snapping settles here: pick the nearest point within tolerance.
+    final snap = session.snap;
+    if (snap is ReleaseSnap) {
+      final snapped = _maybeSnap(snap, request);
+      if (snapped != null) {
+        request = snapped;
+        source = SplitterChangeSource.snap;
       }
     }
 
-    return _changeDetails(
-      snapped ?? _effective,
-      snapped != null ? SplitterChangeSource.snap : SplitterChangeSource.drag,
-      end: SplitterChangeEnd.committed,
-    );
+    // One commit path, written exactly: the per-update threshold can otherwise
+    // leave the handle a fraction short of where the pointer let go (and in
+    // deferred mode the controller has not moved at all).
+    final previous = _effective;
+    _writeExactDragRequest(session.controller, request);
+    final current = _effective;
+    if ((current - previous).abs() > 1e-9) {
+      widget.onChanged?.call(_changeDetails(current, source));
+    }
+
+    return _changeDetails(current, source, end: SplitterChangeEnd.committed);
   }
 
   // Releases the session's controller (the one the drag began on, never a
@@ -549,7 +640,9 @@ class _DividerHandleState extends State<_DividerHandle> {
     _removeOverlay();
     _scrollHold?.cancel();
     _scrollHold = null;
-    _lastDragRatio = null;
+    _lastDragRequestFraction = null;
+    _lastDragSource = null;
+    _stickyCapturedIndex = null;
     _activePointerCanceled = false;
     if (session.pointerId >= 0) {
       _pendingPointers.removeWhere(
@@ -558,49 +651,20 @@ class _DividerHandleState extends State<_DividerHandle> {
     }
   }
 
-  double? _maybeSnap(double value) {
+  // Pure release-snap selection: the nearest point's resolved fraction when the
+  // released [value] is within tolerance, else null. The distance is measured in
+  // effective space (or pixels when pixelTolerance is set), so a point that
+  // constraints push aside is matched by where it actually lands. No writes and
+  // no callbacks - [_settle] owns the single commit.
+  double? _maybeSnap(ReleaseSnap snap, double value) {
     final geometry = _geometry;
-    final snap = widget.snap;
-    final points = snap?.points;
-    if (geometry == null || snap == null || points == null || points.isEmpty) {
-      return null;
-    }
-    final available = geometry.solver.available;
-    if (available <= 0) return null;
-
-    // A pixel tolerance is measured in logical pixels (size-independent);
-    // otherwise the distance and tolerance are both in effective-ratio space.
-    final usePixels = snap.pixelTolerance != null;
-    final tolerance = snap.pixelTolerance ?? snap.tolerance;
-
-    // Compare in effective space: a snap point that constraints push aside is
-    // measured by where it actually lands, not by its nominal ratio.
-    var nearest = value;
-    var bestDist = double.infinity;
-    for (final p in points) {
-      final resolved = geometry.solver
-          .solve(SplitterPosition.fraction(p))
-          .effectiveFraction;
-      final d = (value - resolved).abs() * (usePixels ? available : 1.0);
-      if (d < bestDist) {
-        bestDist = d;
-        nearest = resolved;
-      }
-    }
-    if (bestDist <= tolerance) {
-      final previous = _effective;
-      if ((nearest - previous).abs() > 1e-9) {
-        widget.controller.updateRatio(nearest, threshold: 0);
-        final current = _effective;
-        if ((current - previous).abs() > 1e-9) {
-          widget.onChanged?.call(
-            _changeDetails(current, SplitterChangeSource.snap),
-          );
-        }
-      }
-      return nearest;
-    }
-    return null;
+    if (geometry == null || geometry.solver.available <= 0) return null;
+    final resolver = SnapResolver(snap, geometry.solver);
+    final nearest = resolver.nearest(value);
+    if (nearest == null) return null;
+    return nearest.distance <= resolver.radius
+        ? nearest.effectiveFraction
+        : null;
   }
 
   void _insertOverlay() {
