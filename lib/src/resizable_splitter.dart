@@ -85,7 +85,6 @@ class SplitterController extends ValueNotifier<SplitterState> {
 
   // The attached view drives vsync animation; null while detached.
   _SplitterAnimator? _animator;
-  bool _isAnimationTick = false;
   Object? _owner;
 
   /// Exposes the widget currently owning this controller in debug/test builds.
@@ -178,9 +177,11 @@ class SplitterController extends ValueNotifier<SplitterState> {
 
   /// Sets the requested [SplitterState]. The solver sanitizes the position at
   /// layout, so a malformed request (for example a non-finite fraction) can
-  /// never corrupt the layout. A write that *changes* the state and is not an
-  /// animation tick (a drag, key press, reset, collapse, or direct assignment)
-  /// takes over from a running animation.
+  /// never corrupt the layout. Any write that *changes* the state (a drag, key
+  /// press, reset, collapse, or direct assignment) takes over from a running
+  /// animation. The animation's own ticks bypass this setter (they write through
+  /// [super.value] in [_setAnimatedPosition]), so a run never cancels itself -
+  /// yet a listener's reentrant public write still goes through here and cancels.
   @override
   set value(SplitterState newValue) {
     // No-op writes change nothing observable, so they neither notify nor cancel
@@ -188,7 +189,7 @@ class SplitterController extends ValueNotifier<SplitterState> {
     // so a collapse (which lives inside the value) can never change without a
     // matching notification - the historic collapse/equal-write desync is gone.
     if (newValue == value) return;
-    if (!_isAnimationTick) _animator?.cancel();
+    _animator?.cancel();
     // Mark the published layout stale BEFORE notifying: the request changed, so
     // it no longer reflects what is on screen. Doing this first means a listener
     // reacting to this write reads an [effectiveFraction] consistent with the
@@ -252,19 +253,19 @@ class SplitterController extends ValueNotifier<SplitterState> {
     Curve curve = Curves.easeOutCubic,
   }) {
     final goal = target.clamp(0.0, 1.0).toDouble();
-    if ((goal - effectiveFraction).abs() < 1e-7) {
-      jumpTo(SplitterPosition.fraction(goal));
-      return Future<SplitterAnimationStatus>.value(
-        SplitterAnimationStatus.completed,
-      );
-    }
     final animator = _animator;
     if (animator == null) {
+      // Detached: no view drives a run, so none can be in flight to supersede.
+      // Set the value immediately and report completed.
       jumpTo(SplitterPosition.fraction(goal));
       return Future<SplitterAnimationStatus>.value(
         SplitterAnimationStatus.completed,
       );
     }
+    // The attached view owns the run. It cancels any in-flight run first (so a
+    // fresh animateTo always supersedes it, even when it then resolves
+    // instantly), resolves the target through the solver, and applies the
+    // disabled-animations / already-there shortcuts.
     return animator.animateTo(goal, duration, curve);
   }
 
@@ -276,12 +277,16 @@ class SplitterController extends ValueNotifier<SplitterState> {
 
   void _cancelAnimation() => _animator?.cancel();
 
-  // Writes an animated position, preserving any collapse and without cancelling
-  // the run (an animation tick is not a fresh user intent superseding it).
+  // Writes an animated position. A fresh animateTo is a new intent, so the run
+  // animates an uncollapsed state (the first tick clears any collapse), matching
+  // jumpTo/keyboard/drag. The write goes through [super.value] so the run never
+  // cancels itself, while a listener's reentrant *public* write still routes
+  // through the overridden setter and cancels the run.
   void _setAnimatedPosition(SplitterPosition position) {
-    _isAnimationTick = true;
-    value = value.copyWith(position: position);
-    _isAnimationTick = false;
+    final next = SplitterState(position: position);
+    if (next == value) return;
+    _layoutStale = true;
+    super.value = next;
   }
 
   // Internal methods for the global router. The reason distinguishes a normal
@@ -900,13 +905,32 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     Curve curve,
   ) {
     _animationController.stop();
-    // A new run supersedes any in-flight one.
+    // A new run supersedes any in-flight one - resolving it canceled - before any
+    // shortcut can return, so a fresh animateTo can never leave the old run alive.
     _resolveSession(SplitterAnimationStatus.canceled);
 
     final controller = _attachedController ?? _effectiveController;
+    // Resolve the requested fraction through the solver so the run targets a
+    // position the divider can actually reach (clamped by the constraints).
+    // "completed" then means the divider arrived there, never a target clamped
+    // off-screen, and there is no stall while an unreachable request runs past
+    // the edge. The uncollapsed solver is used because a fresh animateTo clears
+    // any collapse (see _setAnimatedPosition).
+    final available = controller.layout?.availableExtent ?? 0.0;
+    final resolved = available > 0
+        ? _solverFor(
+            available: available,
+            snapToPixels: false,
+            startCollapsed: false,
+            endCollapsed: false,
+          ).solve(SplitterPosition.fraction(target)).effectiveFraction
+        : target;
+
     final disable = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
-    if (disable || duration <= Duration.zero) {
-      controller.jumpTo(SplitterPosition.fraction(target));
+    if (disable ||
+        duration <= Duration.zero ||
+        (resolved - controller.effectiveFraction).abs() < 1e-7) {
+      controller.jumpTo(SplitterPosition.fraction(resolved));
       return Future<SplitterAnimationStatus>.value(
         SplitterAnimationStatus.completed,
       );
@@ -914,7 +938,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     final session = _AnimationSession(
       controller: controller,
       begin: controller.effectiveFraction,
-      end: target,
+      end: resolved,
       curve: curve,
     );
     _animSession = session;
@@ -1180,6 +1204,29 @@ class _ResizableSplitterState extends State<ResizableSplitter>
   bool _crossAxisBounded(BoxConstraints constraints) =>
       (widget.axis.isH ? constraints.maxHeight : constraints.maxWidth).isFinite;
 
+  // Builds the constraint solver from the widget configuration for [available]
+  // space. The single source of truth for resolving a request into geometry,
+  // shared by the layout (per frame) and the animator (to resolve a target) so
+  // the two can never disagree about what is reachable.
+  SplitterSolver _solverFor({
+    required double available,
+    required bool snapToPixels,
+    required bool startCollapsed,
+    required bool endCollapsed,
+  }) => SplitterSolver(
+    available: available,
+    start: widget.startConstraints,
+    end: widget.endConstraints,
+    minStartFraction: widget.minStartFraction,
+    maxStartFraction: widget.maxStartFraction,
+    policy: widget.constraintPolicy,
+    surplusPolicy: widget.surplusPolicy,
+    startCollapsed: startCollapsed,
+    endCollapsed: endCollapsed,
+    devicePixelRatio: MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0,
+    snapToDevicePixels: snapToPixels,
+  );
+
   Widget _buildBounded({
     required SplitterPosition position,
     required double availableSize,
@@ -1217,14 +1264,9 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     // here for layout, and inside the handle for drag/keyboard/snap/semantics/
     // preview - snaps identically. The callbacks can never report a position the
     // layout did not actually draw.
-    final solver = SplitterSolver(
+    final solver = _solverFor(
       available: availableSize,
-      start: widget.startConstraints,
-      end: widget.endConstraints,
-      minStartFraction: widget.minStartFraction,
-      maxStartFraction: widget.maxStartFraction,
-      policy: widget.constraintPolicy,
-      surplusPolicy: widget.surplusPolicy,
+      snapToPixels: antiAliasingWorkaround,
       // Only an actually-collapsible pane resolves collapsed; a collapse request
       // on a fixed pane is ignored by the layout (the request still lives on the
       // controller). This is the request-vs-resolved split, like position vs
@@ -1234,8 +1276,6 @@ class _ResizableSplitterState extends State<ResizableSplitter>
           widget.startConstraints.collapsible,
       endCollapsed:
           collapsedPane == SplitterPane.end && widget.endConstraints.collapsible,
-      devicePixelRatio: MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0,
-      snapToDevicePixels: antiAliasingWorkaround,
     );
 
     final solution = solver.solve(position);
