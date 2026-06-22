@@ -20,7 +20,7 @@ so the stored value can no longer disagree with what is drawn.
 - Divider styling grouped into `divider: SplitterDividerStyle(...)`, replacing
   `dividerThickness` / `dividerColor` / `dividerHoverColor` /
   `dividerActiveColor` / `handleHitSlop` / `handleBuilder`. The color is a
-  `WidgetStateProperty<Color?>` resolved against `hovered` / `dragged`.
+  `WidgetStateProperty<Color?>` resolved against `hovered` / `focused` / `dragged`.
 - Pane limits grouped into `startConstraints` / `endConstraints`
   (`SplitterPaneConstraints`), replacing `minPanelSize` / `minStartPanelSize` /
   `minEndPanelSize`. Adds per-pane `maxExtent`. A pane is collapsible when its
@@ -44,15 +44,44 @@ so the stored value can no longer disagree with what is drawn.
   and now returns `Future<SplitterAnimationStatus>` (was `Future<void>`), so a
   caller can tell a completed run from one a drag cancelled or a disposal ended.
 - The `Axis` re-export was dropped; import it from `package:flutter/material.dart`.
+- Pixel `minExtent` / `maxExtent` are now **hard** limits that always win over the
+  fractional `minStartFraction` / `maxStartFraction` caps when the two disagree
+  (previously a fractional cap could override a feasible pixel minimum).
+- `surplusPolicy` now defaults to `SplitterSurplusPolicy.leaveGap` (was
+  `giveToStart`), so `maxExtent` is a true maximum by default: leftover space
+  becomes a gap between the panes instead of overflowing one past its max.
+- `SplitterLayout.isConstrained` (bool) -> `resolution` (a `SplitterResolution`:
+  `exact` / `clamped` / `minShortage` / `maxSurplus` / `fractionConflict` /
+  `collapsed` / `inactive`). It also gains `minStartExtent` / `maxStartExtent` and
+  derived `canIncrease` / `canDecrease`.
+- The redundant `SplitterValue` type is removed; `SplitterChangeDetails` is now a
+  standalone value type carrying the same fields plus `source`.
+- `SplitterDividerStyle.hitSlop` (additive padding) -> `interactiveExtent` (the
+  total grab target across the bar). Defaults to 48 (the Material minimum touch
+  target), up from an effective ~6px; migrate with
+  `interactiveExtent = thickness + 2 * oldHitSlop`.
+- `onChangeEnd` now also fires for a canceled drag, so every `onChangeStart` is
+  balanced by exactly one end. `SplitterChangeDetails.end` (a `SplitterChangeEnd`)
+  reports `committed` vs `canceled`.
+- Behavioral renames: `blockerColor` -> `dragBarrierColor`; `overlayEnabled` ->
+  `shieldPlatformViews`; `antiAliasingWorkaround` (and the solver's
+  `snapToDevicePixels`) -> `snapToPhysicalPixels`; `fallbackMainAxisExtent` ->
+  `fallbackExtent`; `UnboundedBehavior.flexExpand` / `.limitedBox` ->
+  `shrinkToChildren` / `useFallbackExtent`; `SplitterChangeSource.programmatic` ->
+  `doubleTapReset`.
+- `SplitterController.layout` is now cleared (notifies `null`) when the controller
+  detaches from its splitter, rather than retaining the last geometry.
 
 ### Added
 
 - `SplitterController.layout` / `layoutListenable`: the resolved on-screen
   geometry (`SplitterLayout` - effective fraction, both pane extents, available
-  extent, `isConstrained`, `collapsedPane`) as an observable separate from the
-  request. A pixel pin's fraction shifts when the container resizes without the
-  request changing, so this is the signal for that class of change. `null` before
-  the first layout (no pretending a pixel request already has a fraction).
+  extent, the legal `minStartExtent` / `maxStartExtent` band with derived
+  `canIncrease` / `canDecrease`, a `resolution`, and `collapsedPane`) as an
+  observable separate from the request. A pixel pin's fraction shifts when the
+  container resizes without the request changing, so this is the signal for that
+  class of change. `null` before the first layout (no pretending a pixel request
+  already has a fraction), and cleared when the controller detaches.
 - `SplitterState` (the atomic controller value) and `SplitterController.jumpTo`
   / `position`.
 - `SplitterAnimationStatus` (`completed` / `canceled` / `detached`), the result
@@ -60,8 +89,15 @@ so the stored value can no longer disagree with what is drawn.
 - `SplitterSurplusPolicy` (`giveToStart` / `giveToEnd` / `proportional` /
   `leaveGap`) + a `surplusPolicy` argument: the solver now defines the *surplus*
   case (both maximums too small to fill the space) explicitly, instead of
-  silently overflowing a maximum. Defaults to `giveToStart` (the prior behavior);
-  `leaveGap` keeps both panes at their max and renders the leftover as a gap.
+  silently overflowing a maximum. Defaults to `leaveGap`, which keeps both panes
+  at their max and renders the leftover as a gap.
+- Framework-grade accessibility: a keyboard focus ring (with `WidgetState.focused`
+  in the divider color resolver and `SplitterHandleDetails.isFocused` for custom
+  grips), localizable semantics via `SplitterSemanticsLabels` (on the widget or
+  the theme), and assistive increase/decrease actions gated on whether the divider
+  can actually move that way (dropped at a hard bound).
+- `interactiveExtent` on `SplitterDividerStyle`: the grab target across the bar,
+  default 48, decoupled from the visible `thickness` and from layout.
 - Pixel pinning: `SplitterPosition.startPixels` / `endPixels` keep a pane's pixel
   width as the container resizes (true fixed sidebars).
 - Collapse/expand: `controller.collapse(SplitterPane.start | SplitterPane.end)`,
@@ -90,8 +126,9 @@ so the stored value can no longer disagree with what is drawn.
 - RTL: drag and arrow keys move with the pointer; the start pane lays out on the
   right.
 - The controller rejects `NaN` / out-of-range values at the source.
-- `handleHitSlop` now enlarges the grab target by overlapping the panes instead
-  of widening the divider footprint.
+- `interactiveExtent` enlarges the grab target by overlapping the panes instead
+  of widening the divider footprint, and collapses to the visible thickness on a
+  non-resizable divider so a static bar cannot steal the panes' hits.
 - Overflow-safe under containers smaller than the divider; each pane is clipped.
 - A bounded main axis with an unbounded cross axis (e.g. a horizontal splitter
   in a `Column`) no longer throws an infinite-size error; the layout sizes to the
@@ -103,11 +140,16 @@ so the stored value can no longer disagree with what is drawn.
   swap no longer lets the animation bleed onto the new controller, and a
   cancelled run is distinguishable from a completed one (no phantom
   programmatic change after a cancel).
+- Animation contract: a fresh `animateTo` always supersedes a run in progress
+  (even when the target is already current), a listener's reentrant write cancels
+  the run, a run from a collapsed pane clears the collapse and animates out, and
+  the target is resolved through the solver so `completed` means the divider
+  actually arrived (no stall against a target clamped off-screen).
 - Swapping the controller (or axis) during an active drag now ends the drag on
   the original controller instead of stranding it flagged as dragging.
 - The drag shield degrades gracefully when there is no `Overlay` ancestor
   (the drag still works) instead of throwing from a reusable layout primitive.
-- Physical-pixel snapping (`antiAliasingWorkaround`) now applies to every solve -
+- Physical-pixel snapping (`snapToPhysicalPixels`) now applies to every solve -
   drag, keyboard, snap matching, semantics, deferred preview, and the published
   layout - not just the initial layout, so callbacks can no longer report an
   extent the layout never drew. The snap config moved from a per-`solve` argument

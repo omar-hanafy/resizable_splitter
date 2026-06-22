@@ -131,8 +131,9 @@ ResizableSplitter(
   maxStartFraction: 0.9,
   // When both minimums cannot fit (a shortage), decide who keeps theirs:
   constraintPolicy: SplitterConstraintPolicy.proportional,
-  // When both maximums cannot fill (a surplus), decide who absorbs the slack:
-  surplusPolicy: SplitterSurplusPolicy.giveToStart,
+  // When both maximums cannot fill (a surplus), decide what fills the slack.
+  // The default, leaveGap, keeps both at their max and leaves a gap between them.
+  surplusPolicy: SplitterSurplusPolicy.leaveGap,
   start: const LeftPane(),
   end: const RightPane(),
 );
@@ -142,8 +143,10 @@ ResizableSplitter(
 applies in a **shortage** - the layout is too small to honor both minimums.
 `SplitterSurplusPolicy` (`giveToStart` / `giveToEnd` / `proportional` /
 `leaveGap`) is its counterpart for a **surplus** - both panes have a `maxExtent`
-whose sum is below the available space; `leaveGap` keeps both at their max and
-leaves the remainder as a gap between them.
+whose sum is below the available space. It defaults to `leaveGap`, which keeps
+both at their max (so `maxExtent` is a true maximum) and leaves the remainder as
+a gap between them. Pixel `minExtent` / `maxExtent` are hard limits: they always
+win over `minStartFraction` / `maxStartFraction` when the two disagree.
 
 ## Snapping
 
@@ -223,13 +226,18 @@ ResizableSplitter(
 `onChanged` / `onChangeStart` / `onChangeEnd` deliver a `SplitterChangeDetails`:
 the request, the resolved `effectiveFraction`, both pane extents, the available
 extent, and the `SplitterChangeSource` (`drag`, `keyboard`, `semantics`,
-`programmatic`, `snap`, `collapse`, `restore`).
+`doubleTapReset`, `snap`, `collapse`, `restore`).
 
 These fire for interactions (drag, keyboard, assistive adjust, snap, the
 double-tap reset) and `collapse` / `expand`. Direct controller writes
 (`jumpTo`, `updateRatio`, `reset`, `animateTo`) and state restoration do **not**
 fire them - observe those with the `controller` (request) and
 `controller.layoutListenable` (resolved geometry), which avoids feedback loops.
+
+`onChangeStart` and `onChangeEnd` are balanced: every start is followed by
+exactly one end. On the end, `details.end` is `SplitterChangeEnd.committed` for a
+normal release or `SplitterChangeEnd.canceled` for a system cancel (nothing is
+committed), so a "dragging" flag toggled on start always clears on the end.
 
 ```dart
 ResizableSplitter(
@@ -243,13 +251,15 @@ ResizableSplitter(
 ## Divider styling
 
 Group divider appearance and grab configuration under `divider`. The color is a
-`WidgetStateProperty<Color?>`, resolved against `hovered` and `dragged`:
+`WidgetStateProperty<Color?>`, resolved against `hovered`, `focused`, and
+`dragged`:
 
 ```dart
 ResizableSplitter(
   divider: SplitterDividerStyle(
     thickness: 8,
-    hitSlop: 6, // enlarge the grab target without widening the bar
+    interactiveExtent: 48, // grab target across the bar (defaults to 48); the
+                           // extra width overlays the panes without resizing them
     color: WidgetStateProperty.resolveWith((states) {
       if (states.contains(WidgetState.dragged)) return Colors.blue;
       if (states.contains(WidgetState.hovered)) return Colors.blueGrey;
@@ -273,7 +283,7 @@ ResizableSplitter(
 ResizableSplitterTheme(
   data: const ResizableSplitterThemeData(
     divider: SplitterDividerStyle(thickness: 8),
-    overlayEnabled: false,
+    shieldPlatformViews: false,
     keyboardStep: 0.02,
   ),
   child: const ResizableSplitter(start: NavPane(), end: ContentPane()),
@@ -305,8 +315,8 @@ the handle, so it shows the panes without a divider. Opt into a finite sandbox:
 ```dart
 ResizableSplitterTheme(
   data: const ResizableSplitterThemeData(
-    unboundedBehavior: UnboundedBehavior.limitedBox,
-    fallbackMainAxisExtent: 420,
+    unboundedBehavior: UnboundedBehavior.useFallbackExtent,
+    fallbackExtent: 420,
   ),
   child: const ResizableSplitter(start: LeftPane(), end: RightPane()),
 );
@@ -315,8 +325,8 @@ ResizableSplitterTheme(
 ## Platform views
 
 A drag inserts an invisible shield over the tree so embedded platform views
-(WebView, Maps, video) cannot steal the pointer. Tune it with `overlayEnabled`,
-`blockerColor`, or a custom `dragBarrierBuilder`.
+(WebView, Maps, video) cannot steal the pointer. Tune it with
+`shieldPlatformViews`, `dragBarrierColor`, or a custom `dragBarrierBuilder`.
 
 ## Migrating from 1.x
 
@@ -325,7 +335,7 @@ A drag inserts an invisible shield over the tree so embedded platform views
 | `initialRatio: 0.5` | `initialPosition: SplitterPosition.fraction(0.5)` |
 | `controller.value = 0.6` *(double)* | `controller.jumpTo(SplitterPosition.fraction(0.6))` |
 | `controller.value` *(read, double)* | `controller.position` *(SplitterPosition)* / `controller.effectiveFraction` *(double)*; `controller.value` is now a `SplitterState` |
-| `dividerThickness`, `dividerColor`, `dividerHoverColor`, `dividerActiveColor`, `handleHitSlop`, `handleBuilder` | `divider: SplitterDividerStyle(thickness, color, hitSlop, builder)` |
+| `dividerThickness`, `dividerColor`, `dividerHoverColor`, `dividerActiveColor`, `handleHitSlop`, `handleBuilder` | `divider: SplitterDividerStyle(thickness, color, interactiveExtent, builder)` (`interactiveExtent` is the total grab target, default 48; replaces the additive `handleHitSlop`) |
 | `minPanelSize`, `minStartPanelSize`, `minEndPanelSize` | `startConstraints` / `endConstraints: SplitterPaneConstraints(minExtent: ...)` |
 | `minRatio`, `maxRatio` | `minStartFraction`, `maxStartFraction` |
 | `snapPoints`, `snapTolerance` | `snap: SplitterSnapBehavior(points, tolerance, pixelTolerance)` |
