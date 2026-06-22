@@ -1,5 +1,6 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:resizable_splitter/resizable_splitter.dart';
 
@@ -124,6 +125,70 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(barDecoration(tester).color, idle);
+  });
+
+  testWidgets('mouse click focus does not leave a stale focused visual state', (
+    tester,
+  ) async {
+    FocusManager.instance.highlightStrategy =
+        FocusHighlightStrategy.alwaysTraditional;
+    addTearDown(
+      () => FocusManager.instance.highlightStrategy =
+          FocusHighlightStrategy.automatic,
+    );
+
+    const idle = Color(0xFF000001);
+    const hover = Color(0xFF000002);
+    const active = Color(0xFF000003);
+    const focused = Color(0xFF000004);
+    final controller = SplitterController();
+
+    await tester.pumpWidget(
+      host(
+        ResizableSplitter(
+          controller: controller,
+          divider: SplitterDividerStyle(
+            color: WidgetStateProperty.resolveWith((states) {
+              if (states.contains(WidgetState.dragged)) return active;
+              if (states.contains(WidgetState.focused)) return focused;
+              if (states.contains(WidgetState.hovered)) return hover;
+              return idle;
+            }),
+          ),
+          startConstraints: const SplitterPaneConstraints(),
+          endConstraints: const SplitterPaneConstraints(),
+          semanticsLabel: 'handle',
+          start: const SizedBox(),
+          end: const SizedBox(),
+        ),
+      ),
+    );
+
+    final handle = find.bySemanticsLabel('handle');
+    final outsideHandle = tester.getTopRight(find.byType(ResizableSplitter));
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    addTearDown(mouse.removePointer);
+
+    await mouse.addPointer(location: tester.getCenter(handle));
+    await tester.pump();
+    expect(barDecoration(tester).color, hover);
+
+    await mouse.down(tester.getCenter(handle));
+    await tester.pump();
+    expect(barDecoration(tester).color, active);
+
+    await mouse.up();
+    await tester.pumpAndSettle();
+    await mouse.moveTo(outsideHandle);
+    await tester.pumpAndSettle();
+
+    expect(barDecoration(tester).color, idle);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pump();
+
+    expect(controller.effectiveFraction, greaterThan(0.5));
+    expect(barDecoration(tester).color, focused);
   });
 
   testWidgets('non-resizable divider does not create a hover state', (

@@ -141,11 +141,11 @@ class _DividerHandleState extends State<_DividerHandle> {
   // the visible bar bounds so hidden slop can grab without painting as hover.
   Offset? _hoverLocalPosition;
   // Whether the keyboard focus highlight should show. Driven by
-  // FocusableActionDetector.onShowFocusHighlight, so it tracks Flutter's focus
-  // highlight mode (a ring for keyboard traversal, not for touch). Only ever set
-  // true in the keyboard-enabled branch, so a divider without keyboard support
-  // never paints a misleading ring.
+  // FocusableActionDetector.onShowFocusHighlight and the splitter's own input
+  // modality tracking, so pointer-acquired focus can still receive arrow keys
+  // without painting a stale keyboard focus affordance.
   bool _isFocused = false;
+  bool _suppressFocusHighlightUntilKeyboard = false;
   // Set when a PointerCancelEvent arrives for the active drag pointer. Flutter's
   // drag recognizer reports BOTH a normal release and a mid-drag cancel through
   // onEnd, so this flag - set by the Listener, which sees the raw cancel before
@@ -192,6 +192,31 @@ class _DividerHandleState extends State<_DividerHandle> {
     final wasHovering = _isHovering;
     _hoverLocalPosition = null;
     if (wasHovering && mounted) setState(() {});
+  }
+
+  void _suppressPointerFocusHighlight() {
+    _suppressFocusHighlightUntilKeyboard = true;
+    if (_isFocused && mounted) setState(() => _isFocused = false);
+  }
+
+  void _showKeyboardFocusHighlight() {
+    _suppressFocusHighlightUntilKeyboard = false;
+    if (widget.focusNode.hasFocus && !_isFocused && mounted) {
+      setState(() => _isFocused = true);
+    }
+  }
+
+  void _setFocusHighlight(bool show) {
+    final isVisible = show && !_suppressFocusHighlightUntilKeyboard;
+    if (isVisible != _isFocused && mounted) {
+      setState(() => _isFocused = isVisible);
+    }
+  }
+
+  void _handleFocusChange(bool hasFocus) {
+    if (hasFocus) return;
+    _suppressFocusHighlightUntilKeyboard = false;
+    if (_isFocused && mounted) setState(() => _isFocused = false);
   }
 
   /// Builds the change payload for the effective [fraction], resolving the
@@ -310,6 +335,7 @@ class _DividerHandleState extends State<_DividerHandle> {
     if (widget.shieldPlatformViews) _insertOverlay();
 
     _haptic();
+    _suppressPointerFocusHighlight();
     widget.focusNode.requestFocus();
     widget.onChangeStart?.call(
       _changeDetails(session.startEffectiveFraction, SplitterChangeSource.drag),
@@ -556,6 +582,7 @@ class _DividerHandleState extends State<_DividerHandle> {
     // Pressing the handle focuses it, so keyboard adjustment works after a tap
     // (not only after a drag).
     if (widget.enableKeyboard && widget.resizable) {
+      _suppressPointerFocusHighlight();
       widget.focusNode.requestFocus();
     }
 
@@ -833,9 +860,8 @@ class _DividerHandleState extends State<_DividerHandle> {
         focusNode: widget.focusNode,
         // Tracks Flutter's focus highlight mode so the ring shows for keyboard
         // traversal but not for a touch/mouse focus.
-        onShowFocusHighlight: (show) {
-          if (show != _isFocused) setState(() => _isFocused = show);
-        },
+        onShowFocusHighlight: _setFocusHighlight,
+        onFocusChange: _handleFocusChange,
         shortcuts: <LogicalKeySet, Intent>{
           // Fine step (left/right swap under RTL on the horizontal axis).
           LogicalKeySet(decreaseKey): _AdjustIntent(-widget.keyboardStep),
@@ -854,12 +880,14 @@ class _DividerHandleState extends State<_DividerHandle> {
         actions: <Type, Action<Intent>>{
           _AdjustIntent: CallbackAction<_AdjustIntent>(
             onInvoke: (intent) {
+              _showKeyboardFocusHighlight();
               _nudge(intent.delta, SplitterChangeSource.keyboard);
               return null;
             },
           ),
           _JumpIntent: CallbackAction<_JumpIntent>(
             onInvoke: (intent) {
+              _showKeyboardFocusHighlight();
               final previous = _effective;
               final dest = intent.toMin
                   ? widget.solver
