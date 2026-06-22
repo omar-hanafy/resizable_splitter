@@ -44,7 +44,10 @@ void main() {
     expect(controller.layout!.effectiveFraction, closeTo(0.4, 1e-6));
     expect(controller.layout!.startExtent, closeTo(0.4 * 594, 1e-6));
     expect(controller.layout!.availableExtent, closeTo(594, 1e-6));
-    expect(controller.layout!.isConstrained, isFalse);
+    expect(
+      controller.layout!.resolution,
+      anyOf(SplitterResolution.exact, SplitterResolution.clamped),
+    );
     expect(controller.layout!.collapsedPane, isNull);
   });
 

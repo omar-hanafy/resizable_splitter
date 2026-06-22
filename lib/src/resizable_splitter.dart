@@ -515,7 +515,7 @@ class ResizableSplitter extends StatefulWidget {
     this.onHandleTap,
     this.onHandleDoubleTap,
     this.constraintPolicy = SplitterConstraintPolicy.favorStart,
-    this.surplusPolicy = SplitterSurplusPolicy.giveToStart,
+    this.surplusPolicy = SplitterSurplusPolicy.leaveGap,
     this.unboundedBehavior,
     this.fallbackMainAxisExtent,
     this.antiAliasingWorkaround,
@@ -679,7 +679,9 @@ class ResizableSplitter extends StatefulWidget {
   final SplitterConstraintPolicy constraintPolicy;
 
   /// Policy applied when both panes' maximums are too small to fill the space
-  /// (a surplus). Defaults to [SplitterSurplusPolicy.giveToStart].
+  /// (a surplus). Defaults to [SplitterSurplusPolicy.leaveGap], which keeps
+  /// [SplitterPaneConstraints.maxExtent] a true maximum (the leftover becomes a
+  /// gap between the panes rather than overflowing one past its maximum).
   final SplitterSurplusPolicy surplusPolicy;
 
   /// Fallback layout behavior when constraints are unbounded along the main
@@ -1223,7 +1225,9 @@ class _ResizableSplitterState extends State<ResizableSplitter>
         startExtent: solution.startExtent,
         endExtent: solution.endExtent,
         availableExtent: solver.available,
-        isConstrained: solution.isCramped,
+        minStartExtent: solution.minStartExtent,
+        maxStartExtent: solution.maxStartExtent,
+        resolution: solution.resolution,
         // The resolved collapse, not the request.
         collapsedPane: solution.startCollapsed
             ? SplitterPane.start

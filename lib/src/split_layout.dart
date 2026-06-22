@@ -1,6 +1,42 @@
 import 'package:flutter/foundation.dart';
 import 'package:resizable_splitter/src/split_pane_constraints.dart';
 
+/// How the solver resolved a requested position against the pane constraints
+/// and the available space, for one layout pass.
+///
+/// This replaces the old boolean "constrained" flag, which conflated three
+/// distinct failures. Pixel limits ([SplitterPaneConstraints.minExtent] /
+/// [SplitterPaneConstraints.maxExtent]) are hard and always win; a fractional
+/// cap (the start-fraction interval) only narrows an otherwise feasible pixel
+/// band, and a [fractionConflict] reports where it could not.
+enum SplitterResolution {
+  /// The request landed inside the legal band without being clamped.
+  exact,
+
+  /// The request was clamped to the legal band (a pixel limit or a fractional
+  /// cap bit), which was non-empty.
+  clamped,
+
+  /// Both panes' minimums could not fit (`start.min + end.min > available`); the
+  /// [SplitterConstraintPolicy] decided the split.
+  minShortage,
+
+  /// Both panes' maximums could not fill the space
+  /// (`start.max + end.max < available`); the [SplitterSurplusPolicy] decided
+  /// the split.
+  maxSurplus,
+
+  /// The pixel limits were feasible, but the fractional caps emptied the band;
+  /// the pixel limits won and the fractional caps were ignored.
+  fractionConflict,
+
+  /// A pane is collapsed in this layout.
+  collapsed,
+
+  /// There is no usable space (the available extent is zero or non-finite).
+  inactive,
+}
+
 /// The resolved, on-screen geometry of a split for the current layout.
 ///
 /// Where a `SplitterState` is the *request* (a fraction or pixel pin, plus
@@ -11,8 +47,9 @@ import 'package:resizable_splitter/src/split_pane_constraints.dart';
 /// fraction shifts when the container resizes), and consumers that track the
 /// visible layout need a signal for exactly those changes.
 ///
-/// A controller reports `null` for its layout before the first layout pass,
-/// rather than pretending a pixel request already has an effective fraction.
+/// A controller reports `null` for its layout before the first layout pass (and
+/// while detached), rather than pretending a pixel request already has an
+/// effective fraction.
 @immutable
 class SplitterLayout {
   /// Creates a resolved layout. Normally obtained from
@@ -22,7 +59,9 @@ class SplitterLayout {
     required this.startExtent,
     required this.endExtent,
     required this.availableExtent,
-    required this.isConstrained,
+    required this.minStartExtent,
+    required this.maxStartExtent,
+    required this.resolution,
     this.collapsedPane,
   });
 
@@ -38,12 +77,29 @@ class SplitterLayout {
   /// Space shared by the two panes in logical pixels (net of the divider).
   final double availableExtent;
 
-  /// Whether the panes' hard minimums could not all be honored, so the
-  /// constraint-policy tie-break decided this layout.
-  final bool isConstrained;
+  /// Lowest legal start extent for this layout, in logical pixels - the floor
+  /// the divider can be dragged to. Equals [startExtent] when the layout is
+  /// pinned (collapsed, or an infeasible shortage/surplus).
+  final double minStartExtent;
+
+  /// Highest legal start extent for this layout, in logical pixels - the ceiling
+  /// the divider can be dragged to. Equals [startExtent] when the layout is
+  /// pinned.
+  final double maxStartExtent;
+
+  /// How the solver resolved the request for this layout.
+  final SplitterResolution resolution;
 
   /// Which pane is collapsed in this layout, or null when neither is.
   final SplitterPane? collapsedPane;
+
+  /// Whether the start pane has head-room to grow (the divider can move toward
+  /// the end). Useful for gating an "increase" affordance.
+  bool get canIncrease => maxStartExtent - startExtent > 1e-9;
+
+  /// Whether the start pane has room to shrink (the divider can move toward the
+  /// start). Useful for gating a "decrease" affordance.
+  bool get canDecrease => startExtent - minStartExtent > 1e-9;
 
   @override
   bool operator ==(Object other) =>
@@ -54,7 +110,9 @@ class SplitterLayout {
           other.startExtent == startExtent &&
           other.endExtent == endExtent &&
           other.availableExtent == availableExtent &&
-          other.isConstrained == isConstrained &&
+          other.minStartExtent == minStartExtent &&
+          other.maxStartExtent == maxStartExtent &&
+          other.resolution == resolution &&
           other.collapsedPane == collapsedPane;
 
   @override
@@ -64,7 +122,9 @@ class SplitterLayout {
     startExtent,
     endExtent,
     availableExtent,
-    isConstrained,
+    minStartExtent,
+    maxStartExtent,
+    resolution,
     collapsedPane,
   );
 
@@ -72,5 +132,6 @@ class SplitterLayout {
   String toString() =>
       'SplitterLayout(effective: $effectiveFraction, start: $startExtent, '
       'end: $endExtent, available: $availableExtent, '
-      'constrained: $isConstrained, collapsed: ${collapsedPane?.name})';
+      'band: [$minStartExtent, $maxStartExtent], '
+      'resolution: ${resolution.name}, collapsed: ${collapsedPane?.name})';
 }

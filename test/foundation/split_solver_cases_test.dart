@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:resizable_splitter/src/split_layout.dart';
 import 'package:resizable_splitter/src/split_pane_constraints.dart';
 import 'package:resizable_splitter/src/split_position.dart';
 import 'package:resizable_splitter/src/split_solver.dart';
@@ -15,7 +16,7 @@ void main() {
       expect(sol.startExtent, closeTo(400, 1e-9));
       expect(sol.endExtent, closeTo(600, 1e-9));
       expect(sol.effectiveFraction, closeTo(0.4, 1e-9));
-      expect(sol.isCramped, isFalse);
+      expect(sol.resolution, SplitterResolution.exact);
     });
 
     test('caps the start pane at its maxExtent', () {
@@ -55,7 +56,7 @@ void main() {
       final sol = solver.solve(const SplitterPosition.fraction(0.5));
       expect(sol.startExtent, closeTo(100, 1e-9));
       expect(sol.effectiveFraction, closeTo(100 / 174, 1e-9));
-      expect(sol.isCramped, isTrue);
+      expect(sol.resolution, SplitterResolution.minShortage);
       expect(sol.startExtent + sol.endExtent, closeTo(174, 1e-9));
     });
 
@@ -129,7 +130,7 @@ void main() {
       final sol = solveWith(SplitterSurplusPolicy.giveToStart);
       expect(sol.startExtent, closeTo(700, 1e-9));
       expect(sol.endExtent, closeTo(300, 1e-9));
-      expect(sol.isCramped, isTrue);
+      expect(sol.resolution, SplitterResolution.maxSurplus);
     });
 
     test('giveToEnd grows the end pane to fill', () {
@@ -151,14 +152,48 @@ void main() {
       expect(sol.startExtent + sol.endExtent, lessThan(1000));
     });
 
-    test('the default policy preserves the pre-policy behavior (giveToStart)', () {
+    test('the default policy keeps maxExtent a true maximum (leaveGap)', () {
       final sol = const SplitterSolver(
         available: 1000,
         start: SplitterPaneConstraints(maxExtent: 200),
         end: SplitterPaneConstraints(maxExtent: 300),
       ).solve(const SplitterPosition.fraction(0.5));
-      expect(sol.startExtent, closeTo(700, 1e-9));
+      // Neither pane overflows past its maximum; the leftover is a gap.
+      expect(sol.startExtent, closeTo(200, 1e-9));
       expect(sol.endExtent, closeTo(300, 1e-9));
+      expect(sol.startExtent + sol.endExtent, lessThan(1000));
+      expect(sol.resolution, SplitterResolution.maxSurplus);
+    });
+  });
+
+  group('pixel limits beat fractional caps (review C#2)', () {
+    test('a feasible pixel minimum wins over a conflicting maxStartFraction', () {
+      // maxStartFraction 0.5 would cap the start at 200, below its 300px
+      // minimum. The hard pixel minimum must win.
+      const solver = SplitterSolver(
+        available: 400,
+        start: SplitterPaneConstraints(minExtent: 300),
+        end: SplitterPaneConstraints(),
+        maxStartFraction: 0.5,
+        policy: SplitterConstraintPolicy.favorEnd,
+      );
+      final sol = solver.solve(const SplitterPosition.fraction(0.5));
+      expect(sol.startExtent, closeTo(300, 1e-9));
+      expect(sol.resolution, SplitterResolution.fractionConflict);
+    });
+
+    test('a feasible pixel maximum wins over a conflicting minStartFraction', () {
+      // minStartFraction 0.5 would force the start to 200, above its 100px
+      // maximum. The hard pixel maximum must win.
+      const solver = SplitterSolver(
+        available: 400,
+        start: SplitterPaneConstraints(maxExtent: 100),
+        end: SplitterPaneConstraints(),
+        minStartFraction: 0.5,
+      );
+      final sol = solver.solve(const SplitterPosition.fraction(0.5));
+      expect(sol.startExtent, closeTo(100, 1e-9));
+      expect(sol.resolution, SplitterResolution.fractionConflict);
     });
   });
 

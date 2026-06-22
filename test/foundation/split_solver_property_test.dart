@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:resizable_splitter/src/split_layout.dart';
 import 'package:resizable_splitter/src/split_pane_constraints.dart';
 import 'package:resizable_splitter/src/split_position.dart';
 import 'package:resizable_splitter/src/split_solver.dart';
@@ -55,18 +56,23 @@ void main() {
       final maxStartFraction = math.max(a, b);
       final policy = SplitterConstraintPolicy
           .values[r.nextInt(SplitterConstraintPolicy.values.length)];
+      final surplusPolicy = SplitterSurplusPolicy
+          .values[r.nextInt(SplitterSurplusPolicy.values.length)];
       final startCollapsed = r.nextInt(8) == 0;
       final endCollapsed = !startCollapsed && r.nextInt(8) == 0;
 
       final dpr = dprs[r.nextInt(dprs.length)];
       final snap = r.nextBool();
+      final start = randConstraints();
+      final end = randConstraints();
       final solver = SplitterSolver(
         available: available,
-        start: randConstraints(),
-        end: randConstraints(),
+        start: start,
+        end: end,
         minStartFraction: minStartFraction,
         maxStartFraction: maxStartFraction,
         policy: policy,
+        surplusPolicy: surplusPolicy,
         startCollapsed: startCollapsed,
         endCollapsed: endCollapsed,
         devicePixelRatio: dpr,
@@ -76,42 +82,72 @@ void main() {
       final sol = solver.solve(randPosition());
 
       final expectedAvailable = available > 0 ? available : 0.0;
-      final reason = 'case $i (available=$available, policy=$policy)';
+      final reason =
+          'case $i (available=$available, policy=$policy, '
+          'surplus=$surplusPolicy, resolution=${sol.resolution})';
 
       expect(sol.startExtent.isFinite, isTrue, reason: reason);
       expect(sol.endExtent.isFinite, isTrue, reason: reason);
       expect(sol.effectiveFraction.isFinite, isTrue, reason: reason);
       expect(sol.startExtent, greaterThanOrEqualTo(-1e-9), reason: reason);
       expect(sol.endExtent, greaterThanOrEqualTo(-1e-9), reason: reason);
+
+      // The panes fill the space, except under leaveGap on a surplus, where the
+      // sum is deliberately less (the remainder is an intentional gap).
+      final leavesGap =
+          sol.resolution == SplitterResolution.maxSurplus &&
+          surplusPolicy == SplitterSurplusPolicy.leaveGap;
+      if (leavesGap) {
+        expect(
+          sol.startExtent + sol.endExtent,
+          lessThanOrEqualTo(expectedAvailable + 1e-6),
+          reason: reason,
+        );
+      } else {
+        expect(
+          sol.startExtent + sol.endExtent,
+          closeTo(expectedAvailable, 1e-6),
+          reason: reason,
+        );
+      }
+
+      expect(sol.effectiveFraction, greaterThanOrEqualTo(-1e-9), reason: reason);
+      expect(sol.effectiveFraction, lessThanOrEqualTo(1 + 1e-9), reason: reason);
+
+      // The reported band always contains the resolved extent.
       expect(
-        sol.startExtent + sol.endExtent,
-        closeTo(expectedAvailable, 1e-6),
+        sol.startExtent,
+        greaterThanOrEqualTo(sol.minStartExtent - 1e-6),
         reason: reason,
       );
       expect(
-        sol.effectiveFraction,
-        greaterThanOrEqualTo(-1e-9),
-        reason: reason,
-      );
-      expect(
-        sol.effectiveFraction,
-        lessThanOrEqualTo(1 + 1e-9),
+        sol.startExtent,
+        lessThanOrEqualTo(sol.maxStartExtent + 1e-6),
         reason: reason,
       );
 
-      // When the layout is feasible the start extent stays inside the legal
-      // interval the solver reports.
-      if (!sol.isCramped) {
-        expect(
-          sol.startExtent,
-          greaterThanOrEqualTo(sol.minStartExtent - 1e-6),
-          reason: reason,
-        );
-        expect(
-          sol.startExtent,
-          lessThanOrEqualTo(sol.maxStartExtent + 1e-6),
-          reason: reason,
-        );
+      // The headline invariant: whenever the hard pixel band is non-empty, a
+      // fractional cap can never push the start extent outside it. (Collapse and
+      // zero-space layouts are governed separately.)
+      if (available > 0 && !startCollapsed && !endCollapsed) {
+        final pixLo = math
+            .max(start.minExtent, available - end.maxExtent)
+            .clamp(0.0, available);
+        final pixHi = math
+            .min(start.maxExtent, available - end.minExtent)
+            .clamp(0.0, available);
+        if (pixLo <= pixHi) {
+          expect(
+            sol.startExtent,
+            greaterThanOrEqualTo(pixLo - 1e-6),
+            reason: 'pixel band floor: $reason',
+          );
+          expect(
+            sol.startExtent,
+            lessThanOrEqualTo(pixHi + 1e-6),
+            reason: 'pixel band ceiling: $reason',
+          );
+        }
       }
     }
   });

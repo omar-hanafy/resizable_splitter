@@ -9,7 +9,9 @@ void main() {
       startExtent: 420,
       endExtent: 580,
       availableExtent: 1000,
-      isConstrained: false,
+      minStartExtent: 0,
+      maxStartExtent: 1000,
+      resolution: SplitterResolution.exact,
     );
 
     test('exposes the resolved geometry', () {
@@ -17,8 +19,39 @@ void main() {
       expect(layout.startExtent, 420);
       expect(layout.endExtent, 580);
       expect(layout.availableExtent, 1000);
-      expect(layout.isConstrained, isFalse);
+      expect(layout.minStartExtent, 0);
+      expect(layout.maxStartExtent, 1000);
+      expect(layout.resolution, SplitterResolution.exact);
       expect(layout.collapsedPane, isNull);
+    });
+
+    test('canIncrease/canDecrease derive from the resolved band', () {
+      expect(layout.canIncrease, isTrue);
+      expect(layout.canDecrease, isTrue);
+
+      const pinnedLow = SplitterLayout(
+        effectiveFraction: 0,
+        startExtent: 0,
+        endExtent: 1000,
+        availableExtent: 1000,
+        minStartExtent: 0,
+        maxStartExtent: 1000,
+        resolution: SplitterResolution.clamped,
+      );
+      expect(pinnedLow.canDecrease, isFalse);
+      expect(pinnedLow.canIncrease, isTrue);
+
+      const pinnedPoint = SplitterLayout(
+        effectiveFraction: 0.5,
+        startExtent: 500,
+        endExtent: 500,
+        availableExtent: 1000,
+        minStartExtent: 500,
+        maxStartExtent: 500,
+        resolution: SplitterResolution.minShortage,
+      );
+      expect(pinnedPoint.canIncrease, isFalse);
+      expect(pinnedPoint.canDecrease, isFalse);
     });
 
     test('carries the collapsed pane when one is collapsed', () {
@@ -27,10 +60,13 @@ void main() {
         startExtent: 0,
         endExtent: 1000,
         availableExtent: 1000,
-        isConstrained: false,
+        minStartExtent: 0,
+        maxStartExtent: 0,
+        resolution: SplitterResolution.collapsed,
         collapsedPane: SplitterPane.start,
       );
       expect(collapsed.collapsedPane, SplitterPane.start);
+      expect(collapsed.resolution, SplitterResolution.collapsed);
     });
 
     test('value equality covers every field', () {
@@ -41,7 +77,9 @@ void main() {
           startExtent: 420,
           endExtent: 580,
           availableExtent: 1000,
-          isConstrained: false,
+          minStartExtent: 0,
+          maxStartExtent: 1000,
+          resolution: SplitterResolution.exact,
         ),
       );
       expect(
@@ -52,11 +90,13 @@ void main() {
             startExtent: 500,
             endExtent: 500,
             availableExtent: 1000,
-            isConstrained: false,
+            minStartExtent: 0,
+            maxStartExtent: 1000,
+            resolution: SplitterResolution.exact,
           ),
         ),
       );
-      // Differs by isConstrained only.
+      // Differs by resolution only.
       expect(
         layout,
         isNot(
@@ -65,7 +105,9 @@ void main() {
             startExtent: 420,
             endExtent: 580,
             availableExtent: 1000,
-            isConstrained: true,
+            minStartExtent: 0,
+            maxStartExtent: 1000,
+            resolution: SplitterResolution.clamped,
           ),
         ),
       );
@@ -78,7 +120,9 @@ void main() {
             startExtent: 420,
             endExtent: 580,
             availableExtent: 1000,
-            isConstrained: false,
+            minStartExtent: 0,
+            maxStartExtent: 1000,
+            resolution: SplitterResolution.exact,
             collapsedPane: SplitterPane.end,
           ),
         ),
@@ -93,7 +137,9 @@ void main() {
           startExtent: 420,
           endExtent: 580,
           availableExtent: 1000,
-          isConstrained: false,
+          minStartExtent: 0,
+          maxStartExtent: 1000,
+          resolution: SplitterResolution.exact,
         ).hashCode,
       );
     });

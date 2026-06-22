@@ -117,8 +117,9 @@ enum SplitterConstraintPolicy {
 ///
 /// The counterpart to [SplitterConstraintPolicy] (which handles the shortage
 /// case). It only takes effect when both panes have a finite [maxExtent] whose
-/// sum is below the available space. The default, [giveToStart], matches the
-/// behavior before this policy existed (the start pane absorbs the slack).
+/// sum is below the available space. The default, [leaveGap], keeps [maxExtent]
+/// a true maximum: neither pane overflows past it, and the leftover sits as a
+/// gap between them.
 enum SplitterSurplusPolicy {
   /// Grow the start pane past its maximum to fill; the end pane stays at its
   /// maximum.
