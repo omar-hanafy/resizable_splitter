@@ -8,274 +8,32 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:resizable_splitter/src/resizable_splitter_theme.dart';
+import 'package:resizable_splitter/src/split_animation.dart';
+import 'package:resizable_splitter/src/split_divider_style.dart';
+import 'package:resizable_splitter/src/split_layout.dart';
+import 'package:resizable_splitter/src/split_pane_constraints.dart';
+import 'package:resizable_splitter/src/split_position.dart';
+import 'package:resizable_splitter/src/split_semantics_labels.dart';
+import 'package:resizable_splitter/src/split_snap_behavior.dart';
+import 'package:resizable_splitter/src/split_snap_engine.dart';
+import 'package:resizable_splitter/src/split_solver.dart';
+import 'package:resizable_splitter/src/split_state.dart';
+import 'package:resizable_splitter/src/split_change_details.dart';
 
-/// Re-export for clean imports when only Axis is needed.
-export 'package:flutter/material.dart' show Axis;
+part 'split_controller.dart';
+part 'split_handle.dart';
+part 'split_restoration.dart';
+part 'render_resizable_splitter.dart';
 
 /// Axis helpers to eliminate H/V duplication.
 extension _AxisHelpers on Axis {
   bool get isH => this == Axis.horizontal;
 
-  double size(Size s) => isH ? s.width : s.height;
-
   SystemMouseCursor get cursor =>
       isH ? SystemMouseCursors.resizeColumn : SystemMouseCursors.resizeRow;
-}
-
-/// Public handle details passed to [ResizableSplitter.handleBuilder].
-class SplitterHandleDetails {
-  /// Captures the current handle interaction state for custom builders.
-  const SplitterHandleDetails({
-    required this.isDragging,
-    required this.isHovering,
-    required this.axis,
-    required this.thickness,
-  });
-
-  /// Whether the handle is currently being dragged by the user.
-  final bool isDragging;
-
-  /// Whether the pointer is hovering over the handle.
-  final bool isHovering;
-
-  /// The axis (horizontal/vertical) of the associated splitter.
-  final Axis axis;
-
-  /// Thickness of the handle in logical pixels.
-  final double thickness;
-}
-
-/// A controller for managing splitter position (0.0–1.0).
-///
-/// Maintains the split ratio and exposes simple APIs to update or animate it.
-/// A global pointer router prevents “stuck drags” when platform views steal
-/// pointer events. The router attaches only when a [WidgetsBinding] is
-/// available, so controllers created in pure Dart tests or before `runApp`
-/// stay functional—the enhanced drag cleanup simply activates once Flutter is
-/// initialized.
-class SplitterController extends ValueNotifier<double> {
-  /// Creates a splitter controller with the given initial ratio.
-  SplitterController({double initialRatio = 0.5})
-    : assert(
-        initialRatio >= 0.0 && initialRatio <= 1.0,
-        'initialRatio must be between 0.0 and 1.0',
-      ),
-      super(initialRatio) {
-    _globalRouter.register(this);
-  }
-
-  static final _globalRouter = _GlobalPointerRouter();
-
-  static const String _multiAttachErrorMessage =
-      'SplitterController is already attached to another ResizableSplitter.\n'
-      'A controller must not be shared across multiple ResizableSplitter instances simultaneously.';
-
-  /// Emits `true` while the user is dragging the handle.
-  ValueListenable<bool> get isDraggingListenable => _isDragging;
-
-  /// A convenience getter for [_isDragging] as a boolean.
-  bool get isDragging => _isDragging.value;
-  final _isDragging = ValueNotifier<bool>(false);
-  Timer? _animationTimer;
-  Completer<void>? _animationCompleter;
-  Object? _owner;
-
-  /// Exposes the widget currently owning this controller in debug/test builds.
-  @visibleForTesting
-  Object? get debugOwner => _owner;
-
-  void _attach(Object owner) {
-    assert(() {
-      if (_owner != null && !identical(_owner, owner)) {
-        throw FlutterError(_multiAttachErrorMessage);
-      }
-      return true;
-    }(), _multiAttachErrorMessage);
-    _owner = owner;
-  }
-
-  void _detach(Object owner) {
-    if (identical(_owner, owner)) {
-      _owner = null;
-    }
-  }
-
-  @override
-  void dispose() {
-    _globalRouter.unregister(this);
-    _cancelActiveAnimation();
-    _isDragging.dispose();
-    super.dispose();
-  }
-
-  /// Updates the ratio with an optional threshold to prevent chatty updates.
-  void updateRatio(double newRatio, {double threshold = 0.002}) {
-    final clamped = newRatio.clamp(0.0, 1.0);
-    if ((clamped - value).abs() > threshold) {
-      value = clamped;
-    }
-  }
-
-  /// Resets the splitter to the specified position, defaulting to center.
-  void reset([double to = 0.5]) {
-    assert(to >= 0.0 && to <= 1.0, 'to must be between 0.0 and 1.0');
-    value = to;
-  }
-
-  /// Convenience animation (no Ticker dependency).
-  Future<void> animateTo(
-    double target, {
-    Duration duration = const Duration(milliseconds: 160),
-    Curve curve = Curves.easeOut,
-    int frames = 12,
-  }) {
-    final goal = target.clamp(0.0, 1.0);
-    if ((goal - value).abs() < 1e-7) {
-      value = goal;
-      return Future<void>.value();
-    }
-
-    if (duration <= Duration.zero || frames <= 0) {
-      _cancelActiveAnimation();
-      value = goal;
-      return Future<void>.value();
-    }
-
-    _cancelActiveAnimation();
-
-    final totalFrames = math.max(1, frames);
-    final start = value;
-    final completer = Completer<void>();
-    final intervalMicros = math.max(1, duration.inMicroseconds ~/ totalFrames);
-    final interval = Duration(microseconds: intervalMicros);
-    var frame = 0;
-
-    _animationCompleter = completer;
-    _animationTimer = Timer.periodic(interval, (timer) {
-      frame += 1;
-      final progress = curve.transform(math.min(1, frame / totalFrames));
-      value = start + (goal - start) * progress;
-
-      if (frame >= totalFrames) {
-        timer.cancel();
-        _animationTimer = null;
-        value = goal;
-        if (!completer.isCompleted) {
-          completer.complete();
-        }
-        _animationCompleter = null;
-      }
-    });
-
-    return completer.future;
-  }
-
-  void _cancelActiveAnimation() {
-    _animationTimer?.cancel();
-    _animationTimer = null;
-    if (_animationCompleter != null && !_animationCompleter!.isCompleted) {
-      _animationCompleter!.complete();
-    }
-    _animationCompleter = null;
-  }
-
-  // Internal methods for global router
-  void _stopDrag() {
-    _dragCallback?.call();
-    _dragCallback = null;
-  }
-
-  void _setDragCallback(VoidCallback? cb) => _dragCallback = cb;
-  VoidCallback? _dragCallback;
-
-  void _setDragging(bool dragging) => _isDragging.value = dragging;
-
-  /// Resets the global pointer router. For testing only.
-  @visibleForTesting
-  static void resetGlobalRouter() => _globalRouter.dispose();
-}
-
-/// Singleton global pointer router to handle drag completion events.
-class _GlobalPointerRouter {
-  factory _GlobalPointerRouter() => _instance;
-
-  _GlobalPointerRouter._() {
-    _initialize();
-  }
-
-  static final _instance = _GlobalPointerRouter._();
-  SplitterController? _currentlyDragging;
-  int? _activePointer;
-  bool _initialized = false;
-
-  void _initialize() {
-    if (_initialized) return;
-    final binding = _maybeBinding();
-    if (binding == null) return;
-    binding.pointerRouter.addGlobalRoute(_handleGlobal);
-    _initialized = true;
-  }
-
-  void register(SplitterController c) {
-    _initialize();
-  }
-
-  void unregister(SplitterController c) {
-    if (c == _currentlyDragging) {
-      _currentlyDragging = null;
-      _activePointer = null;
-    }
-  }
-
-  void setDragging(SplitterController? c, [int? pointerId]) {
-    if (c != null) {
-      _initialize();
-    }
-    _currentlyDragging = c;
-    _activePointer = pointerId;
-  }
-
-  void _handleGlobal(PointerEvent event) {
-    final isUp = event is PointerUpEvent || event is PointerCancelEvent;
-    if (isUp &&
-        _currentlyDragging != null &&
-        _activePointer != null &&
-        _activePointer! >= 0 &&
-        event.pointer == _activePointer) {
-      _currentlyDragging?._stopDrag();
-      _currentlyDragging = null;
-      _activePointer = null;
-    }
-  }
-
-  void dispose() {
-    if (!_initialized) {
-      _currentlyDragging = null;
-      _activePointer = null;
-      return;
-    }
-
-    final binding = _maybeBinding();
-    if (binding != null) {
-      binding.pointerRouter.removeGlobalRoute(_handleGlobal);
-    }
-    _initialized = false;
-    _currentlyDragging = null;
-    _activePointer = null;
-  }
-
-  WidgetsBinding? _maybeBinding() {
-    try {
-      return WidgetsBinding.instance;
-    } catch (error) {
-      if (error is FlutterError) {
-        return null;
-      }
-      rethrow;
-    }
-  }
 }
 
 /// A high-performance resizable splitter widget with robust pointer handling.
@@ -283,108 +41,74 @@ class _GlobalPointerRouter {
 /// - Smooth dragging, keyboard navigation, and accessible semantics.
 /// - Works with embedded platform views (e.g., WebViews) via an overlay shield
 ///   to stop pointer events from being stolen.
-/// - Extensive customization via colors and a custom [handleBuilder].
+/// - Extensive customization via [divider] ([SplitterDividerStyle]): a
+///   state-dependent color, thickness, grab slop, and a custom grip builder.
 ///
 /// If the incoming constraints along [axis] are unbounded or zero, the
-/// splitter defaults to two [Expanded] children without the divider. Opt into
-/// [UnboundedBehavior.limitedBox] (via [ResizableSplitterTheme] or the
+/// splitter cannot resize, so under the default
+/// [UnboundedBehavior.shrinkToChildren] it shows the two panels without the
+/// divider, sized to their content. Opt into
+/// [UnboundedBehavior.useFallbackExtent] (via [ResizableSplitterTheme] or the
 /// constructor) to give the handle a finite sandbox while preserving side
 /// panels.
 ///
 /// Theme precedence: explicit constructor values override
 /// [ResizableSplitterTheme], which in turn overrides
-/// `Theme.of(context).extension<ResizableSplitterThemeOverrides>()`. When no
-/// overrides are provided, colors fall back to the ambient [ThemeData]
+/// `Theme.of(context).extension<ResizableSplitterThemeData>()`. Every theme
+/// field is nullable, so a partial override only replaces the fields it sets.
+/// When nothing is provided, colors fall back to the ambient [ThemeData]
 /// (via [ColorScheme]) and numeric values fall back to the defaults documented
 /// on each parameter.
 class ResizableSplitter extends StatefulWidget {
   /// Builds a resizable splitter with the provided panels and configuration.
   const ResizableSplitter({
-    required this.startPanel,
-    required this.endPanel,
+    required this.start,
+    required this.end,
     super.key,
     this.controller,
     this.axis = Axis.horizontal,
-    this.initialRatio = 0.5,
-    this.minRatio = 0.0,
-    this.maxRatio = 1.0,
-    this.minPanelSize = 100.0,
-    this.minStartPanelSize,
-    this.minEndPanelSize,
-    double? dividerThickness,
-    this.dividerColor,
-    this.dividerHoverColor,
-    this.dividerActiveColor,
-    this.onRatioChanged,
-    this.onDragStart,
-    this.onDragEnd,
-    bool? enableKeyboard,
-    double? keyboardStep,
-    double? pageStep,
+    this.initialPosition = const SplitterPosition.fraction(0.5),
+    this.startConstraints = const SplitterPaneConstraints(minExtent: 100),
+    this.endConstraints = const SplitterPaneConstraints(minExtent: 100),
+    this.minStartFraction = 0.0,
+    this.maxStartFraction = 1.0,
+    this.divider,
+    this.onChanged,
+    this.onChangeStart,
+    this.onChangeEnd,
+    this.enableKeyboard,
+    this.enableHaptics,
+    this.keyboardStep,
+    this.pageStep,
     this.semanticsLabel,
-    this.blockerColor,
-    bool? overlayEnabled,
-    this.snapPoints,
-    this.snapTolerance = 0.02,
-    this.handleBuilder,
+    this.semantics,
+    this.dragBarrierColor,
+    this.dragBarrierBuilder,
+    this.shieldPlatformViews,
+    this.snap,
     this.holdScrollWhileDragging = false,
-    double? handleHitSlop,
+    this.deferredResize = false,
     this.doubleTapResetTo,
     this.resizable = true,
     this.onHandleTap,
     this.onHandleDoubleTap,
-    this.crampedBehavior = CrampedBehavior.favorStart,
-    UnboundedBehavior? unboundedBehavior,
-    double? fallbackMainAxisExtent,
-    bool? antiAliasingWorkaround,
-  }) : enableKeyboard = enableKeyboard ?? true,
-       _enableKeyboardExplicit = enableKeyboard != null,
-       overlayEnabled = overlayEnabled ?? true,
-       _overlayEnabledExplicit = overlayEnabled != null,
-       unboundedBehavior = unboundedBehavior ?? UnboundedBehavior.flexExpand,
-       _unboundedBehaviorExplicit = unboundedBehavior != null,
-       antiAliasingWorkaround = antiAliasingWorkaround ?? false,
-       _antiAliasingWorkaroundExplicit = antiAliasingWorkaround != null,
-       dividerThickness = dividerThickness ?? _defaultDividerThickness,
-       _dividerThicknessExplicit = dividerThickness != null,
-       keyboardStep = keyboardStep ?? _defaultKeyboardStep,
-       _keyboardStepExplicit = keyboardStep != null,
-       pageStep = pageStep ?? _defaultPageStep,
-       _pageStepExplicit = pageStep != null,
-       handleHitSlop = handleHitSlop ?? _defaultHandleHitSlop,
-       _handleHitSlopExplicit = handleHitSlop != null,
-       fallbackMainAxisExtent =
-           fallbackMainAxisExtent ?? _defaultFallbackMainAxisExtent,
-       _fallbackExtentExplicit = fallbackMainAxisExtent != null,
-       assert(
-         initialRatio >= 0.0 && initialRatio <= 1.0,
-         'initialRatio must be between 0.0 and 1.0',
+    this.constraintPolicy = SplitterConstraintPolicy.favorStart,
+    this.surplusPolicy = SplitterSurplusPolicy.leaveGap,
+    this.unboundedBehavior,
+    this.fallbackExtent,
+    this.snapToPhysicalPixels,
+    this.restorationId,
+  }) : assert(
+         minStartFraction >= 0.0 && minStartFraction <= 1.0,
+         'minStartFraction must be between 0.0 and 1.0',
        ),
        assert(
-         minRatio >= 0.0 && minRatio <= 1.0,
-         'minRatio must be between 0.0 and 1.0',
+         maxStartFraction >= 0.0 && maxStartFraction <= 1.0,
+         'maxStartFraction must be between 0.0 and 1.0',
        ),
        assert(
-         maxRatio >= 0.0 && maxRatio <= 1.0,
-         'maxRatio must be between 0.0 and 1.0',
-       ),
-       assert(minRatio < maxRatio, 'minRatio must be less than maxRatio'),
-       assert(
-         handleHitSlop == null || handleHitSlop >= 0,
-         'handleHitSlop must be non-negative',
-       ),
-       assert(
-         dividerThickness == null || dividerThickness >= 0,
-         'dividerThickness must be non-negative',
-       ),
-       assert(minPanelSize >= 0, 'minPanelSize must be non-negative'),
-       assert(
-         minStartPanelSize == null || minStartPanelSize >= 0,
-         'minStartPanelSize must be non-negative',
-       ),
-       assert(
-         minEndPanelSize == null || minEndPanelSize >= 0,
-         'minEndPanelSize must be non-negative',
+         minStartFraction <= maxStartFraction,
+         'minStartFraction must be <= maxStartFraction',
        ),
        assert(
          keyboardStep == null || keyboardStep >= 0,
@@ -400,20 +124,20 @@ class ResizableSplitter extends StatefulWidget {
          'doubleTapResetTo must be between 0.0 and 1.0',
        ),
        assert(
-         fallbackMainAxisExtent == null || fallbackMainAxisExtent > 0,
-         'fallbackMainAxisExtent must be greater than zero',
+         fallbackExtent == null || fallbackExtent > 0,
+         'fallbackExtent must be greater than zero',
        );
   static const double _defaultDividerThickness = 6;
   static const double _defaultKeyboardStep = 0.01;
   static const double _defaultPageStep = 0.1;
-  static const double _defaultHandleHitSlop = 0;
-  static const double _defaultFallbackMainAxisExtent = 500;
+  static const double _defaultInteractiveExtent = 48;
+  static const double _defaultFallbackExtent = 500;
 
   /// The widget to display in the start position (left/top).
-  final Widget startPanel;
+  final Widget start;
 
   /// The widget to display in the end position (right/bottom).
-  final Widget endPanel;
+  final Widget end;
 
   /// Optional controller for programmatic control and persistence.
   final SplitterController? controller;
@@ -421,90 +145,121 @@ class ResizableSplitter extends StatefulWidget {
   /// The axis along which to split (horizontal or vertical).
   final Axis axis;
 
-  /// Initial split ratio if no controller is provided.
-  final double initialRatio;
+  /// Initial split position if no controller is provided. Use
+  /// [SplitterPosition.startPixels] / [SplitterPosition.endPixels] to pin a pane
+  /// to a pixel width that survives container resizes, or
+  /// [SplitterPosition.fraction] for a ratio. Defaults to a centered fraction.
+  final SplitterPosition initialPosition;
 
-  /// Minimum allowed ratio (0.0 to 1.0).
-  final double minRatio;
+  /// Pixel sizing limits for the start (left/top) pane. Defaults to a 100px
+  /// minimum. Set [SplitterPaneConstraints.maxExtent] to cap the pane, or
+  /// [SplitterPaneConstraints.collapsible] to allow collapsing.
+  final SplitterPaneConstraints startConstraints;
 
-  /// Maximum allowed ratio (0.0 to 1.0).
+  /// Pixel sizing limits for the end (right/bottom) pane. Defaults to a 100px
+  /// minimum.
+  final SplitterPaneConstraints endConstraints;
+
+  /// Lowest fraction of the available space the start pane may take (0.0-1.0).
   ///
-  /// Keyboard shortcuts (Home/End/Page keys) clamp the controller value within
-  /// [minRatio] and [maxRatio]. Layout still enforces pixel minimums, so under
-  /// extreme constraints the visible split may differ slightly from the stored
-  /// ratio while these caps are respected.
-  final double maxRatio;
+  /// Layout still enforces the pixel limits in [startConstraints] /
+  /// [endConstraints], so under extreme constraints the visible split may differ
+  /// from this cap while it is honored where feasible.
+  final double minStartFraction;
 
-  /// Minimum size in pixels for either panel (fallback for the specific mins).
-  final double minPanelSize;
+  /// Highest fraction of the available space the start pane may take (0.0-1.0).
+  final double maxStartFraction;
 
-  /// Minimum size for the start (left/top) panel. Defaults to [minPanelSize].
-  /// If both panels' minimums cannot be satisfied, the start panel keeps its
-  /// minimum and the end panel receives the remaining space.
-  final double? minStartPanelSize;
+  /// Divider appearance and grab configuration: thickness, a state-dependent
+  /// color, the [SplitterDividerStyle.interactiveExtent] grab target, and a
+  /// custom grip [SplitterDividerStyle.builder]. Unset fields fall back to
+  /// [ResizableSplitterTheme], then to the built-in defaults.
+  final SplitterDividerStyle? divider;
 
-  /// Minimum size for the end (right/bottom) panel. Defaults to [minPanelSize].
-  final double? minEndPanelSize;
+  /// Called as the divider moves through an interaction or a collapse, with both
+  /// the request and the resolved layout plus the [SplitterChangeSource].
+  ///
+  /// Fires for a pointer drag, keyboard adjustment, assistive (semantics)
+  /// adjustment, a snap settling a release, the built-in double-tap reset, and
+  /// `controller.collapse` / `expand`. It deliberately does NOT fire for direct
+  /// programmatic writes ([SplitterController.jumpTo], `updateRatio`, `reset`,
+  /// `animateTo`) or state restoration - those are observed by listening to the
+  /// `controller` (request changes) and `controller.layoutListenable` (resolved
+  /// geometry), which avoids feedback loops. This mirrors how `Slider.onChanged`
+  /// reports interaction rather than every value write.
+  final ValueChanged<SplitterChangeDetails>? onChanged;
 
-  /// Thickness of the divider handle in pixels.
-  final double dividerThickness;
-  final bool _dividerThicknessExplicit;
+  /// Called when a drag gesture starts, with the position at that moment - the
+  /// real request, which may be a pixel pin.
+  final ValueChanged<SplitterChangeDetails>? onChangeStart;
 
-  /// Color of the divider in its idle state.
-  final Color? dividerColor;
+  /// Called when a drag gesture ends, balancing every [onChangeStart] with
+  /// exactly one end so a consumer can pair them (e.g. to clear a "dragging"
+  /// flag). [SplitterChangeDetails.end] reports how it ended:
+  /// [SplitterChangeEnd.committed] for a normal release (the source is
+  /// [SplitterChangeSource.snap] when a snap point claimed it) or
+  /// [SplitterChangeEnd.canceled] for a system cancel (nothing is committed).
+  /// The one unbalanced case is a drag force-ended by reconfiguring or disposing
+  /// the splitter mid-gesture, which fires no end.
+  final ValueChanged<SplitterChangeDetails>? onChangeEnd;
 
-  /// Color of the divider when hovered.
-  final Color? dividerHoverColor;
+  /// Whether to enable keyboard navigation with arrow keys. Defaults to true.
+  final bool? enableKeyboard;
 
-  /// Color of the divider when being dragged.
-  final Color? dividerActiveColor;
+  /// Whether haptic feedback fires on drag start and keyboard adjustments.
+  ///
+  /// Defaults to true. On platforms without a haptic engine (web, most
+  /// desktops) the calls are silent no-ops regardless.
+  final bool? enableHaptics;
 
-  /// Called when the split ratio changes (e.g., dragging or keyboard).
-  final ValueChanged<double>? onRatioChanged;
+  /// Step applied with Arrow keys (e.g., 0.01 = 1%). Defaults to 0.01.
+  final double? keyboardStep;
 
-  /// Called when a drag gesture starts.
-  final ValueChanged<double>? onDragStart;
+  /// Step applied with PageUp/PageDown keys (e.g., 0.1 = 10%). Defaults to 0.1.
+  final double? pageStep;
 
-  /// Called when a drag gesture ends.
-  final ValueChanged<double>? onDragEnd;
-
-  /// Whether to enable keyboard navigation with arrow keys.
-  final bool enableKeyboard;
-  final bool _enableKeyboardExplicit;
-
-  /// Step applied with Arrow keys (e.g., 0.01 = 1%).
-  final double keyboardStep;
-  final bool _keyboardStepExplicit;
-
-  /// Step applied with PageUp/PageDown keys (e.g., 0.1 = 10%).
-  final double pageStep;
-  final bool _pageStepExplicit;
-
-  /// Accessibility label for the divider.
+  /// Accessibility label for the divider. Overrides the label resolved from
+  /// [semantics] (or the ambient theme) when set, leaving the value formatting
+  /// intact - a quick way to relabel a single splitter without supplying a full
+  /// [SplitterSemanticsLabels].
   final String? semanticsLabel;
 
-  /// The blocked color when dragged.
-  final Color? blockerColor;
+  /// Localizable semantics strings and value formatting. Unset fields fall back
+  /// to [ResizableSplitterTheme], then to the built-in English defaults. Set it
+  /// app-wide via the theme to localize every splitter at once.
+  final SplitterSemanticsLabels? semantics;
 
-  /// Whether the protective overlay is used while dragging.
-  final bool overlayEnabled;
-  final bool _overlayEnabledExplicit;
+  /// The blocked color when dragged. Ignored if [dragBarrierBuilder] is set.
+  final Color? dragBarrierColor;
 
-  /// Optional snap points (0–1). If close on drag end, snaps to the nearest.
-  final List<double>? snapPoints;
+  /// Builds the visual of the drag barrier - the overlay that shields embedded
+  /// platform views from stealing pointer events while dragging. The framework
+  /// always keeps the opaque hit shield; this only replaces what it looks like
+  /// (the default is a [dragBarrierColor] fill). Only used when the overlay is
+  /// enabled.
+  final Widget Function(BuildContext context)? dragBarrierBuilder;
 
-  /// Max distance to snap to a snap point (0–1 range).
-  final double snapTolerance;
+  /// Whether the protective overlay is used while dragging. Defaults to true.
+  final bool? shieldPlatformViews;
 
-  /// Custom handle builder to replace the inner “grip” UI.
-  final Widget Function(BuildContext, SplitterHandleDetails)? handleBuilder;
+  /// Optional snap behavior for the divider, or null for no snapping.
+  ///
+  /// The concrete mode chooses how a drag interacts with the points:
+  /// [ReleaseSnap] (the default, built by the unnamed
+  /// [SplitterSnapBehavior.new] factory) settles onto the nearest point on
+  /// release; [MagneticSnap] pulls the divider toward a point during the drag
+  /// and can be pushed through; [StickySnap] captures onto a point and holds it
+  /// until the pointer escapes past a hysteresis radius.
+  final SplitterSnapBehavior? snap;
 
   /// Whether to temporarily hold the nearest Scrollable's position while dragging.
   final bool holdScrollWhileDragging;
 
-  /// Extra, invisible padding around the handle to make it easier to grab.
-  final double handleHitSlop;
-  final bool _handleHitSlopExplicit;
+  /// Defers the resize until the drag is released. While dragging, the panes
+  /// keep their committed size and a lightweight preview line tracks the
+  /// pointer; on release the panes settle to the final position once. Useful
+  /// when the panes contain expensive subtrees. Defaults to false (live resize).
+  final bool deferredResize;
 
   /// Optional ratio to jump to on double-tap.
   final double? doubleTapResetTo;
@@ -518,41 +273,223 @@ class ResizableSplitter extends StatefulWidget {
   /// Called when the divider is double-tapped.
   final VoidCallback? onHandleDoubleTap;
 
-  /// Policy for distributing space when both panels cannot meet their minimums.
-  final CrampedBehavior crampedBehavior;
+  /// Policy applied when both panes cannot meet their minimums at once
+  /// (a shortage).
+  final SplitterConstraintPolicy constraintPolicy;
 
-  /// Fallback layout behavior when constraints are unbounded along the main axis.
-  final UnboundedBehavior unboundedBehavior;
-  final bool _unboundedBehaviorExplicit;
+  /// Policy applied when both panes' maximums are too small to fill the space
+  /// (a surplus). Defaults to [SplitterSurplusPolicy.leaveGap], which keeps
+  /// [SplitterPaneConstraints.maxExtent] a true maximum (the leftover becomes a
+  /// gap between the panes rather than overflowing one past its maximum).
+  final SplitterSurplusPolicy surplusPolicy;
 
-  /// Extent in pixels to use when [unboundedBehavior] is [UnboundedBehavior.limitedBox].
-  final double fallbackMainAxisExtent;
-  final bool _fallbackExtentExplicit;
+  /// Fallback layout behavior when constraints are unbounded along the main
+  /// axis. Defaults to [UnboundedBehavior.shrinkToChildren].
+  final UnboundedBehavior? unboundedBehavior;
 
-  /// Floors the leading panel size to whole pixels to avoid anti-alias gaps.
-  final bool antiAliasingWorkaround;
-  final bool _antiAliasingWorkaroundExplicit;
+  /// Extent in pixels to use when [unboundedBehavior] is
+  /// [UnboundedBehavior.useFallbackExtent]. Defaults to 500.
+  final double? fallbackExtent;
+
+  /// Floors the leading panel size to whole physical pixels to avoid anti-alias
+  /// gaps. Defaults to false.
+  final bool? snapToPhysicalPixels;
+
+  /// Restoration id for persisting the divider position across app restarts.
+  ///
+  /// When non-null the splitter saves its position into the ambient
+  /// [RestorationScope], so it is restored after the app is killed and
+  /// relaunched (see [RestorationMixin]). Restoration works with the internal
+  /// controller as well as an external one. Null disables restoration.
+  final String? restorationId;
 
   @override
   State<ResizableSplitter> createState() => _ResizableSplitterState();
+
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties
+      ..add(EnumProperty<Axis>('axis', axis))
+      ..add(DiagnosticsProperty<bool>('resizable', resizable))
+      ..add(
+        DiagnosticsProperty<SplitterPosition>(
+          'initialPosition',
+          initialPosition,
+        ),
+      )
+      ..add(
+        FlagProperty(
+          'controller',
+          value: controller != null,
+          ifTrue: 'external',
+          ifFalse: 'internal',
+          showName: true,
+        ),
+      )
+      ..add(
+        DiagnosticsProperty<SplitterPaneConstraints>(
+          'startConstraints',
+          startConstraints,
+        ),
+      )
+      ..add(
+        DiagnosticsProperty<SplitterPaneConstraints>(
+          'endConstraints',
+          endConstraints,
+        ),
+      )
+      ..add(
+        EnumProperty<SplitterConstraintPolicy>(
+          'constraintPolicy',
+          constraintPolicy,
+        ),
+      )
+      ..add(EnumProperty<SplitterSurplusPolicy>('surplusPolicy', surplusPolicy))
+      ..add(
+        FlagProperty(
+          'deferredResize',
+          value: deferredResize,
+          ifTrue: 'deferred',
+        ),
+      )
+      ..add(StringProperty('restorationId', restorationId, defaultValue: null));
+  }
 }
 
-class _ResizableSplitterState extends State<ResizableSplitter> {
+class _ResizableSplitterState extends State<ResizableSplitter>
+    with SingleTickerProviderStateMixin, RestorationMixin
+    implements _SplitterAnimator {
   late final FocusNode _focusNode;
+  late final AnimationController _animationController;
   SplitterController? _internalController;
   SplitterController? _attachedController;
 
+  // The collapse state last surfaced to onChanged, so a collapse/expand is
+  // reported exactly once (not on every rebuild while it stays collapsed).
+  SplitterPane? _reportedCollapsePane;
+
+  // False until the first resolved layout seeds [_reportedCollapsePane] without
+  // emitting. This stops a controller mounted already collapsed (or a freshly
+  // swapped-in one) from firing a phantom collapse/restore for a state it never
+  // transitioned into while attached here.
+  bool _hasReportedInitialCollapse = false;
+
+  // The preview fraction shown during a deferred drag (null when not
+  // previewing). The panes stay at the committed position; the render object
+  // listens to this notifier and repaints only the preview line as it moves.
+  late final ValueNotifier<double?> _previewFraction = ValueNotifier<double?>(
+    null,
+  );
+
+  // The resolved geometry the render object publishes from each layout pass. The
+  // handle listens to it for drag/keyboard/semantics; the state mirrors it to
+  // the controller and reports collapse transitions from it.
+  late final _SplitterGeometryNotifier _geometry = _SplitterGeometryNotifier();
+
+  // Bumped on dispose and on a controller swap so a stale post-frame flush or
+  // collapse report scheduled for an older controller/generation is dropped.
+  int _layoutPublicationGeneration = 0;
+
+  // Coalesces every deferred publication concern (geometry flush, controller
+  // layout flush, collapse report) into a single post-frame callback per frame,
+  // instead of one callback per concern per layout pass, all guarded once.
+  bool _postFrameScheduled = false;
+
+  // A collapse/expand transition detected during layout, queued to fire on
+  // onChanged after the frame. The transition bookkeeping (_reportedCollapsePane)
+  // is updated synchronously when detected; only this callback is deferred. A
+  // controller swap/disposal clears it (the new controller re-seeds its baseline).
+  SplitterChangeDetails? _pendingCollapseReport;
+
+  // Persists the divider position when widget.restorationId is set. The mixin
+  // owns and disposes it; _restorationReady gates writes until it is registered.
+  // Its default is the controller's *current* value, so a first run with no
+  // saved state re-applies what is already there (never clobbering an external
+  // controller); only a genuine restore overrides it.
+  late final _RestorableSplitterPosition _restorablePosition =
+      _RestorableSplitterPosition(
+        () => (_attachedController ?? _effectiveController).value.position,
+      );
+  bool _restorationReady = false;
+
+  // The in-flight animateTo run (null when idle). It owns the controller it
+  // targets, so a controller swap or disposal can end it cleanly instead of
+  // letting its ticks bleed onto a different controller or hang forever.
+  _AnimationSession? _animSession;
+
+  // The solver inputs captured at the last build (null before the first). Lets
+  // animateTo resolve a target through the same configuration the layout draws.
+  SplitterSolverConfig? _solverConfig;
+
   SplitterController get _effectiveController =>
       widget.controller ??
-      (_internalController ??= SplitterController(
-        initialRatio: widget.initialRatio,
-      ));
+      (_internalController ??= _createInternalController());
+
+  SplitterController _createInternalController([SplitterState? state]) =>
+      SplitterController._(
+        state ?? SplitterState(position: widget.initialPosition),
+      );
+
+  @override
+  String? get restorationId => widget.restorationId;
+
+  @override
+  void restoreState(RestorationBucket? oldBucket, bool initialRestore) {
+    registerForRestoration(_restorablePosition, 'position');
+    _restorationReady = true;
+    // Re-apply the restored position, but only when it actually differs from the
+    // controller's current request. The restorable defaults to the current
+    // position, so with no saved state this would otherwise jumpTo an equal
+    // position - and jumpTo clears collapse, which would silently expand a
+    // controller mounted already collapsed. Skipping the equal write keeps it
+    // collapsed (review A#6). (restoreState runs even without a restorationId.)
+    final controller = _attachedController ?? _effectiveController;
+    final restored = _restorablePosition.value;
+    if (restored != controller.value.position) {
+      controller.jumpTo(restored);
+    }
+  }
+
+  // Updates the deferred-drag preview line (the panes stay put until release).
+  // No setState: the render object listens to the notifier and repaints just the
+  // preview line, without rebuilding the widget subtree.
+  void _setPreview(double? fraction) {
+    if (!mounted || _previewFraction.value == fraction) return;
+    _previewFraction.value = fraction;
+  }
+
+  // Converts a global pointer position to the splitter's local main-axis
+  // coordinate, so a drag stays correct under a Transform (scale/rotate). The
+  // splitter's own box is stationary during a drag (unlike the moving handle),
+  // which is why the conversion is anchored here rather than on the handle.
+  double? _localMainAxisOf(Offset globalPosition) {
+    final box = context.findRenderObject();
+    if (box is! RenderBox || !box.attached) return null;
+    final local = box.globalToLocal(globalPosition);
+    return widget.axis.isH ? local.dx : local.dy;
+  }
+
+  // Mirrors the live controller position into the restorable so it persists.
+  void _handlePositionChanged() {
+    if (!_restorationReady) return;
+    final controller = _attachedController;
+    if (controller != null) {
+      _restorablePosition.value = controller.value.position;
+    }
+  }
 
   @override
   void initState() {
     super.initState();
     _focusNode = FocusNode(debugLabel: 'ResizableSplitterHandle');
-    final controller = _effectiveController.._attach(this);
+    _animationController = AnimationController(vsync: this)
+      ..addListener(_onAnimationTick)
+      ..addStatusListener(_onAnimationStatus);
+    final controller = _effectiveController
+      .._attach(this)
+      .._attachAnimator(this)
+      ..addListener(_handlePositionChanged);
     _attachedController = controller;
   }
 
@@ -560,950 +497,508 @@ class _ResizableSplitterState extends State<ResizableSplitter> {
   void didUpdateWidget(ResizableSplitter oldWidget) {
     super.didUpdateWidget(oldWidget);
 
+    // Dropping an external controller: seed the internal one with the full
+    // requested state so ownership changes do not alter position or collapse.
+    if (oldWidget.controller != null &&
+        widget.controller == null &&
+        _internalController == null) {
+      _internalController = _createInternalController(
+        (_attachedController ?? oldWidget.controller!).value,
+      );
+    }
+
     final newController =
         widget.controller ??
-        (_internalController ??= SplitterController(
-          initialRatio: widget.initialRatio,
-        ));
+        (_internalController ??= _createInternalController());
 
     if (!identical(_attachedController, newController)) {
-      _attachedController?._detach(this);
+      // Invalidate any pending post-frame flush/report scheduled for the
+      // outgoing controller, and drop the geometry it produced so the handle
+      // does not briefly read the old controller's layout.
+      _layoutPublicationGeneration++;
+      _pendingCollapseReport = null;
+      if (_geometry.prime(null)) _scheduleFlush();
+      // End any in-flight animation on the outgoing controller; it must not
+      // continue ticking onto the incoming one.
+      _animationController.stop();
+      _resolveSession(SplitterAnimationStatus.detached);
+      _attachedController
+        ?..removeListener(_handlePositionChanged)
+        .._detachAnimator(this)
+        .._detach(this);
 
       if (oldWidget.controller == null && widget.controller != null) {
-        _internalController?.dispose();
+        // Defer disposing the internal controller until after this frame: the
+        // child handle's didUpdateWidget (which runs later in this build) tears
+        // down any in-flight drag on it, and that must not touch a disposed
+        // controller (review C#4).
+        final disposing = _internalController;
         _internalController = null;
+        if (disposing != null) {
+          WidgetsBinding.instance.addPostFrameCallback(
+            (_) => disposing.dispose(),
+          );
+        }
       }
 
-      newController._attach(this);
+      newController
+        .._attach(this)
+        .._attachAnimator(this)
+        ..addListener(_handlePositionChanged);
       _attachedController = newController;
+      // Re-seed the incoming controller's collapse (without emitting) on its
+      // first resolved layout, so a swap fires no phantom collapse/restore for
+      // state that was never this controller's - and seeds from the *resolved*
+      // collapse, not the request, so a non-collapsible pane is handled too.
+      _hasReportedInitialCollapse = false;
     }
   }
 
   @override
   void dispose() {
-    _attachedController?._detach(this);
+    // Resolve a pending animateTo future so it can never hang past disposal.
+    _resolveSession(SplitterAnimationStatus.detached);
+    _animationController.dispose();
+    _attachedController
+      ?..removeListener(_handlePositionChanged)
+      .._detachAnimator(this)
+      .._detach(this);
     _focusNode.dispose();
     _internalController?.dispose();
+    // RestorationMixin unregisters the property but does not dispose it; do it
+    // here to avoid leaking the listener (review A#6).
+    _restorablePosition.dispose();
+    // Invalidate pending post-frame callbacks, then dispose the notifiers.
+    _layoutPublicationGeneration++;
+    _pendingCollapseReport = null;
+    _previewFraction.dispose();
+    _geometry.dispose();
     super.dispose();
+  }
+
+  @override
+  Future<SplitterAnimationStatus> animateTo(
+    double target,
+    Duration duration,
+    Curve curve,
+  ) {
+    _animationController.stop();
+    // A new run supersedes any in-flight one - resolving it canceled - before any
+    // shortcut can return, so a fresh animateTo can never leave the old run alive.
+    _resolveSession(SplitterAnimationStatus.canceled);
+
+    final controller = _attachedController ?? _effectiveController;
+    // Resolve the requested fraction through the solver so the run targets a
+    // position the divider can actually reach (clamped by the constraints).
+    // "completed" then means the divider arrived there, never a target clamped
+    // off-screen, and there is no stall while an unreachable request runs past
+    // the edge. The uncollapsed solver is used because a fresh animateTo clears
+    // any collapse (see _setAnimatedPosition).
+    final available = controller.layout?.availableExtent ?? 0.0;
+    final config = _solverConfig;
+    final resolved = (available > 0 && config != null)
+        ? config
+              .solverFor(available)
+              .solve(SplitterPosition.fraction(target))
+              .effectiveFraction
+        : target;
+
+    final disable = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    if (disable ||
+        duration <= Duration.zero ||
+        (resolved - controller.effectiveFraction).abs() < 1e-7) {
+      controller.jumpTo(SplitterPosition.fraction(resolved));
+      return Future<SplitterAnimationStatus>.value(
+        SplitterAnimationStatus.completed,
+      );
+    }
+    final session = _AnimationSession(
+      controller: controller,
+      begin: controller.effectiveFraction,
+      end: resolved,
+      curve: curve,
+    );
+    _animSession = session;
+    _animationController.duration = duration;
+    _animationController.forward(from: 0);
+    return session.future;
+  }
+
+  @override
+  void cancel() {
+    if (_animSession == null) return;
+    _animationController.stop();
+    _resolveSession(SplitterAnimationStatus.canceled);
+  }
+
+  // Ends the in-flight run (if any) with [status], resolving its future once.
+  void _resolveSession(SplitterAnimationStatus status) {
+    final session = _animSession;
+    _animSession = null;
+    session?.resolve(status);
+  }
+
+  void _onAnimationTick() {
+    final session = _animSession;
+    if (session == null) return;
+    final t = session.curve.transform(_animationController.value);
+    final value = session.begin + (session.end - session.begin) * t;
+    session.controller._setAnimatedPosition(SplitterPosition.fraction(value));
+  }
+
+  void _onAnimationStatus(AnimationStatus status) {
+    if (status != AnimationStatus.completed) return;
+    final session = _animSession;
+    if (session == null) return;
+    session.controller._setAnimatedPosition(
+      SplitterPosition.fraction(session.end),
+    );
+    _animSession = null;
+    session.resolve(SplitterAnimationStatus.completed);
+  }
+
+  // The render object's performLayout publishes its resolved geometry here. This
+  // runs DURING layout, so it must never notify synchronously: it primes the
+  // notifiers (value-only, no listeners fired) and defers every notification to
+  // a post-frame flush. A geometry built for a since-swapped controller is
+  // ignored; everything else is mirrored to the attached controller.
+  void _handleResolvedGeometry(_ResolvedSplitterGeometry? geometry) {
+    // Runs DURING the render object's performLayout, so it must never notify
+    // synchronously and never *construct* anything. Use the already-attached
+    // controller directly - never _effectiveController, whose lazy construction
+    // would allocate notifiers and attach listeners mid-layout. _attachedController
+    // is set in initState and only ever swapped (never nulled) before dispose, so
+    // it is non-null for any layout this can observe; the mounted guard backstops
+    // a stray layout during teardown so it can't touch the disposed notifiers.
+    if (!mounted) return;
+    final controller = _attachedController;
+    if (controller == null) return;
+    // A geometry built for a since-swapped controller is ignored.
+    if (geometry != null && !identical(geometry.controller, controller)) return;
+
+    // Prime synchronously (value-only; the notifiers never fire mid-layout) so
+    // this frame's read-outs are fresh, then defer every notification to one
+    // post-frame flush. Only schedule when something actually changed.
+    final geometryChanged = _geometry.prime(geometry);
+    final layoutChanged = controller._primeLayout(geometry?.layout);
+    var hasReport = false;
+    if (geometry != null) {
+      final report = _resolveCollapseReport(
+        controller,
+        geometry.solver,
+        geometry.solution,
+      );
+      if (report != null) {
+        _pendingCollapseReport = report;
+        hasReport = true;
+      }
+    }
+    if (geometryChanged || layoutChanged || hasReport) _scheduleFlush();
+  }
+
+  // The single post-frame flush (at most one per frame) for all deferred
+  // publication: the geometry notifier (handle), the controller's layout
+  // notifier, and any queued collapse report. The geometry notifier is
+  // controller-agnostic; the generation guard alone covers a swap/disposal (both
+  // bump it), and the captured-then-reread _attachedController is the same
+  // controller that primed this frame. didUpdateWidget runs before layout, so on
+  // a swap its bump is in place before this is scheduled.
+  void _scheduleFlush() {
+    if (_postFrameScheduled) return;
+    _postFrameScheduled = true;
+    final generation = _layoutPublicationGeneration;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _postFrameScheduled = false;
+      // Stale (swap/disposal bumped the generation): drop everything. The
+      // pending report is cleared at the bump, so nothing leaks across.
+      if (!mounted || generation != _layoutPublicationGeneration) return;
+      _geometry.flush();
+      final controller = _attachedController;
+      if (controller == null) return;
+      controller._flushLayout();
+      final report = _pendingCollapseReport;
+      _pendingCollapseReport = null;
+      if (report != null) widget.onChanged?.call(report);
+    });
+  }
+
+  // Resolves whether this layout crossed a collapse/expand boundary and, if so,
+  // returns the change payload to fire post-frame (else null). The transition
+  // bookkeeping is updated synchronously here - only the onChanged call is
+  // deferred - so the reported extents match what is drawn this frame.
+  SplitterChangeDetails? _resolveCollapseReport(
+    SplitterController controller,
+    SplitterSolver solver,
+    SplitterSolution solution,
+  ) {
+    // Use the resolved collapse (from the solution), not the request: a collapse
+    // of a non-collapsible pane resolves to nothing and must not fire an event.
+    final pane = solution.startCollapsed
+        ? SplitterPane.start
+        : solution.endCollapsed
+        ? SplitterPane.end
+        : null;
+    // The first resolved layout seeds the baseline without emitting: a controller
+    // mounted already collapsed has not transitioned while attached here, so it
+    // must not fire a phantom collapse/restore.
+    if (!_hasReportedInitialCollapse) {
+      _hasReportedInitialCollapse = true;
+      _reportedCollapsePane = pane;
+      return null;
+    }
+    if (pane == _reportedCollapsePane) return null;
+    final source = pane != null
+        ? SplitterChangeSource.collapse
+        : SplitterChangeSource.restore;
+    _reportedCollapsePane = pane;
+    if (widget.onChanged == null) return null;
+    return SplitterChangeDetails(
+      requestedPosition: controller.value.position,
+      effectiveFraction: solution.effectiveFraction,
+      startExtent: solution.startExtent,
+      endExtent: solution.endExtent,
+      availableExtent: solver.available,
+      source: source,
+    );
+  }
+
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    final controller = _attachedController ?? _internalController;
+    final layout = controller?.layout;
+    properties
+      ..add(
+        DiagnosticsProperty<SplitterLayout?>(
+          'layout',
+          layout,
+          defaultValue: null,
+        ),
+      )
+      ..add(
+        EnumProperty<SplitterResolution?>(
+          'resolution',
+          layout?.resolution,
+          defaultValue: null,
+        ),
+      )
+      ..add(
+        FlagProperty(
+          'animating',
+          value: _animSession != null,
+          ifTrue: 'animating',
+        ),
+      )
+      ..add(
+        FlagProperty(
+          'previewing',
+          value: _previewFraction.value != null,
+          ifTrue: 'previewing',
+        ),
+      );
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = ResizableSplitterTheme.of(context);
+    final dividerStyle = widget.divider;
+    final themeDivider = theme.divider;
 
-    final dividerThickness = widget._dividerThicknessExplicit
-        ? widget.dividerThickness
-        : theme.dividerThickness;
+    // Each effective value resolves widget -> theme -> built-in default. Null
+    // means "unset" at every layer, so a partial override never clobbers a
+    // value supplied by a broader scope.
+    final dividerThickness =
+        dividerStyle?.thickness ??
+        themeDivider?.thickness ??
+        ResizableSplitter._defaultDividerThickness;
+    final interactiveExtent =
+        dividerStyle?.interactiveExtent ??
+        themeDivider?.interactiveExtent ??
+        ResizableSplitter._defaultInteractiveExtent;
+    final handleBuilder = dividerStyle?.builder ?? themeDivider?.builder;
+    final dividerColor = dividerStyle?.color ?? themeDivider?.color;
+    final semanticsLabels =
+        widget.semantics ?? theme.semantics ?? const SplitterSemanticsLabels();
 
-    final keyboardStep = widget._keyboardStepExplicit
-        ? widget.keyboardStep
-        : theme.keyboardStep;
+    final keyboardStep =
+        widget.keyboardStep ??
+        theme.keyboardStep ??
+        ResizableSplitter._defaultKeyboardStep;
+    final pageStep =
+        widget.pageStep ?? theme.pageStep ?? ResizableSplitter._defaultPageStep;
+    final shieldPlatformViews =
+        widget.shieldPlatformViews ?? theme.shieldPlatformViews ?? true;
+    final enableKeyboard =
+        widget.enableKeyboard ?? theme.enableKeyboard ?? true;
+    final enableHaptics = widget.enableHaptics ?? theme.enableHaptics ?? true;
 
-    final pageStep = widget._pageStepExplicit
-        ? widget.pageStep
-        : theme.pageStep;
+    // The render object reserves only the divider's visible thickness for
+    // layout (clamped to the container, so a parent smaller than the thickness
+    // shrinks it rather than overflowing); the interactive grab slop on each
+    // side overlaps the panes via the render object's hit test without reducing
+    // pane layout.
+    final dragBarrierColor = widget.dragBarrierColor ?? theme.dragBarrierColor;
 
-    final handleHitSlop = widget._handleHitSlopExplicit
-        ? widget.handleHitSlop
-        : theme.handleHitSlop;
+    final unboundedBehavior =
+        widget.unboundedBehavior ??
+        theme.unboundedBehavior ??
+        UnboundedBehavior.shrinkToChildren;
 
-    final overlayEnabled = widget._overlayEnabledExplicit
-        ? widget.overlayEnabled
-        : theme.overlayEnabled;
-    final enableKeyboard = widget._enableKeyboardExplicit
-        ? widget.enableKeyboard
-        : theme.enableKeyboard;
+    final fallbackExtent =
+        widget.fallbackExtent ??
+        theme.fallbackExtent ??
+        ResizableSplitter._defaultFallbackExtent;
 
-    final blockerColor = widget.blockerColor ?? theme.blockerColor;
-    final dividerColor = widget.dividerColor ?? theme.dividerColor;
-    final dividerHoverColor =
-        widget.dividerHoverColor ?? theme.dividerHoverColor;
-    final dividerActiveColor =
-        widget.dividerActiveColor ?? theme.dividerActiveColor;
+    final snapToPhysicalPixels =
+        widget.snapToPhysicalPixels ?? theme.snapToPhysicalPixels ?? false;
 
-    final unboundedBehavior = widget._unboundedBehaviorExplicit
-        ? widget.unboundedBehavior
-        : theme.unboundedBehavior;
-
-    final fallbackExtent = widget._fallbackExtentExplicit
-        ? widget.fallbackMainAxisExtent
-        : theme.fallbackMainAxisExtent;
-
-    final antiAliasingWorkaround = widget._antiAliasingWorkaroundExplicit
-        ? widget.antiAliasingWorkaround
-        : theme.antiAliasingWorkaround;
+    // The geometry-input channel that flows down to the layout layer. Captured
+    // once per build and cached so animateTo can resolve a target the same way
+    // the layout will draw it; in 2.1 this is exactly what the seam widget
+    // forwards to the render object.
+    final solverConfig = SplitterSolverConfig(
+      start: widget.startConstraints,
+      end: widget.endConstraints,
+      minStartFraction: widget.minStartFraction,
+      maxStartFraction: widget.maxStartFraction,
+      policy: widget.constraintPolicy,
+      surplusPolicy: widget.surplusPolicy,
+      devicePixelRatio: MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0,
+      snapToPhysicalPixels: snapToPhysicalPixels,
+    );
+    _solverConfig = solverConfig;
 
     final controller = _attachedController ?? _effectiveController;
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final maxSize = widget.axis.size(constraints.biggest);
-
-        if (!maxSize.isFinite || maxSize <= 0) {
-          if (unboundedBehavior == UnboundedBehavior.limitedBox) {
-            return LimitedBox(
-              maxWidth: widget.axis.isH ? fallbackExtent : double.infinity,
-              maxHeight: widget.axis.isH ? double.infinity : fallbackExtent,
-              child: LayoutBuilder(
-                builder: (context, bounded) {
-                  final boundedMax = widget.axis.size(bounded.biggest);
-                  if (!boundedMax.isFinite || boundedMax <= 0) {
-                    return Flex(
-                      direction: widget.axis,
-                      children: [
-                        Expanded(child: widget.startPanel),
-                        Expanded(child: widget.endPanel),
-                      ],
-                    );
-                  }
-
-                  return ValueListenableBuilder<double>(
-                    valueListenable: controller,
-                    builder: (_, ratio, _) {
-                      final availableSize = (boundedMax - dividerThickness)
-                          .clamp(0.0, double.infinity);
-                      return _buildBounded(
-                        ratio: ratio,
-                        availableSize: availableSize,
-                        dividerThickness: dividerThickness,
-                        enableKeyboard: enableKeyboard,
-                        keyboardStep: keyboardStep,
-                        pageStep: pageStep,
-                        overlayEnabled: overlayEnabled,
-                        handleHitSlop: handleHitSlop,
-                        blockerColor: blockerColor,
-                        dividerColor: dividerColor,
-                        dividerHoverColor: dividerHoverColor,
-                        dividerActiveColor: dividerActiveColor,
-                        antiAliasingWorkaround: antiAliasingWorkaround,
-                        controller: controller,
-                      );
-                    },
-                  );
-                },
-              ),
-            );
-          }
-
-          return Flex(
-            direction: widget.axis,
-            children: [
-              Expanded(child: widget.startPanel),
-              Expanded(child: widget.endPanel),
-            ],
-          );
-        }
-
-        return ValueListenableBuilder<double>(
-          valueListenable: controller,
-          builder: (_, ratio, _) {
-            final availableSize = (maxSize - dividerThickness).clamp(
-              0.0,
-              double.infinity,
-            );
-
-            return _buildBounded(
-              ratio: ratio,
-              availableSize: availableSize,
-              dividerThickness: dividerThickness,
-              enableKeyboard: enableKeyboard,
-              keyboardStep: keyboardStep,
-              pageStep: pageStep,
-              overlayEnabled: overlayEnabled,
-              handleHitSlop: handleHitSlop,
-              blockerColor: blockerColor,
-              dividerColor: dividerColor,
-              dividerHoverColor: dividerHoverColor,
-              dividerActiveColor: dividerActiveColor,
-              antiAliasingWorkaround: antiAliasingWorkaround,
-              controller: controller,
-            );
-          },
-        );
-      },
+    // A position change re-pushes the request into the render object (which
+    // re-solves it in performLayout); the panes are the same widget instances,
+    // so their subtrees are not rebuilt.
+    final child = ValueListenableBuilder<SplitterState>(
+      valueListenable: controller,
+      builder: (_, state, _) => _buildBounded(
+        state: state,
+        dividerThickness: dividerThickness,
+        interactiveExtent: interactiveExtent,
+        enableKeyboard: enableKeyboard,
+        enableHaptics: enableHaptics,
+        keyboardStep: keyboardStep,
+        pageStep: pageStep,
+        shieldPlatformViews: shieldPlatformViews,
+        dragBarrierColor: dragBarrierColor,
+        dividerColor: dividerColor,
+        handleBuilder: handleBuilder,
+        config: solverConfig,
+        controller: controller,
+        semantics: semanticsLabels,
+      ),
     );
+
+    // No LayoutBuilder, so intrinsic queries reach the render object. The render
+    // object handles a bounded main axis and, for shrinkToChildren, shrink-wraps
+    // an unbounded main axis itself. useFallbackExtent instead caps an unbounded
+    // main axis to a finite sandbox via LimitedBox (which forwards intrinsics,
+    // unlike LayoutBuilder); a bounded axis passes straight through it.
+    if (unboundedBehavior == UnboundedBehavior.useFallbackExtent) {
+      return LimitedBox(
+        maxWidth: widget.axis.isH ? fallbackExtent : double.infinity,
+        maxHeight: widget.axis.isH ? double.infinity : fallbackExtent,
+        child: child,
+      );
+    }
+    return child;
   }
 
   Widget _buildBounded({
-    required double ratio,
-    required double availableSize,
+    required SplitterState state,
     required double dividerThickness,
+    required double interactiveExtent,
     required bool enableKeyboard,
+    required bool enableHaptics,
     required double keyboardStep,
     required double pageStep,
-    required bool overlayEnabled,
-    required double handleHitSlop,
-    required Color? blockerColor,
-    required Color? dividerColor,
-    required Color? dividerHoverColor,
-    required Color? dividerActiveColor,
-    required bool antiAliasingWorkaround,
+    required bool shieldPlatformViews,
+    required Color? dragBarrierColor,
+    required WidgetStateProperty<Color?>? dividerColor,
+    required Widget Function(BuildContext, SplitterHandleDetails)?
+    handleBuilder,
+    required SplitterSolverConfig config,
     required SplitterController controller,
+    required SplitterSemanticsLabels semantics,
   }) {
-    final minStart = (widget.minStartPanelSize ?? widget.minPanelSize).clamp(
-      0.0,
-      availableSize,
-    );
-    final minEnd = (widget.minEndPanelSize ?? widget.minPanelSize).clamp(
-      0.0,
-      availableSize,
-    );
-
-    double first;
-    double second;
-
-    if (availableSize <= 0) {
-      first = 0;
-      second = 0;
-    } else {
-      final pixelMinRatio = (minStart / availableSize).clamp(0.0, 1.0);
-      final pixelMaxRatio = (1.0 - minEnd / availableSize).clamp(0.0, 1.0);
-      final minR = math.max(widget.minRatio, pixelMinRatio);
-      final maxR = math.min(widget.maxRatio, pixelMaxRatio);
-
-      double effectiveRatio;
-      if (minR <= maxR) {
-        effectiveRatio = ratio.clamp(minR, maxR);
-      } else {
-        final sum = minStart + minEnd;
-        effectiveRatio = switch (widget.crampedBehavior) {
-          CrampedBehavior.favorStart => minR,
-          CrampedBehavior.favorEnd => maxR,
-          CrampedBehavior.proportionallyClamp =>
-            sum <= 0 ? 0.5 : (minStart / sum).clamp(0.0, 1.0),
-        };
-      }
-
-      first = availableSize * effectiveRatio;
-      if (antiAliasingWorkaround) {
-        first = first.floorToDouble();
-        final maxAllowed = (availableSize - minEnd).clamp(0.0, availableSize);
-        if (minStart <= maxAllowed) {
-          first = first.clamp(minStart, maxAllowed);
-        } else {
-          first = switch (widget.crampedBehavior) {
-            CrampedBehavior.favorStart => minStart,
-            CrampedBehavior.favorEnd => maxAllowed,
-            CrampedBehavior.proportionallyClamp =>
-              (availableSize *
-                      (minStart + minEnd <= 0
-                          ? 0.5
-                          : (minStart / (minStart + minEnd)).clamp(0.0, 1.0)))
-                  .clamp(0.0, availableSize),
-          };
-        }
-      }
-      second = (availableSize - first).clamp(0.0, availableSize);
-    }
-
-    return Flex(
-      direction: widget.axis,
-      children: [
-        SizedBox(
-          width: widget.axis.isH ? first : null,
-          height: widget.axis.isH ? null : first,
-          child: widget.startPanel,
-        ),
-        _DividerHandle(
-          axis: widget.axis,
-          controller: controller,
-          thickness: dividerThickness,
-          minRatio: widget.minRatio,
-          maxRatio: widget.maxRatio,
-          minStart: minStart,
-          minEnd: minEnd,
-          maxSize: availableSize,
-          crampedBehavior: widget.crampedBehavior,
-          blockerColor: blockerColor,
-          dividerColor: dividerColor,
-          dividerHoverColor: dividerHoverColor,
-          dividerActiveColor: dividerActiveColor,
-          onRatioChanged: widget.onRatioChanged,
-          onDragStart: widget.onDragStart,
-          onDragEnd: widget.onDragEnd,
-          enableKeyboard: enableKeyboard && widget.resizable,
-          keyboardStep: keyboardStep,
-          pageStep: pageStep,
-          focusNode: _focusNode,
-          semanticsLabel: widget.semanticsLabel,
-          overlayEnabled: overlayEnabled && widget.resizable,
-          snapPoints: widget.snapPoints,
-          snapTolerance: widget.snapTolerance,
-          handleBuilder: widget.handleBuilder,
-          holdScrollWhileDragging:
-              widget.holdScrollWhileDragging && widget.resizable,
-          handleHitSlop: handleHitSlop,
-          doubleTapResetTo: widget.doubleTapResetTo,
-          resizable: widget.resizable,
-          onTap: widget.onHandleTap,
-          onDoubleTap: widget.onHandleDoubleTap,
-        ),
-        SizedBox(
-          width: widget.axis.isH ? second : null,
-          height: widget.axis.isH ? null : second,
-          child: widget.endPanel,
-        ),
-      ],
-    );
-  }
-}
-
-/// Internal widget for the draggable divider handle.
-class _DividerHandle extends StatefulWidget {
-  const _DividerHandle({
-    required this.axis,
-    required this.controller,
-    required this.thickness,
-    required this.minRatio,
-    required this.maxRatio,
-    required this.minStart,
-    required this.minEnd,
-    required this.maxSize,
-    required this.crampedBehavior,
-    required this.dividerColor,
-    required this.blockerColor,
-    required this.dividerHoverColor,
-    required this.dividerActiveColor,
-    required this.onRatioChanged,
-    required this.onDragStart,
-    required this.onDragEnd,
-    required this.enableKeyboard,
-    required this.keyboardStep,
-    required this.pageStep,
-    required this.focusNode,
-    required this.semanticsLabel,
-    required this.overlayEnabled,
-    required this.snapPoints,
-    required this.snapTolerance,
-    required this.handleBuilder,
-    required this.holdScrollWhileDragging,
-    required this.handleHitSlop,
-    required this.doubleTapResetTo,
-    required this.resizable,
-    this.onTap,
-    this.onDoubleTap,
-  });
-
-  final Axis axis;
-  final SplitterController controller;
-  final double thickness;
-  final double minRatio;
-  final double maxRatio;
-  final double minStart;
-  final double minEnd;
-  final double maxSize;
-  final CrampedBehavior crampedBehavior;
-  final Color? dividerColor;
-  final Color? blockerColor;
-  final Color? dividerHoverColor;
-  final Color? dividerActiveColor;
-  final ValueChanged<double>? onRatioChanged;
-  final ValueChanged<double>? onDragStart;
-  final ValueChanged<double>? onDragEnd;
-  final bool enableKeyboard;
-  final double keyboardStep;
-  final double pageStep;
-  final FocusNode focusNode;
-  final String? semanticsLabel;
-  final bool overlayEnabled;
-  final List<double>? snapPoints;
-  final double snapTolerance;
-  final Widget Function(BuildContext, SplitterHandleDetails)? handleBuilder;
-  final bool holdScrollWhileDragging;
-  final double handleHitSlop;
-  final double? doubleTapResetTo;
-  final bool resizable;
-  final VoidCallback? onTap;
-  final VoidCallback? onDoubleTap;
-
-  @override
-  State<_DividerHandle> createState() => _DividerHandleState();
-}
-
-class _DividerHandleState extends State<_DividerHandle> {
-  bool _isDragging = false;
-  bool _isHovering = false;
-  double? _dragStartPosition;
-  double? _dragStartRatio;
-  OverlayEntry? _dragOverlay;
-  int? _activePointer;
-  ScrollHoldController? _scrollHold;
-  final List<_PendingPointer> _pendingPointers = <_PendingPointer>[];
-
-  late BoxDecoration _idleDecoration;
-  late BoxDecoration _hoverDecoration;
-  late BoxDecoration _activeDecoration;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _updateDecorations();
-  }
-
-  @override
-  void didUpdateWidget(_DividerHandle oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.dividerColor != widget.dividerColor ||
-        oldWidget.dividerHoverColor != widget.dividerHoverColor ||
-        oldWidget.dividerActiveColor != widget.dividerActiveColor) {
-      _updateDecorations();
-    }
-  }
-
-  @override
-  void dispose() {
-    if (_isDragging) {
-      widget.controller._setDragging(false);
-      SplitterController._globalRouter.setDragging(null);
-    }
-    widget.controller._setDragCallback(null);
-    _removeOverlay();
-    _scrollHold?.cancel();
-    _scrollHold = null;
-    _pendingPointers.clear();
-    super.dispose();
-  }
-
-  void _updateDecorations() {
-    final cs = Theme.of(context).colorScheme;
-    final theme = ResizableSplitterTheme.of(context);
-    // Calm splitter colors derived from the surrounding theme unless overridden.
-    final baseColor =
-        widget.dividerColor ?? theme.dividerColor ?? cs.outlineVariant;
-    final hoverColor =
-        widget.dividerHoverColor ??
-        theme.dividerHoverColor ??
-        cs.onSurface.withAlpha(20);
-    final activeColor =
-        widget.dividerActiveColor ??
-        theme.dividerActiveColor ??
-        cs.onSurface.withAlpha(31);
-
-    _idleDecoration = BoxDecoration(color: baseColor);
-    _hoverDecoration = BoxDecoration(color: hoverColor);
-    _activeDecoration = BoxDecoration(color: activeColor);
-  }
-
-  void _onDragStart(DragStartDetails details) {
-    if (!widget.resizable || _isDragging) return;
-    if (!_isSupportedPointerKind(details.kind)) return;
-
-    setState(() => _isDragging = true);
-    widget.controller._setDragging(true);
-
-    _dragStartRatio = widget.controller.value;
-    _dragStartPosition = widget.axis.isH
-        ? details.globalPosition.dx
-        : details.globalPosition.dy;
-
-    final pointerId = _takePendingPointer(details.globalPosition) ?? -1;
-    _activePointer = pointerId;
-
-    SplitterController._globalRouter.setDragging(widget.controller, pointerId);
-    widget.controller._setDragCallback(_stopDrag);
-
-    if (widget.holdScrollWhileDragging) {
-      _scrollHold?.cancel();
-      _scrollHold = Scrollable.maybeOf(context)?.position.hold(() {});
-    }
-
-    if (widget.overlayEnabled) _insertOverlay();
-
-    unawaited(HapticFeedback.selectionClick());
-    widget.focusNode.requestFocus();
-    widget.onDragStart?.call(widget.controller.value);
-  }
-
-  void _onDragUpdate(DragUpdateDetails details) {
-    if (!_isDragging ||
-        _dragStartPosition == null ||
-        _dragStartRatio == null ||
-        widget.maxSize <= 0) {
-      return;
-    }
-
-    final currentPos = widget.axis.isH
-        ? details.globalPosition.dx
-        : details.globalPosition.dy;
-    final delta = currentPos - _dragStartPosition!;
-    final deltaRatio = delta / widget.maxSize;
-
-    var newRatio = _dragStartRatio! + deltaRatio;
-
-    final minR = math.max(
-      widget.minRatio,
-      (widget.minStart / widget.maxSize).clamp(0.0, 1.0),
-    );
-    final maxR = math.min(
-      widget.maxRatio,
-      (1.0 - widget.minEnd / widget.maxSize).clamp(0.0, 1.0),
-    );
-
-    newRatio = newRatio.clamp(minR, maxR);
-
-    final previous = widget.controller.value;
-    widget.controller.updateRatio(newRatio);
-    if ((widget.controller.value - previous).abs() > 1e-9) {
-      widget.onRatioChanged?.call(widget.controller.value);
-    }
-  }
-
-  void _onDragEnd(DragEndDetails details) {
-    _stopDrag();
-  }
-
-  void _onDragCancel() {
-    _stopDrag();
-  }
-
-  void _stopDrag() {
-    final snapped = _maybeSnap(widget.controller.value);
-
-    if (mounted) {
-      setState(() => _isDragging = false);
-    } else {
-      _isDragging = false;
-    }
-
-    widget.controller._setDragging(false);
-    widget.controller._setDragCallback(null);
-    SplitterController._globalRouter.setDragging(null);
-    _removeOverlay();
-    _scrollHold?.cancel();
-    _scrollHold = null;
-
-    _dragStartPosition = null;
-    _dragStartRatio = null;
-
-    if (_activePointer != null && _activePointer! >= 0) {
-      _pendingPointers.removeWhere((pointer) => pointer.id == _activePointer);
-    }
-    _activePointer = null;
-
-    if (mounted) {
-      widget.onDragEnd?.call(snapped ?? widget.controller.value);
-    }
-  }
-
-  double? _maybeSnap(double value) {
-    final points = widget.snapPoints;
-    if (points == null || points.isEmpty) return null;
-    if (widget.maxSize <= 0) return null;
-
-    final minR = math.max(
-      widget.minRatio,
-      (widget.minStart / widget.maxSize).clamp(0.0, 1.0),
-    );
-    final maxR = math.min(
-      widget.maxRatio,
-      (1.0 - widget.minEnd / widget.maxSize).clamp(0.0, 1.0),
-    );
-
-    var nearest = value;
-    var bestDist = double.infinity;
-    for (final p in points) {
-      final d = (value - p).abs();
-      if (d < bestDist) {
-        bestDist = d;
-        nearest = p;
-      }
-    }
-    if (bestDist <= widget.snapTolerance) {
-      final bounded = minR <= maxR ? nearest.clamp(minR, maxR) : minR;
-      if ((bounded - widget.controller.value).abs() > 1e-9) {
-        final previous = widget.controller.value;
-        widget.controller.updateRatio(bounded, threshold: 0);
-        if ((widget.controller.value - previous).abs() > 1e-9) {
-          widget.onRatioChanged?.call(widget.controller.value);
-        }
-      }
-      return bounded;
-    }
-    return null;
-  }
-
-  void _insertOverlay() {
-    if (_dragOverlay != null) return;
-
-    _dragOverlay = OverlayEntry(
-      builder: (context) =>
-          _DragOverlay(axis: widget.axis, blockerColor: widget.blockerColor),
-    );
-
-    // Use the root overlay so it sits above platform views.
-    Overlay.of(context, rootOverlay: true).insert(_dragOverlay!);
-  }
-
-  void _removeOverlay() {
-    if (_dragOverlay?.mounted ?? false) {
-      _dragOverlay?.remove();
-    }
-    _dragOverlay = null;
-  }
-
-  void _rememberPointer(PointerDownEvent event) {
-    if (!widget.resizable || _isDragging) return;
-
-    final isPrimaryMouse =
-        event.kind == PointerDeviceKind.mouse &&
-        event.buttons == kPrimaryMouseButton;
-    final isTouchLike =
-        event.kind == PointerDeviceKind.touch ||
-        event.kind == PointerDeviceKind.stylus ||
-        event.kind == PointerDeviceKind.invertedStylus ||
-        event.kind == PointerDeviceKind.trackpad ||
-        event.kind == PointerDeviceKind.unknown;
-
-    if (!isPrimaryMouse && !isTouchLike) return;
-
-    _pendingPointers.removeWhere((pointer) => pointer.id == event.pointer);
-    _pendingPointers.add(_PendingPointer(event.pointer, event.position));
-  }
-
-  void _handlePointerMove(PointerMoveEvent event) {
-    if (_isDragging) return;
-
-    for (final pointer in _pendingPointers) {
-      if (pointer.id == event.pointer) {
-        pointer.position = event.position;
-        break;
-      }
-    }
-  }
-
-  void _handlePointerEnd(PointerEvent event) {
-    _pendingPointers.removeWhere((pointer) => pointer.id == event.pointer);
-  }
-
-  int? _takePendingPointer(Offset globalPosition) {
-    if (_pendingPointers.isEmpty) return null;
-
-    const double toleranceSquared = 16.0;
-    _PendingPointer? match;
-    var matchIndex = -1;
-
-    for (var i = _pendingPointers.length - 1; i >= 0; i--) {
-      final candidate = _pendingPointers[i];
-      final diff = candidate.position - globalPosition;
-      if (diff.distanceSquared <= toleranceSquared) {
-        match = candidate;
-        matchIndex = i;
-        break;
-      }
-    }
-
-    match ??= _pendingPointers.first;
-    matchIndex = matchIndex >= 0 ? matchIndex : 0;
-    _pendingPointers.removeAt(matchIndex);
-    return match.id;
-  }
-
-  bool _isSupportedPointerKind(PointerDeviceKind? kind) {
-    if (kind == null) return true;
-    return kind == PointerDeviceKind.touch ||
-        kind == PointerDeviceKind.mouse ||
-        kind == PointerDeviceKind.stylus ||
-        kind == PointerDeviceKind.invertedStylus ||
-        kind == PointerDeviceKind.trackpad ||
-        kind == PointerDeviceKind.unknown;
-  }
-
-  double _effectiveRatio(double ratio) {
-    if (widget.maxSize <= 0) {
-      return ratio.clamp(widget.minRatio, widget.maxRatio).clamp(0.0, 1.0);
-    }
-
-    final pixelMinRatio = (widget.minStart / widget.maxSize).clamp(0.0, 1.0);
-    final pixelMaxRatio = (1.0 - widget.minEnd / widget.maxSize).clamp(
-      0.0,
-      1.0,
-    );
-    final minR = math.max(widget.minRatio, pixelMinRatio);
-    final maxR = math.min(widget.maxRatio, pixelMaxRatio);
-
-    if (minR <= maxR) {
-      return ratio.clamp(minR, maxR).clamp(0.0, 1.0);
-    }
-
-    final minClamped = minR.clamp(0.0, 1.0);
-    final maxClamped = maxR.clamp(0.0, 1.0);
-
-    switch (widget.crampedBehavior) {
-      case CrampedBehavior.favorStart:
-        return minClamped;
-      case CrampedBehavior.favorEnd:
-        return maxClamped;
-      case CrampedBehavior.proportionallyClamp:
-        final sum = widget.minStart + widget.minEnd;
-        final fallback = sum <= 0
-            ? 0.5
-            : (widget.minStart / sum).clamp(0.0, 1.0);
-        return fallback;
-    }
-  }
-
-  void _nudge(double delta) {
-    if (!widget.resizable) return;
-
-    final previous = widget.controller.value;
-    final newRatio = (previous + delta).clamp(widget.minRatio, widget.maxRatio);
-    widget.controller.value = newRatio;
-    if ((widget.controller.value - previous).abs() > 1e-9) {
-      widget.onRatioChanged?.call(widget.controller.value);
-    }
-    unawaited(HapticFeedback.selectionClick());
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    BoxDecoration currentDecoration;
-    if (_isDragging) {
-      currentDecoration = _activeDecoration;
-    } else if (_isHovering) {
-      currentDecoration = _hoverDecoration;
-    } else {
-      currentDecoration = _idleDecoration;
-    }
-
-    final grip =
-        widget.handleBuilder?.call(
-          context,
-          SplitterHandleDetails(
-            isDragging: _isDragging,
-            isHovering: _isHovering,
-            axis: widget.axis,
-            thickness: widget.thickness,
-          ),
-        ) ??
-        // Default subtle grip.
-        Center(
-          child: Container(
-            width: widget.axis.isH ? 2 : 24,
-            height: widget.axis.isH ? 24 : 2,
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.onSurface.withAlpha(77),
-              borderRadius: BorderRadius.circular(1),
-            ),
-          ),
-        );
-
-    Widget handle = AnimatedContainer(
-      duration: const Duration(milliseconds: 150),
-      decoration: currentDecoration,
-      child: grip,
-    );
-
-    if (widget.axis.isH) {
-      handle = SizedBox(width: widget.thickness, child: handle);
-    } else {
-      handle = SizedBox(height: widget.thickness, child: handle);
-    }
-
-    Widget divider = GestureDetector(
-      behavior: HitTestBehavior.translucent,
-      dragStartBehavior: DragStartBehavior.down,
-      excludeFromSemantics: true,
-      onHorizontalDragStart: widget.axis.isH ? _onDragStart : null,
-      onHorizontalDragUpdate: widget.axis.isH ? _onDragUpdate : null,
-      onHorizontalDragEnd: widget.axis.isH ? _onDragEnd : null,
-      onHorizontalDragCancel: widget.axis.isH ? _onDragCancel : null,
-      onVerticalDragStart: widget.axis.isH ? null : _onDragStart,
-      onVerticalDragUpdate: widget.axis.isH ? null : _onDragUpdate,
-      onVerticalDragEnd: widget.axis.isH ? null : _onDragEnd,
-      onVerticalDragCancel: widget.axis.isH ? null : _onDragCancel,
-      onTap: widget.onTap,
-      onDoubleTap:
-          (widget.onDoubleTap != null || widget.doubleTapResetTo != null)
-          ? () {
-              widget.onDoubleTap?.call();
-              if (widget.doubleTapResetTo != null && widget.resizable) {
-                final target = widget.doubleTapResetTo!;
-                final startValue = widget.controller.value;
-                unawaited(
-                  widget.controller.animateTo(target).then((_) {
-                    final updated = widget.controller.value;
-                    if ((updated - startValue).abs() > 1e-9) {
-                      widget.onRatioChanged?.call(updated);
-                    }
-                  }),
-                );
-              }
-            }
+    // The interactive target is centered on the visible bar; the extent past the
+    // bar becomes overhang (interactiveSlop) on each side that the render
+    // object's hit test overlays onto the panes without reserving layout. A
+    // non-resizable divider uses no overhang. This is computed from the raw
+    // thickness: the render object clamps the visible thickness to the
+    // container, but the interactive box width is `interactiveExtent` either way,
+    // so the handle's padding matches the box in every normal layout and differs
+    // only harmlessly when the container is smaller than the divider.
+    final rawSlop = (interactiveExtent - dividerThickness) / 2;
+    final interactiveSlop = widget.resizable && rawSlop > 0 ? rawSlop : 0.0;
+
+    final divider = _DividerHandle(
+      axis: widget.axis,
+      controller: controller,
+      thickness: dividerThickness,
+      // The handle reads its solver/solution live from here (published by the
+      // render object's performLayout) for drag/keyboard/snap/semantics.
+      geometryListenable: _geometry,
+      dragBarrierColor: dragBarrierColor,
+      dragBarrierBuilder: widget.dragBarrierBuilder,
+      dividerColor: dividerColor,
+      onChanged: widget.onChanged,
+      onChangeStart: widget.onChangeStart,
+      onChangeEnd: widget.onChangeEnd,
+      enableKeyboard: enableKeyboard && widget.resizable,
+      enableHaptics: enableHaptics,
+      keyboardStep: keyboardStep,
+      pageStep: pageStep,
+      focusNode: _focusNode,
+      semanticsLabel: widget.semanticsLabel,
+      semantics: semantics,
+      shieldPlatformViews: shieldPlatformViews && widget.resizable,
+      snap: widget.snap,
+      handleBuilder: handleBuilder,
+      holdScrollWhileDragging:
+          widget.holdScrollWhileDragging && widget.resizable,
+      interactiveSlop: interactiveSlop,
+      doubleTapResetTo: widget.doubleTapResetTo,
+      resizable: widget.resizable,
+      onTap: widget.onHandleTap,
+      onDoubleTap: widget.onHandleDoubleTap,
+      deferred: widget.deferredResize && widget.resizable,
+      onPreviewChanged: widget.deferredResize && widget.resizable
+          ? _setPreview
           : null,
-      child: MouseRegion(
-        cursor: widget.resizable
-            ? widget.axis.cursor
-            : SystemMouseCursors.basic,
-        onEnter: (_) => setState(() => _isHovering = true),
-        onExit: (_) => setState(() => _isHovering = false),
-        child: Listener(
-          behavior: HitTestBehavior.opaque,
-          onPointerDown: _rememberPointer,
-          onPointerMove: _handlePointerMove,
-          onPointerUp: _handlePointerEnd,
-          onPointerCancel: _handlePointerEnd,
-          child: handle,
-        ),
-      ),
+      localMainAxisOf: _localMainAxisOf,
     );
 
-    if (widget.handleHitSlop > 0) {
-      final lr = widget.axis.isH ? 0.0 : widget.handleHitSlop;
-      final tb = widget.axis.isH ? widget.handleHitSlop : 0.0;
-      divider = Padding(
-        padding: EdgeInsets.fromLTRB(lr, tb, lr, tb),
-        child: divider,
-      );
-    }
+    final textDirection = Directionality.maybeOf(context) ?? TextDirection.ltr;
+    final previewColor = Theme.of(context).colorScheme.primary;
 
-    String formatPercent(double ratio) {
-      final effective = _effectiveRatio(ratio).clamp(0.0, 1.0);
-      return '${(effective * 100).round()}%';
-    }
-
-    final currentRatio = widget.controller.value;
-
-    // Screen reader actions & value.
-    final allowSemanticAdjust = widget.resizable && widget.enableKeyboard;
-
-    divider = Semantics(
-      label:
-          widget.semanticsLabel ??
-          (widget.axis.isH
-              ? 'Drag to resize left and right panels.'
-              : 'Drag to resize top and bottom panels.'),
-      value: formatPercent(currentRatio),
-      increasedValue: allowSemanticAdjust
-          ? formatPercent(currentRatio + widget.keyboardStep)
-          : null,
-      decreasedValue: allowSemanticAdjust
-          ? formatPercent(currentRatio - widget.keyboardStep)
-          : null,
-      onIncrease: allowSemanticAdjust
-          ? () => _nudge(widget.keyboardStep)
-          : null,
-      onDecrease: allowSemanticAdjust
-          ? () => _nudge(-widget.keyboardStep)
-          : null,
-      child: divider,
-    );
-
-    if (widget.enableKeyboard && widget.resizable) {
-      divider = FocusableActionDetector(
-        focusNode: widget.focusNode,
-        shortcuts: <LogicalKeySet, Intent>{
-          // Fine step
-          LogicalKeySet(
-            widget.axis.isH
-                ? LogicalKeyboardKey.arrowLeft
-                : LogicalKeyboardKey.arrowUp,
-          ): _AdjustIntent(
-            -widget.keyboardStep,
-          ),
-          LogicalKeySet(
-            widget.axis.isH
-                ? LogicalKeyboardKey.arrowRight
-                : LogicalKeyboardKey.arrowDown,
-          ): _AdjustIntent(
-            widget.keyboardStep,
-          ),
-          // Page step
-          LogicalKeySet(LogicalKeyboardKey.pageUp): _AdjustIntent(
-            -widget.pageStep,
-          ),
-          LogicalKeySet(LogicalKeyboardKey.pageDown): _AdjustIntent(
-            widget.pageStep,
-          ),
-          // Jump to bounds
-          LogicalKeySet(LogicalKeyboardKey.home): const _JumpIntent.toMin(),
-          LogicalKeySet(LogicalKeyboardKey.end): const _JumpIntent.toMax(),
-        },
-        actions: <Type, Action<Intent>>{
-          _AdjustIntent: CallbackAction<_AdjustIntent>(
-            onInvoke: (intent) {
-              final previous = widget.controller.value;
-              final newRatio = (previous + intent.delta).clamp(
-                widget.minRatio,
-                widget.maxRatio,
-              );
-              widget.controller.value = newRatio;
-              if ((widget.controller.value - previous).abs() > 1e-9) {
-                widget.onRatioChanged?.call(widget.controller.value);
-              }
-              unawaited(HapticFeedback.selectionClick());
-              return null;
-            },
-          ),
-          _JumpIntent: CallbackAction<_JumpIntent>(
-            onInvoke: (intent) {
-              final previous = widget.controller.value;
-              final dest = intent.toMin ? widget.minRatio : widget.maxRatio;
-              widget.controller.value = dest;
-              if ((widget.controller.value - previous).abs() > 1e-9) {
-                widget.onRatioChanged?.call(widget.controller.value);
-              }
-              unawaited(HapticFeedback.selectionClick());
-              return null;
-            },
-          ),
-        },
-        child: divider,
-      );
-    }
-
-    return divider;
-  }
-}
-
-class _PendingPointer {
-  _PendingPointer(this.id, this.position);
-
-  final int id;
-  Offset position;
-}
-
-/// An invisible overlay that acts as a shield to block pointer events
-/// from reaching platform views during a drag operation.
-class _DragOverlay extends StatelessWidget {
-  const _DragOverlay({required this.axis, this.blockerColor});
-
-  final Axis axis;
-  final Color? blockerColor;
-
-  @override
-  Widget build(BuildContext context) {
-    // A fully transparent color can be optimized away; use 1 alpha.
-    final defaultColor = Theme.of(context).colorScheme.scrim.withAlpha(1);
-    final color = blockerColor == Colors.transparent
-        ? defaultColor
-        : blockerColor ?? defaultColor;
-
-    return Positioned.fill(
-      child: ExcludeSemantics(
-        child: MouseRegion(
-          cursor: axis.cursor,
-          child: Listener(
-            behavior: HitTestBehavior.opaque,
-            child: ColoredBox(color: color),
-          ),
-        ),
-      ),
+    // The render object owns layout (solving the request against the real
+    // constraints in performLayout), painting (each pane clipped to its box),
+    // hit testing (the divider wins inside its slop), and publishing the
+    // resolved geometry back up through [_handleResolvedGeometry] - which mirrors
+    // it to the controller and reports collapse transitions. The handle is
+    // passed opaquely; the preview line is laid out by the render object and
+    // painted only while a deferred drag is previewing.
+    return _ResizableSplitterRenderWidget(
+      axis: widget.axis,
+      textDirection: textDirection,
+      position: state.position,
+      collapsedPane: state.collapsedPane,
+      dividerThickness: dividerThickness,
+      interactiveExtent: interactiveExtent,
+      resizable: widget.resizable,
+      config: config,
+      controller: controller,
+      previewListenable: _previewFraction,
+      onGeometryChanged: _handleResolvedGeometry,
+      start: widget.start,
+      end: widget.end,
+      divider: divider,
+      preview: IgnorePointer(child: ColoredBox(color: previewColor)),
     );
   }
-}
-
-/// Intent for keyboard-based splitter adjustment.
-class _AdjustIntent extends Intent {
-  const _AdjustIntent(this.delta);
-
-  final double delta;
-}
-
-class _JumpIntent extends Intent {
-  const _JumpIntent._(this.toMin);
-
-  const _JumpIntent.toMin() : this._(true);
-
-  const _JumpIntent.toMax() : this._(false);
-  final bool toMin;
 }

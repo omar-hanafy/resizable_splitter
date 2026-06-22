@@ -28,13 +28,13 @@ void main() {
     await tester.pumpWidget(
       frame(
         child: ResizableSplitter(
-          initialRatio: 0.1,
-          dividerThickness: dividerThickness,
-          minStartPanelSize: 200,
-          minEndPanelSize: 50,
+          initialPosition: const SplitterPosition.fraction(0.1),
+          divider: const SplitterDividerStyle(thickness: dividerThickness),
+          startConstraints: const SplitterPaneConstraints(minExtent: 200),
+          endConstraints: const SplitterPaneConstraints(minExtent: 50),
           semanticsLabel: 'handle',
-          startPanel: Container(key: const Key('start')),
-          endPanel: Container(key: const Key('end')),
+          start: Container(key: const Key('start')),
+          end: Container(key: const Key('end')),
         ),
       ),
     );
@@ -55,13 +55,13 @@ void main() {
     await tester.pumpWidget(
       frame(
         child: ResizableSplitter(
-          initialRatio: 0.8,
-          dividerThickness: dividerThickness,
-          minStartPanelSize: 200,
-          minEndPanelSize: 150,
+          initialPosition: const SplitterPosition.fraction(0.8),
+          divider: const SplitterDividerStyle(thickness: dividerThickness),
+          startConstraints: const SplitterPaneConstraints(minExtent: 200),
+          endConstraints: const SplitterPaneConstraints(minExtent: 150),
           semanticsLabel: 'handle',
-          startPanel: Container(key: const Key('start')),
-          endPanel: Container(key: const Key('end')),
+          start: Container(key: const Key('start')),
+          end: Container(key: const Key('end')),
         ),
       ),
     );
@@ -79,7 +79,9 @@ void main() {
   ) async {
     const dividerThickness = 12.0;
     const totalHeight = 400.0;
-    final controller = SplitterController(initialRatio: 0.25);
+    final controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.25),
+    );
 
     await tester.pumpWidget(
       frame(
@@ -87,11 +89,12 @@ void main() {
         child: ResizableSplitter(
           axis: Axis.vertical,
           controller: controller,
-          minPanelSize: 0,
-          dividerThickness: dividerThickness,
+          startConstraints: const SplitterPaneConstraints(),
+          endConstraints: const SplitterPaneConstraints(),
+          divider: const SplitterDividerStyle(thickness: dividerThickness),
           semanticsLabel: 'handle',
-          startPanel: Container(key: const Key('top')),
-          endPanel: Container(key: const Key('bottom')),
+          start: Container(key: const Key('top')),
+          end: Container(key: const Key('bottom')),
         ),
       ),
     );
@@ -115,13 +118,13 @@ void main() {
         height: totalHeight,
         child: ResizableSplitter(
           axis: Axis.vertical,
-          initialRatio: 0.7,
-          dividerThickness: dividerThickness,
-          minStartPanelSize: 180,
-          minEndPanelSize: 140,
+          initialPosition: const SplitterPosition.fraction(0.7),
+          divider: const SplitterDividerStyle(thickness: dividerThickness),
+          startConstraints: const SplitterPaneConstraints(minExtent: 180),
+          endConstraints: const SplitterPaneConstraints(minExtent: 140),
           semanticsLabel: 'handle',
-          startPanel: Container(key: const Key('top')),
-          endPanel: Container(key: const Key('bottom')),
+          start: Container(key: const Key('top')),
+          end: Container(key: const Key('bottom')),
         ),
       ),
     );
@@ -139,13 +142,15 @@ void main() {
       frame(
         child: ResizableSplitter(
           semanticsLabel: 'handle',
-          startPanel: const SizedBox(),
-          endPanel: const SizedBox(),
-          handleBuilder: (_, details) {
-            expect(details.thickness, 6.0);
-            expect(details.axis, Axis.horizontal);
-            return Container(key: const Key('customGrip'));
-          },
+          start: const SizedBox(),
+          end: const SizedBox(),
+          divider: SplitterDividerStyle(
+            builder: (_, details) {
+              expect(details.thickness, 6.0);
+              expect(details.axis, Axis.horizontal);
+              return Container(key: const Key('customGrip'));
+            },
+          ),
         ),
       ),
     );
@@ -163,13 +168,13 @@ void main() {
       frame(
         width: totalWidth,
         child: ResizableSplitter(
-          dividerThickness: dividerThickness,
-          crampedBehavior: CrampedBehavior.favorEnd,
-          minStartPanelSize: 200,
-          minEndPanelSize: 140,
+          divider: const SplitterDividerStyle(thickness: dividerThickness),
+          constraintPolicy: SplitterConstraintPolicy.favorEnd,
+          startConstraints: const SplitterPaneConstraints(minExtent: 200),
+          endConstraints: const SplitterPaneConstraints(minExtent: 140),
           semanticsLabel: 'handle',
-          startPanel: Container(key: const Key('start')),
-          endPanel: Container(key: const Key('end')),
+          start: Container(key: const Key('start')),
+          end: Container(key: const Key('end')),
         ),
       ),
     );
@@ -192,13 +197,13 @@ void main() {
       frame(
         width: totalWidth,
         child: ResizableSplitter(
-          dividerThickness: dividerThickness,
-          crampedBehavior: CrampedBehavior.proportionallyClamp,
-          minStartPanelSize: 180,
-          minEndPanelSize: 120,
+          divider: const SplitterDividerStyle(thickness: dividerThickness),
+          constraintPolicy: SplitterConstraintPolicy.proportional,
+          startConstraints: const SplitterPaneConstraints(minExtent: 180),
+          endConstraints: const SplitterPaneConstraints(minExtent: 120),
           semanticsLabel: 'handle',
-          startPanel: Container(key: const Key('start')),
-          endPanel: Container(key: const Key('end')),
+          start: Container(key: const Key('start')),
+          end: Container(key: const Key('end')),
         ),
       ),
     );
@@ -212,36 +217,45 @@ void main() {
     expect(endSize.width, closeTo(available * (1 - expectedRatio), 1e-3));
   });
 
-  testWidgets('antiAliasingWorkaround floors the leading panel size', (
-    tester,
-  ) async {
-    const dividerThickness = 3.0;
-    const totalWidth = 303.0;
-    final controller = SplitterController(initialRatio: 0.331);
+  testWidgets(
+    'snapToPhysicalPixels snaps the leading panel to a physical pixel',
+    (tester) async {
+      const dividerThickness = 3.0;
+      const totalWidth = 303.0;
+      final controller = SplitterController(
+        initialPosition: const SplitterPosition.fraction(0.331),
+      );
 
-    await tester.pumpWidget(
-      frame(
-        width: totalWidth,
-        child: ResizableSplitter(
-          controller: controller,
-          dividerThickness: dividerThickness,
-          minPanelSize: 0,
-          antiAliasingWorkaround: true,
-          semanticsLabel: 'handle',
-          startPanel: Container(key: const Key('start')),
-          endPanel: Container(key: const Key('end')),
+      await tester.pumpWidget(
+        frame(
+          width: totalWidth,
+          child: ResizableSplitter(
+            controller: controller,
+            divider: const SplitterDividerStyle(thickness: dividerThickness),
+            startConstraints: const SplitterPaneConstraints(),
+            endConstraints: const SplitterPaneConstraints(),
+            snapToPhysicalPixels: true,
+            semanticsLabel: 'handle',
+            start: Container(key: const Key('start')),
+            end: Container(key: const Key('end')),
+          ),
         ),
-      ),
-    );
+      );
 
-    final startSize = tester.getSize(find.byKey(const Key('start')));
-    final endSize = tester.getSize(find.byKey(const Key('end')));
-    const available = totalWidth - dividerThickness;
+      final startSize = tester.getSize(find.byKey(const Key('start')));
+      final endSize = tester.getSize(find.byKey(const Key('end')));
+      const available = totalWidth - dividerThickness;
 
-    expect(startSize.width, equals(startSize.width.floorToDouble()));
-    expect(startSize.width, equals(99.0));
-    expect(endSize.width, closeTo(available - startSize.width, 1e-6));
-  });
+      // Now snaps to a whole *physical* pixel (was a whole logical pixel), so
+      // it stays crisp at fractional device-pixel ratios. The leading extent
+      // lands on a device-pixel boundary near the requested 0.331 * available.
+      final dpr = tester.view.devicePixelRatio;
+      final physical = startSize.width * dpr;
+      expect((physical - physical.roundToDouble()).abs(), lessThan(1e-6));
+      expect(startSize.width, closeTo(available * 0.331, 1.0));
+      expect(endSize.width, closeTo(available - startSize.width, 1e-6));
+    },
+  );
 
   testWidgets('LimitedBox fallback is used when unconstrained and opted in', (
     tester,
@@ -250,8 +264,8 @@ void main() {
       MaterialApp(
         home: ResizableSplitterTheme(
           data: const ResizableSplitterThemeData(
-            unboundedBehavior: UnboundedBehavior.limitedBox,
-            fallbackMainAxisExtent: 420,
+            unboundedBehavior: UnboundedBehavior.useFallbackExtent,
+            fallbackExtent: 420,
           ),
           child: Scaffold(
             body: Align(
@@ -262,8 +276,8 @@ void main() {
                   height: 200,
                   child: ResizableSplitter(
                     semanticsLabel: 'handle',
-                    startPanel: Container(key: const Key('start')),
-                    endPanel: Container(key: const Key('end')),
+                    start: Container(key: const Key('start')),
+                    end: Container(key: const Key('end')),
                   ),
                 ),
               ),
@@ -290,75 +304,76 @@ void main() {
     expect(endSize.width, closeTo(expectedAvailable / 2, 1e-6));
   });
 
-  testWidgets(
-    'widget override keeps flexExpand even when theme uses LimitedBox',
-    (tester) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          home: ResizableSplitterTheme(
-            data: const ResizableSplitterThemeData(
-              unboundedBehavior: UnboundedBehavior.limitedBox,
-              fallbackMainAxisExtent: 420,
-            ),
-            child: Scaffold(
-              body: Align(
-                alignment: Alignment.topLeft,
-                child: SizedBox(
-                  width: 0,
-                  child: SizedBox(
-                    height: 200,
-                    child: ResizableSplitter(
-                      unboundedBehavior: UnboundedBehavior.flexExpand,
-                      semanticsLabel: 'handle',
-                      startPanel: Container(key: const Key('start')),
-                      endPanel: Container(key: const Key('end')),
-                    ),
+  testWidgets('widget override keeps shrinkToChildren even when theme uses '
+      'useFallbackExtent', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: ResizableSplitterTheme(
+          data: ResizableSplitterThemeData(
+            unboundedBehavior: UnboundedBehavior.useFallbackExtent,
+            fallbackExtent: 420,
+          ),
+          child: Scaffold(
+            body: Align(
+              alignment: Alignment.topLeft,
+              child: SizedBox(
+                height: 200,
+                // Unbounded main axis (width): the two unbounded behaviors
+                // resolve it differently, so the override is observable.
+                child: UnconstrainedBox(
+                  constrainedAxis: Axis.vertical,
+                  child: ResizableSplitter(
+                    unboundedBehavior: UnboundedBehavior.shrinkToChildren,
+                    semanticsLabel: 'handle',
+                    start: SizedBox(key: Key('start'), width: 30),
+                    end: SizedBox(key: Key('end'), width: 50),
                   ),
                 ),
               ),
             ),
           ),
         ),
-      );
+      ),
+    );
 
-      await tester.pump();
+    await tester.pump();
 
-      expect(
-        find.byWidgetPredicate(
-          (widget) => widget is LimitedBox && widget.maxWidth == 420,
-        ),
-        findsNothing,
-      );
-
-      expect(find.byType(Flex), findsWidgets);
-    },
-  );
+    // The widget's shrinkToChildren overrides the theme's useFallbackExtent:
+    // the splitter shrink-wraps its panes (30 + 50 = 80) rather than expanding
+    // to the theme's 420-wide sandbox.
+    expect(tester.getSize(find.byType(ResizableSplitter)).width, 80);
+    expect(tester.getSize(find.byKey(const Key('start'))).width, 30);
+    expect(tester.getSize(find.byKey(const Key('end'))).width, 50);
+  });
 
   testWidgets(
     'widget override disables anti-alias workaround when theme enables',
     (tester) async {
       const dividerThickness = 3.0;
       const totalWidth = 303.0;
-      final controller = SplitterController(initialRatio: 0.331);
+      final controller = SplitterController(
+        initialPosition: const SplitterPosition.fraction(0.331),
+      );
 
       await tester.pumpWidget(
         MaterialApp(
           home: ResizableSplitterTheme(
-            data: const ResizableSplitterThemeData(
-              antiAliasingWorkaround: true,
-            ),
+            data: const ResizableSplitterThemeData(snapToPhysicalPixels: true),
             child: Scaffold(
               body: Center(
                 child: SizedBox(
                   width: totalWidth,
                   child: ResizableSplitter(
                     controller: controller,
-                    dividerThickness: dividerThickness,
-                    minPanelSize: 0,
-                    antiAliasingWorkaround: false,
+                    divider: const SplitterDividerStyle(
+                      thickness: dividerThickness,
+                    ),
+                    startConstraints: const SplitterPaneConstraints(),
+                    endConstraints: const SplitterPaneConstraints(),
+                    snapToPhysicalPixels: false,
                     semanticsLabel: 'handle',
-                    startPanel: Container(key: const Key('start')),
-                    endPanel: Container(key: const Key('end')),
+                    start: Container(key: const Key('start')),
+                    end: Container(key: const Key('end')),
                   ),
                 ),
               ),

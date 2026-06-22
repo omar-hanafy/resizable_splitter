@@ -22,11 +22,11 @@ void main() {
         ResizableSplitter(
           controller: controller,
           semanticsLabel: 'handle',
-          dividerThickness: 8,
-          minRatio: 0.2,
-          maxRatio: 0.8,
-          startPanel: const SizedBox(),
-          endPanel: const SizedBox(),
+          divider: const SplitterDividerStyle(thickness: 8),
+          minStartFraction: 0.2,
+          maxStartFraction: 0.8,
+          start: const SizedBox(),
+          end: const SizedBox(),
         ),
       ),
     );
@@ -36,22 +36,28 @@ void main() {
     await tester.pump();
 
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
-    expect(controller.value, closeTo(0.51, 1e-6));
+    expect(controller.effectiveFraction, closeTo(0.51, 1e-6));
 
     await tester.sendKeyEvent(LogicalKeyboardKey.pageDown);
-    expect(controller.value, closeTo(0.61, 1e-6));
+    expect(controller.effectiveFraction, closeTo(0.61, 1e-6));
 
+    // Home/End jump to the real legal bounds. With minPanelSize 100 and
+    // available 392, the end pane's pixel minimum caps the start at 292/392, so
+    // End lands there - not the looser maxRatio 0.8 that was never visible
+    // (the old code stored 0.8 while the layout showed 292/392).
     await tester.sendKeyEvent(LogicalKeyboardKey.home);
-    expect(controller.value, 0.2);
+    expect(controller.effectiveFraction, closeTo(100 / 392, 1e-6));
 
     await tester.sendKeyEvent(LogicalKeyboardKey.end);
-    expect(controller.value, 0.8);
+    expect(controller.effectiveFraction, closeTo(292 / 392, 1e-6));
   });
 
   testWidgets(
     'theme-provided keyboard steps apply when widget defers to theme',
     (tester) async {
-      final controller = SplitterController(initialRatio: 0.4);
+      final controller = SplitterController(
+        initialPosition: const SplitterPosition.fraction(0.4),
+      );
 
       await tester.pumpWidget(
         host(
@@ -63,8 +69,8 @@ void main() {
             child: ResizableSplitter(
               controller: controller,
               semanticsLabel: 'handle',
-              startPanel: const SizedBox(),
-              endPanel: const SizedBox(),
+              start: const SizedBox(),
+              end: const SizedBox(),
             ),
           ),
         ),
@@ -75,17 +81,21 @@ void main() {
       await tester.pump();
 
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
-      expect(controller.value, closeTo(0.6, 1e-6));
+      expect(controller.effectiveFraction, closeTo(0.6, 1e-6));
 
+      // pageDown lands on the real maximum: minPanelSize 100 caps the start at
+      // 294/394 (the old code reported the never-visible 1.0).
       await tester.sendKeyEvent(LogicalKeyboardKey.pageDown);
-      expect(controller.value, closeTo(1.0, 1e-6));
+      expect(controller.effectiveFraction, closeTo(294 / 394, 1e-6));
     },
   );
 
   testWidgets('keyboard input is ignored when resizable is false', (
     tester,
   ) async {
-    final controller = SplitterController(initialRatio: 0.5);
+    final controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.5),
+    );
 
     await tester.pumpWidget(
       host(
@@ -93,8 +103,8 @@ void main() {
           controller: controller,
           resizable: false,
           semanticsLabel: 'handle',
-          startPanel: const SizedBox(),
-          endPanel: const SizedBox(),
+          start: const SizedBox(),
+          end: const SizedBox(),
         ),
       ),
     );
@@ -106,15 +116,17 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
     await tester.sendKeyEvent(LogicalKeyboardKey.pageDown);
 
-    expect(controller.value, 0.5);
+    expect(controller.effectiveFraction, 0.5);
   });
 
   testWidgets('theme extension overrides keyboard defaults', (tester) async {
-    final controller = SplitterController(initialRatio: 0.25);
+    final controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.25),
+    );
 
     final theme = ThemeData.light().copyWith(
       extensions: const <ThemeExtension<dynamic>>[
-        ResizableSplitterThemeOverrides(keyboardStep: 0.2, pageStep: 0.45),
+        ResizableSplitterThemeData(keyboardStep: 0.2, pageStep: 0.45),
       ],
     );
 
@@ -129,8 +141,8 @@ void main() {
               child: ResizableSplitter(
                 controller: controller,
                 semanticsLabel: 'handle',
-                startPanel: const SizedBox(),
-                endPanel: const SizedBox(),
+                start: const SizedBox(),
+                end: const SizedBox(),
               ),
             ),
           ),
@@ -142,21 +154,25 @@ void main() {
     await tester.tap(handle);
     await tester.pump();
 
+    // Steps move the *effective* position. available 314, minPanelSize 100, so
+    // the start is pinned at >= 100 (0.318); the caps then land honestly.
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
-    expect(controller.value, closeTo(0.45, 1e-6));
+    expect(controller.effectiveFraction, closeTo(100 / 314 + 0.2, 1e-6));
 
     await tester.sendKeyEvent(LogicalKeyboardKey.pageDown);
-    expect(controller.value, closeTo(0.9, 1e-6));
+    expect(controller.effectiveFraction, closeTo(214 / 314, 1e-6));
   });
 
   testWidgets('widget override keeps keyboard interaction enabled', (
     tester,
   ) async {
-    final controller = SplitterController(initialRatio: 0.4);
+    final controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.4),
+    );
 
     final theme = ThemeData.light().copyWith(
       extensions: const <ThemeExtension<dynamic>>[
-        ResizableSplitterThemeOverrides(enableKeyboard: false),
+        ResizableSplitterThemeData(enableKeyboard: false),
       ],
     );
 
@@ -172,8 +188,8 @@ void main() {
                 controller: controller,
                 enableKeyboard: true,
                 semanticsLabel: 'handle',
-                startPanel: const SizedBox(),
-                endPanel: const SizedBox(),
+                start: const SizedBox(),
+                end: const SizedBox(),
               ),
             ),
           ),
@@ -187,6 +203,6 @@ void main() {
 
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
 
-    expect(controller.value, closeTo(0.41, 1e-6));
+    expect(controller.effectiveFraction, closeTo(0.41, 1e-6));
   });
 }
