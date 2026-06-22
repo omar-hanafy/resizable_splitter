@@ -102,6 +102,35 @@ void main() {
       );
     });
 
+    testWidgets('IntrinsicHeight ignores a zero-width collapsed pane', (
+      tester,
+    ) async {
+      final controller = SplitterController()..collapse(SplitterPane.start);
+      await tester.pumpWidget(
+        host(
+          width: 300,
+          child: IntrinsicHeight(
+            child: splitter(
+              controller: controller,
+              thickness: 10,
+              start: const SplitterPaneConstraints(
+                minExtent: 50,
+                collapsedExtent: 0,
+              ),
+              startChild: const SizedBox(key: startKey, height: 900),
+              endChild: const SizedBox(key: endKey, height: 40),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.getSize(find.byType(ResizableSplitter)).height,
+        closeTo(40, 0.5),
+      );
+    });
+
     testWidgets('IntrinsicWidth sums pane widths plus the divider', (
       tester,
     ) async {

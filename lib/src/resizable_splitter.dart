@@ -405,9 +405,12 @@ class _ResizableSplitterState extends State<ResizableSplitter>
 
   SplitterController get _effectiveController =>
       widget.controller ??
-      (_internalController ??= SplitterController(
-        initialPosition: widget.initialPosition,
-      ));
+      (_internalController ??= _createInternalController());
+
+  SplitterController _createInternalController([SplitterState? state]) =>
+      SplitterController._(
+        state ?? SplitterState(position: widget.initialPosition),
+      );
 
   @override
   String? get restorationId => widget.restorationId;
@@ -475,22 +478,19 @@ class _ResizableSplitterState extends State<ResizableSplitter>
   void didUpdateWidget(ResizableSplitter oldWidget) {
     super.didUpdateWidget(oldWidget);
 
-    // Dropping an external controller: seed the internal one with the last
-    // shown position so the divider does not jump back to initialRatio.
+    // Dropping an external controller: seed the internal one with the full
+    // requested state so ownership changes do not alter position or collapse.
     if (oldWidget.controller != null &&
         widget.controller == null &&
         _internalController == null) {
-      _internalController = SplitterController(
-        initialPosition:
-            (_attachedController ?? oldWidget.controller!).value.position,
+      _internalController = _createInternalController(
+        (_attachedController ?? oldWidget.controller!).value,
       );
     }
 
     final newController =
         widget.controller ??
-        (_internalController ??= SplitterController(
-          initialPosition: widget.initialPosition,
-        ));
+        (_internalController ??= _createInternalController());
 
     if (!identical(_attachedController, newController)) {
       // Invalidate any pending post-frame flush/report scheduled for the

@@ -446,6 +446,19 @@ class _RenderResizableSplitter extends RenderBox
   double _cross(Size size) => _axis.isH ? size.height : size.width;
   double _maxMain(BoxConstraints c) => _axis.isH ? c.maxWidth : c.maxHeight;
   double _maxCross(BoxConstraints c) => _axis.isH ? c.maxHeight : c.maxWidth;
+  bool _hasPaneMainExtent(double extent) => extent > 0;
+
+  bool get _startRequestedCollapsed =>
+      _collapsedPane == SplitterPane.start && _config.start.collapsible;
+
+  bool get _endRequestedCollapsed =>
+      _collapsedPane == SplitterPane.end && _config.end.collapsible;
+
+  SplitterSolver _solverFor(double available) => _config.solverFor(
+    available,
+    startCollapsed: _startRequestedCollapsed,
+    endCollapsed: _endRequestedCollapsed,
+  );
 
   Size _sizeFrom({required double main, required double cross}) =>
       _axis.isH ? Size(main, cross) : Size(cross, main);
@@ -462,6 +475,7 @@ class _RenderResizableSplitter extends RenderBox
     required double? tightCrossExtent,
   }) {
     final main = mainExtent.isFinite && mainExtent > 0 ? mainExtent : 0.0;
+    if (!_hasPaneMainExtent(main)) return BoxConstraints.tight(Size.zero);
     if (_axis.isH) {
       return BoxConstraints(
         minWidth: main,
@@ -491,6 +505,11 @@ class _RenderResizableSplitter extends RenderBox
 
   double _constrainCross(BoxConstraints c, double main, double cross) =>
       _cross(c.constrain(_sizeFrom(main: main, cross: cross)));
+
+  double _paneCrossExtent(RenderBox? child, double mainExtent) {
+    if (child == null || !_hasPaneMainExtent(mainExtent)) return 0.0;
+    return _cross(child.size);
+  }
 
   // ---- main-axis offsets (RTL puts the logical start pane on the right) ----
 
@@ -569,13 +588,7 @@ class _RenderResizableSplitter extends RenderBox
     final dividerInteractiveExtent =
         effectiveDividerThickness + interactiveSlop * 2;
 
-    final solver = _config.solverFor(
-      available,
-      startCollapsed:
-          _collapsedPane == SplitterPane.start && _config.start.collapsible,
-      endCollapsed:
-          _collapsedPane == SplitterPane.end && _config.end.collapsible,
-    );
+    final solver = _solverFor(available);
     final solution = solver.solve(_position);
     final gap = (available - solution.startExtent - solution.endExtent).clamp(
       0.0,
@@ -623,8 +636,8 @@ class _RenderResizableSplitter extends RenderBox
         ),
         parentUsesSize: true,
       );
-      final startCross = start == null ? 0.0 : _cross(start.size);
-      final endCross = end == null ? 0.0 : _cross(end.size);
+      final startCross = _paneCrossExtent(start, solution.startExtent);
+      final endCross = _paneCrossExtent(end, solution.endExtent);
       renderCross = _constrainCross(
         constraints,
         renderMain,
@@ -804,13 +817,7 @@ class _RenderResizableSplitter extends RenderBox
       renderMain,
     );
     final available = math.max(0.0, renderMain - effectiveDividerThickness);
-    final solver = _config.solverFor(
-      available,
-      startCollapsed:
-          _collapsedPane == SplitterPane.start && _config.start.collapsible,
-      endCollapsed:
-          _collapsedPane == SplitterPane.end && _config.end.collapsible,
-    );
+    final solver = _solverFor(available);
     final solution = solver.solve(_position);
 
     final crossBounded = _maxCross(constraints).isFinite;
@@ -857,7 +864,10 @@ class _RenderResizableSplitter extends RenderBox
     return _constrainCross(
       constraints,
       mainExtent,
-      math.max(_cross(startSize), _cross(endSize)),
+      math.max(
+        _hasPaneMainExtent(startExtent) ? _cross(startSize) : 0.0,
+        _hasPaneMainExtent(endExtent) ? _cross(endSize) : 0.0,
+      ),
     );
   }
 
@@ -929,8 +939,20 @@ class _RenderResizableSplitter extends RenderBox
     final end = _childForSlot(_SplitterSlot.end);
 
     if (!mainExtent.isFinite || mainExtent <= 0) {
-      final startCross = start == null ? 0.0 : getter(start, double.infinity);
-      final endCross = end == null ? 0.0 : getter(end, double.infinity);
+      final startCross = _crossIntrinsicForPane(
+        child: start,
+        mainExtent: _startRequestedCollapsed
+            ? _config.start.collapsedExtent ?? 0.0
+            : double.infinity,
+        getter: getter,
+      );
+      final endCross = _crossIntrinsicForPane(
+        child: end,
+        mainExtent: _endRequestedCollapsed
+            ? _config.end.collapsedExtent ?? 0.0
+            : double.infinity,
+        getter: getter,
+      );
       return math.max(startCross, endCross);
     }
 
@@ -938,13 +960,28 @@ class _RenderResizableSplitter extends RenderBox
       _dividerThickness,
       mainExtent,
     );
-    final solver = _config.solverFor(math.max(0.0, mainExtent - divider));
+    final solver = _solverFor(math.max(0.0, mainExtent - divider));
     final solution = solver.solve(_position);
-    final startCross = start == null
-        ? 0.0
-        : getter(start, solution.startExtent);
-    final endCross = end == null ? 0.0 : getter(end, solution.endExtent);
+    final startCross = _crossIntrinsicForPane(
+      child: start,
+      mainExtent: solution.startExtent,
+      getter: getter,
+    );
+    final endCross = _crossIntrinsicForPane(
+      child: end,
+      mainExtent: solution.endExtent,
+      getter: getter,
+    );
     return math.max(startCross, endCross);
+  }
+
+  double _crossIntrinsicForPane({
+    required RenderBox? child,
+    required double mainExtent,
+    required double Function(RenderBox child, double mainExtent) getter,
+  }) {
+    if (child == null || !_hasPaneMainExtent(mainExtent)) return 0.0;
+    return getter(child, mainExtent);
   }
 
   @override

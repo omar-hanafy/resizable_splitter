@@ -43,6 +43,43 @@ void main() {
     );
   });
 
+  testWidgets('horizontal splitter ignores zero-width collapsed pane height', (
+    tester,
+  ) async {
+    final controller = SplitterController()..collapse(SplitterPane.start);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 400,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ResizableSplitter(
+                  controller: controller,
+                  axis: Axis.horizontal,
+                  divider: const SplitterDividerStyle(thickness: 8),
+                  startConstraints: const SplitterPaneConstraints(
+                    minExtent: 100,
+                    collapsedExtent: 0,
+                  ),
+                  endConstraints: const SplitterPaneConstraints(),
+                  start: const SizedBox(height: 900, key: Key('start')),
+                  end: const SizedBox(height: 40, key: Key('end')),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(tester.takeException(), isNull);
+    expect(tester.getSize(find.byType(ResizableSplitter)).height, 40);
+    expect(tester.getSize(find.byKey(const Key('start'))), Size.zero);
+  });
+
   testWidgets('vertical splitter: finite height, unbounded width', (
     tester,
   ) async {

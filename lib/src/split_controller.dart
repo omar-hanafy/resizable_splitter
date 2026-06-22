@@ -40,7 +40,9 @@ class SplitterController extends ValueNotifier<SplitterState>
   /// adjustment writes a fractional position (the pin releases on interaction).
   SplitterController({
     SplitterPosition initialPosition = const SplitterPosition.fraction(0.5),
-  }) : super(SplitterState(position: initialPosition));
+  }) : this._(SplitterState(position: initialPosition));
+
+  SplitterController._(super.initialState);
 
   static final _globalRouter = _GlobalPointerRouter();
 

@@ -9,7 +9,7 @@ void main() {
   tearDown(SplitterController.resetGlobalRouter);
 
   Widget host({
-    required SplitterController controller,
+    required SplitterController? controller,
     double width = 408,
     ValueChanged<SplitterChangeDetails>? onChanged,
   }) => MaterialApp(
@@ -72,6 +72,31 @@ void main() {
     // collapsed state must not be reported as a collapse event.
     expect(controller.isCollapsed, isTrue);
     expect(sources, isEmpty);
+  });
+
+  testWidgets('dropping an external controller preserves collapsed state', (
+    tester,
+  ) async {
+    final external = SplitterController()..collapse(SplitterPane.start);
+    var useExternal = true;
+    late StateSetter setOuter;
+
+    await tester.pumpWidget(
+      StatefulBuilder(
+        builder: (context, setState) {
+          setOuter = setState;
+          return host(controller: useExternal ? external : null);
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(startWidth(tester), closeTo(0, 1e-6));
+
+    setOuter(() => useExternal = false);
+    await tester.pumpAndSettle();
+
+    expect(external.isAttached, isFalse);
+    expect(startWidth(tester), closeTo(0, 1e-6));
   });
 
   testWidgets('collapse(end) shrinks the end pane to its collapsedExtent', (

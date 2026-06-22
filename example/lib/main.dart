@@ -9,7 +9,7 @@ void main() {
 
 /// Builds a state-dependent divider color from idle/hover/active colors, the
 /// idiomatic way to brand the rail across its [WidgetState]s.
-WidgetStateProperty<Color?> _dividerColors({
+WidgetStateProperty<Color?> _railColors({
   required Color idle,
   required Color hover,
   required Color active,
@@ -135,7 +135,7 @@ class _SplitterDemoPageState extends State<SplitterDemoPage> {
         controller: _controller,
         divider: SplitterDividerStyle(
           thickness: 10,
-          color: _dividerColors(
+          color: _railColors(
             idle: colorScheme.primary.withAlpha(60),
             hover: colorScheme.primary.withAlpha(90),
             active: colorScheme.primary.withAlpha(130),
@@ -296,14 +296,16 @@ class _StylingDemo extends StatelessWidget {
         const SizedBox(height: 12),
         Text(
           'Use the styling hooks to blend into any design system. Supply custom colors or a '
-          'handleBuilder to render your own grip UI. Hover and drag states are easy to brand.',
+          'SplitterDividerStyle.builder to render your own grip UI. Hover and drag states are easy to brand.',
           style: textTheme.bodyLarge,
         ),
         const SizedBox(height: 24),
         const _ExampleCard(child: _StylingExample()),
         const SizedBox(height: 24),
-        const _Bullet('dividerColor / hover / active control the rail colors'),
-        const _Bullet('handleBuilder receives hover/drag state and axis info'),
+        const _Bullet('Divider color states control the rail colors'),
+        const _Bullet(
+          'The divider builder receives hover, drag, and axis info',
+        ),
         const _Bullet(
           'Try long-pressing or focusing the handle to inspect semantics',
         ),
@@ -399,7 +401,7 @@ class _VerticalDemoState extends State<_VerticalDemo> {
         Text('Why it works', style: textTheme.titleMedium),
         const SizedBox(height: 8),
         const _Bullet(
-          'minStartPanelSize/minEndPanelSize keep headers pinned while dragging.',
+          'startConstraints and endConstraints keep headers pinned while dragging.',
         ),
         const _Bullet(
           'Each panel hosts its own ListView to show independent scrolling.',
@@ -431,7 +433,7 @@ class _VerticalWorkspacePreview extends StatelessWidget {
         maxStartFraction: 0.8,
         divider: SplitterDividerStyle(
           thickness: 8,
-          color: _dividerColors(
+          color: _railColors(
             idle: colorScheme.primary.withAlpha(70),
             hover: colorScheme.primary.withAlpha(100),
             active: colorScheme.primary.withAlpha(140),
@@ -539,7 +541,7 @@ class _NotesList extends StatelessWidget {
     _NoteEntry(
       title: 'Prep release notes',
       body:
-          'Call out keyboard shortcuts, overlay support, and the new dividerBuilder hook.',
+          'Call out keyboard shortcuts, overlay support, and the divider builder hook.',
       tag: 'Docs',
     ),
   ];
@@ -673,7 +675,7 @@ class _OverviewExampleState extends State<_OverviewExample> {
               controller: _controller,
               divider: SplitterDividerStyle(
                 thickness: 8,
-                color: _dividerColors(
+                color: _railColors(
                   idle: colorScheme.secondary.withAlpha(70),
                   hover: colorScheme.secondary.withAlpha(100),
                   active: colorScheme.secondary.withAlpha(150),
@@ -739,7 +741,7 @@ class _StylingExampleState extends State<_StylingExample> {
         controller: _controller,
         divider: SplitterDividerStyle(
           thickness: 14,
-          color: _dividerColors(
+          color: _railColors(
             idle: colorScheme.tertiaryContainer,
             hover: colorScheme.tertiary,
             active: colorScheme.error,
@@ -766,9 +768,7 @@ class _StylingExampleState extends State<_StylingExample> {
         start: _GradientPanel(
           title: 'Theme preview',
           colors: [colorScheme.tertiaryContainer, colorScheme.primaryContainer],
-          child: const _Bullet(
-            'Drop your own handleBuilder to match any brand',
-          ),
+          child: const _Bullet('Drop in a divider builder to match any brand'),
         ),
         end: _GradientPanel(
           title: 'Palette',
@@ -1050,7 +1050,7 @@ class _DocumentPreview extends StatelessWidget {
         const SizedBox(height: 8),
         const _Bullet('Smooth dragging with an overlay shield'),
         const _Bullet('Keyboard navigation and snapping'),
-        const _Bullet('Custom handleBuilder and color hooks'),
+        const _Bullet('Custom divider builder and color hooks'),
       ],
     );
   }
