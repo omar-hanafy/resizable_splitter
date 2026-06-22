@@ -7,6 +7,33 @@ void main() {
   runApp(const ResizableSplitterExampleApp());
 }
 
+/// Builds a state-dependent divider color from idle/hover/active colors, the
+/// idiomatic way to brand the rail across its [WidgetState]s.
+WidgetStateProperty<Color?> _railColors({
+  required Color idle,
+  required Color hover,
+  required Color active,
+}) {
+  return WidgetStateProperty.resolveWith<Color?>((states) {
+    if (states.contains(WidgetState.dragged)) return active;
+    if (states.contains(WidgetState.hovered)) return hover;
+    return idle;
+  });
+}
+
+Widget _stableDividerGrip(BuildContext context, SplitterHandleDetails details) {
+  return Center(
+    child: Container(
+      width: details.axis == Axis.horizontal ? 2 : 24,
+      height: details.axis == Axis.horizontal ? 24 : 2,
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.onSurface.withAlpha(77),
+        borderRadius: BorderRadius.circular(1),
+      ),
+    ),
+  );
+}
+
 class ResizableSplitterExampleApp extends StatelessWidget {
   const ResizableSplitterExampleApp({super.key});
 
@@ -68,7 +95,9 @@ class _SplitterDemoPageState extends State<SplitterDemoPage> {
   @override
   void initState() {
     super.initState();
-    _controller = SplitterController(initialRatio: 0.32);
+    _controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.32),
+    );
     _demos = List<_Demo>.of(_baseDemos);
     if (_supportsPlatformViewDemo) {
       _webViewDemoIndex = _demos.length;
@@ -117,21 +146,32 @@ class _SplitterDemoPageState extends State<SplitterDemoPage> {
       body: ResizableSplitter(
         axis: Axis.horizontal,
         controller: _controller,
-        dividerThickness: 10,
-        dividerColor: colorScheme.primary.withAlpha(60),
-        dividerHoverColor: colorScheme.primary.withAlpha(90),
-        dividerActiveColor: colorScheme.primary.withAlpha(130),
+        divider: SplitterDividerStyle(
+          thickness: 10,
+          interactiveExtent: 10,
+          color: _railColors(
+            idle: colorScheme.primary.withAlpha(60),
+            hover: colorScheme.primary.withAlpha(90),
+            active: colorScheme.primary.withAlpha(130),
+          ),
+          builder: _stableDividerGrip,
+        ),
         enableKeyboard: true,
-        overlayEnabled: useOverlay,
-        minStartPanelSize: 220,
-        snapPoints: const <double>[0.26, 0.32, 0.45],
-        snapTolerance: 0.04,
-        startPanel: _NavigationPane(
+        shieldPlatformViews: useOverlay,
+        startConstraints: SplitterPaneConstraints(minExtent: 220),
+        // Sticky, calm: only within 2% of 50% does the divider click onto it,
+        // holding until you pull ~3% past, then it pops free. The small radius
+        // means it engages only when you are close, with a small snap in and out.
+        snap: SplitterSnapBehavior.sticky(
+          points: <double>[0.5],
+          tolerance: 0.02,
+        ),
+        start: _NavigationPane(
           demos: _demos,
           selectedIndex: _selectedDemo,
           onSelect: _selectDemo,
         ),
-        endPanel: AnimatedSwitcher(
+        end: AnimatedSwitcher(
           duration: const Duration(milliseconds: 240),
           switchInCurve: Curves.easeOut,
           switchOutCurve: Curves.easeIn,
@@ -171,7 +211,7 @@ class _NavigationPane extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return ColoredBox(
+    return Material(
       color: theme.colorScheme.surfaceContainerHighest,
       child: SafeArea(
         child: ListView.separated(
@@ -208,7 +248,7 @@ class _Panel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
-    return ColoredBox(
+    return Material(
       color: color,
       child: SafeArea(
         top: false,
@@ -274,14 +314,16 @@ class _StylingDemo extends StatelessWidget {
         const SizedBox(height: 12),
         Text(
           'Use the styling hooks to blend into any design system. Supply custom colors or a '
-          'handleBuilder to render your own grip UI. Hover and drag states are easy to brand.',
+          'SplitterDividerStyle.builder to render your own grip UI. Hover and drag states are easy to brand.',
           style: textTheme.bodyLarge,
         ),
         const SizedBox(height: 24),
         const _ExampleCard(child: _StylingExample()),
         const SizedBox(height: 24),
-        const _Bullet('dividerColor / hover / active control the rail colors'),
-        const _Bullet('handleBuilder receives hover/drag state and axis info'),
+        const _Bullet('Divider color states control the rail colors'),
+        const _Bullet(
+          'The divider builder receives hover, drag, and axis info',
+        ),
         const _Bullet(
           'Try long-pressing or focusing the handle to inspect semantics',
         ),
@@ -311,7 +353,10 @@ class _KeyboardDemo extends StatelessWidget {
         const _ExampleCard(child: _KeyboardExample()),
         const SizedBox(height: 24),
         const _Bullet('keyboardStep and pageStep tune the control feel'),
-        const _Bullet('Snap reports through onRatioChanged when it activates'),
+        const _Bullet(
+          'Magnetic snapping eases the divider toward preferred '
+          'ratios as you drag, and can be pushed through',
+        ),
       ],
     );
   }
@@ -330,7 +375,9 @@ class _VerticalDemoState extends State<_VerticalDemo> {
   @override
   void initState() {
     super.initState();
-    _controller = SplitterController(initialRatio: 0.48);
+    _controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.48),
+    );
   }
 
   @override
@@ -360,10 +407,10 @@ class _VerticalDemoState extends State<_VerticalDemo> {
           child: _VerticalWorkspacePreview(controller: _controller),
         ),
         const SizedBox(height: 16),
-        ValueListenableBuilder<double>(
+        ValueListenableBuilder<SplitterState>(
           valueListenable: _controller,
-          builder: (context, ratio, _) {
-            final topPercent = (ratio * 100).round();
+          builder: (context, _, _) {
+            final topPercent = (_controller.effectiveFraction * 100).round();
             final bottomPercent = 100 - topPercent;
             return Text(
               'Top panel $topPercent% · Bottom panel $bottomPercent%',
@@ -375,7 +422,7 @@ class _VerticalDemoState extends State<_VerticalDemo> {
         Text('Why it works', style: textTheme.titleMedium),
         const SizedBox(height: 8),
         const _Bullet(
-          'minStartPanelSize/minEndPanelSize keep headers pinned while dragging.',
+          'startConstraints and endConstraints keep headers pinned while dragging.',
         ),
         const _Bullet(
           'Each panel hosts its own ListView to show independent scrolling.',
@@ -401,20 +448,25 @@ class _VerticalWorkspacePreview extends StatelessWidget {
       child: ResizableSplitter(
         axis: Axis.vertical,
         controller: controller,
-        minStartPanelSize: 120,
-        minEndPanelSize: 160,
-        minRatio: 0.2,
-        maxRatio: 0.8,
-        dividerThickness: 8,
-        dividerColor: colorScheme.primary.withAlpha(70),
-        dividerHoverColor: colorScheme.primary.withAlpha(100),
-        dividerActiveColor: colorScheme.primary.withAlpha(140),
-        startPanel: _Panel(
+        startConstraints: SplitterPaneConstraints(minExtent: 120),
+        endConstraints: SplitterPaneConstraints(minExtent: 160),
+        minStartFraction: 0.2,
+        maxStartFraction: 0.8,
+        divider: SplitterDividerStyle(
+          thickness: 8,
+          interactiveExtent: 8,
+          color: _railColors(
+            idle: colorScheme.primary.withAlpha(70),
+            hover: colorScheme.primary.withAlpha(100),
+            active: colorScheme.primary.withAlpha(140),
+          ),
+        ),
+        start: _Panel(
           title: 'Today\'s schedule',
           color: colorScheme.surfaceContainerHighest,
           child: const _ScheduleList(),
         ),
-        endPanel: _Panel(
+        end: _Panel(
           title: 'Team notes',
           color: colorScheme.surface,
           child: const _NotesList(),
@@ -465,14 +517,13 @@ class _ScheduleList extends StatelessWidget {
       separatorBuilder: (context, _) => const SizedBox(height: 12),
       itemBuilder: (context, index) {
         final entry = _entries[index];
-        return DecoratedBox(
-          decoration: BoxDecoration(
-            color: colorScheme.surface,
+        return Material(
+          color: colorScheme.surface,
+          shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: colorScheme.outline.withValues(alpha: 0.2),
-            ),
+            side: BorderSide(color: colorScheme.outline.withValues(alpha: 0.2)),
           ),
+          clipBehavior: Clip.antiAlias,
           child: ListTile(
             leading: CircleAvatar(
               backgroundColor: colorScheme.primary.withAlpha(32),
@@ -512,7 +563,7 @@ class _NotesList extends StatelessWidget {
     _NoteEntry(
       title: 'Prep release notes',
       body:
-          'Call out keyboard shortcuts, overlay support, and the new dividerBuilder hook.',
+          'Call out keyboard shortcuts, overlay support, and the divider builder hook.',
       tag: 'Docs',
     ),
   ];
@@ -623,7 +674,9 @@ class _OverviewExampleState extends State<_OverviewExample> {
   @override
   void initState() {
     super.initState();
-    _controller = SplitterController(initialRatio: 0.58);
+    _controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.58),
+    );
   }
 
   @override
@@ -642,17 +695,21 @@ class _OverviewExampleState extends State<_OverviewExample> {
           Expanded(
             child: ResizableSplitter(
               controller: _controller,
-              dividerThickness: 8,
-              dividerColor: colorScheme.secondary.withAlpha(70),
-              dividerHoverColor: colorScheme.secondary.withAlpha(100),
-              dividerActiveColor: colorScheme.secondary.withAlpha(150),
-              snapPoints: const <double>[0.35, 0.5, 0.7],
-              startPanel: const _Panel(
+              divider: SplitterDividerStyle(
+                thickness: 8,
+                interactiveExtent: 8,
+                color: _railColors(
+                  idle: colorScheme.secondary.withAlpha(70),
+                  hover: colorScheme.secondary.withAlpha(100),
+                  active: colorScheme.secondary.withAlpha(150),
+                ),
+              ),
+              start: const _Panel(
                 title: 'Navigation',
                 color: Colors.transparent,
                 child: _NavigationListPreview(itemCount: 5),
               ),
-              endPanel: const _Panel(
+              end: const _Panel(
                 title: 'Document preview',
                 color: Colors.transparent,
                 child: _DocumentPreview(),
@@ -660,10 +717,10 @@ class _OverviewExampleState extends State<_OverviewExample> {
             ),
           ),
           const SizedBox(height: 12),
-          ValueListenableBuilder<double>(
+          ValueListenableBuilder<SplitterState>(
             valueListenable: _controller,
-            builder: (context, value, _) => Text(
-              'Current ratio: ${(value * 100).round()}%',
+            builder: (context, _, _) => Text(
+              'Current ratio: ${(_controller.effectiveFraction * 100).round()}%',
               style: Theme.of(context).textTheme.labelLarge,
             ),
           ),
@@ -686,7 +743,9 @@ class _StylingExampleState extends State<_StylingExample> {
   @override
   void initState() {
     super.initState();
-    _controller = SplitterController(initialRatio: 0.5);
+    _controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.5),
+    );
   }
 
   @override
@@ -702,36 +761,39 @@ class _StylingExampleState extends State<_StylingExample> {
       padding: const EdgeInsets.all(16),
       child: ResizableSplitter(
         controller: _controller,
-        dividerThickness: 14,
-        dividerColor: colorScheme.tertiaryContainer,
-        dividerHoverColor: colorScheme.tertiary,
-        dividerActiveColor: colorScheme.error,
-        handleBuilder: (context, details) {
-          final accent = details.isDragging
-              ? colorScheme.onTertiary
-              : colorScheme.onTertiaryContainer;
-          final gripColor = Theme.of(context).colorScheme.onPrimaryContainer;
-          return Center(
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 120),
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                color: accent.withAlpha(details.isDragging ? 80 : 40),
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: accent.withAlpha(120), width: 1),
+        divider: SplitterDividerStyle(
+          thickness: 14,
+          interactiveExtent: 14,
+          color: _railColors(
+            idle: colorScheme.tertiaryContainer,
+            hover: colorScheme.tertiary,
+            active: colorScheme.error,
+          ),
+          builder: (context, details) {
+            final accent = details.isDragging
+                ? colorScheme.onTertiary
+                : colorScheme.onTertiaryContainer;
+            final gripColor = Theme.of(context).colorScheme.onPrimaryContainer;
+            return Center(
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 120),
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: accent.withAlpha(details.isDragging ? 80 : 40),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: accent.withAlpha(120), width: 1),
+                ),
+                child: _HandleGripDots(axis: details.axis, color: gripColor),
               ),
-              child: _HandleGripDots(axis: details.axis, color: gripColor),
-            ),
-          );
-        },
-        startPanel: _GradientPanel(
+            );
+          },
+        ),
+        start: _GradientPanel(
           title: 'Theme preview',
           colors: [colorScheme.tertiaryContainer, colorScheme.primaryContainer],
-          child: const _Bullet(
-            'Drop your own handleBuilder to match any brand',
-          ),
+          child: const _Bullet('Drop in a divider builder to match any brand'),
         ),
-        endPanel: _GradientPanel(
+        end: _GradientPanel(
           title: 'Palette',
           colors: [colorScheme.surfaceContainerHighest, colorScheme.surface],
           child: Wrap(
@@ -766,7 +828,9 @@ class _KeyboardExampleState extends State<_KeyboardExample> {
   @override
   void initState() {
     super.initState();
-    _controller = SplitterController(initialRatio: 0.4);
+    _controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.4),
+    );
   }
 
   @override
@@ -787,28 +851,32 @@ class _KeyboardExampleState extends State<_KeyboardExample> {
               controller: _controller,
               keyboardStep: 0.05,
               pageStep: 0.2,
-              snapPoints: const <double>[0.25, 0.5, 0.75],
-              snapTolerance: 0.06,
-              minStartPanelSize: 120,
-              minEndPanelSize: 160,
-              startPanel: const _Panel(
+              snap: SplitterSnapBehavior.magnetic(
+                points: <double>[0.25, 0.5, 0.75],
+                tolerance: 0.06,
+              ),
+              startConstraints: SplitterPaneConstraints(minExtent: 120),
+              endConstraints: SplitterPaneConstraints(minExtent: 160),
+              start: const _Panel(
                 title: 'Notes',
                 color: Colors.transparent,
                 child: _NavigationListPreview(itemCount: 6),
               ),
-              endPanel: const _Panel(
+              end: const _Panel(
                 title: 'Canvas',
                 color: Colors.transparent,
                 child: _TimelinePreview(),
               ),
-              onRatioChanged: (value) => setState(() => _lastSnap = value),
+              onChanged: (details) =>
+                  setState(() => _lastSnap = details.effectiveFraction),
             ),
           ),
           const SizedBox(height: 12),
-          ValueListenableBuilder<double>(
+          ValueListenableBuilder<SplitterState>(
             valueListenable: _controller,
-            builder: (context, value, _) => Text(
-              'Arrow/Page keys adjust ratio · Current ${(value * 100).round()}%',
+            builder: (context, _, _) => Text(
+              'Arrow/Page keys adjust ratio · Current '
+              '${(_controller.effectiveFraction * 100).round()}%',
               style: theme.textTheme.labelLarge,
             ),
           ),
@@ -1005,7 +1073,7 @@ class _DocumentPreview extends StatelessWidget {
         const SizedBox(height: 8),
         const _Bullet('Smooth dragging with an overlay shield'),
         const _Bullet('Keyboard navigation and snapping'),
-        const _Bullet('Custom handleBuilder and color hooks'),
+        const _Bullet('Custom divider builder and color hooks'),
       ],
     );
   }

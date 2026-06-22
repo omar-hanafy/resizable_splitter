@@ -10,6 +10,7 @@ linter:
     avoid_relative_lib_imports: true
     depend_on_referenced_packages: true
     implementation_imports: true
+    public_member_api_docs: true
     secure_pubspec_urls: true               # https:// URLs in pubspec
 
     library_private_types_in_public_api: true
@@ -21,9 +22,10 @@ linter:
 
     # --- Turn OFF chatty / conflicting style nits ---
     prefer_relative_imports: false          # conflicts with package imports
-    lines_longer_than_80_chars: false       # let formatter/IDE handle this
+    lines_longer_than_80_chars: true       # let formatter/IDE handle this
     constant_identifier_names: false        # don’t fight existing APIs
     avoid_print: false                      # allow prints in packages by default
+    avoid_redundant_argument_values: false
 
     # You can re-enable more rules later per repo as you like.
 
@@ -57,7 +59,7 @@ analyzer:
     deprecated_member_use_from_same_package: warning
     unawaited_futures: warning
     comment_references: info
-    public_member_api_docs: info                   # pana/doc coverage is separate
+    public_member_api_docs: error                   # pana/doc coverage is separate
 
     # Quiet common time-wasters
     constant_identifier_names: ignore

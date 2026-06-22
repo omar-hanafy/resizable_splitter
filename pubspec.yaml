@@ -1,6 +1,6 @@
 name: resizable_splitter
 description: "Accessible splitter widget for Flutter layouts that need drag-to-resize panels."
-version: 1.1.1
+version: 2.0.0-dev.1
 
 homepage: https://github.com/omar-hanafy/resizable_splitter
 repository: https://github.com/omar-hanafy/resizable_splitter
@@ -15,8 +15,11 @@ topics:
   - resize
 
 environment:
+  # Dart 3.9.2 ships with Flutter 3.35; the floors must agree. (The source also
+  # uses `_` wildcard parameters, which require Dart 3.7+, so the old 3.22 floor
+  # could never compile.)
   sdk: ">=3.9.2 <4.0.0"
-  flutter: ">=3.22.0"
+  flutter: ">=3.35.0"
 
 dependencies:
   flutter:

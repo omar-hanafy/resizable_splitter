@@ -34,22 +34,22 @@ void main() {
         host(
           child: ResizableSplitter(
             controller: controller,
-            dividerThickness: dividerThickness,
+            divider: const SplitterDividerStyle(thickness: dividerThickness),
             semanticsLabel: 'handle',
-            minPanelSize: 0,
-            blockerColor: Colors.green,
-            snapPoints: const [0.25, 0.75],
-            snapTolerance: 0.1,
-            onDragStart: (value) => dragStart = value,
-            onDragEnd: (value) => dragEnd = value,
-            onRatioChanged: ratioChanges.add,
-            startPanel: const SizedBox(key: Key('start')),
-            endPanel: const SizedBox(key: Key('end')),
+            startConstraints: const SplitterPaneConstraints(),
+            endConstraints: const SplitterPaneConstraints(),
+            dragBarrierColor: Colors.green,
+            snap: SplitterSnapBehavior(points: [0.25, 0.75], tolerance: 0.1),
+            onChangeStart: (d) => dragStart = d.effectiveFraction,
+            onChangeEnd: (d) => dragEnd = d.effectiveFraction,
+            onChanged: (d) => ratioChanges.add(d.effectiveFraction),
+            start: const SizedBox(key: Key('start')),
+            end: const SizedBox(key: Key('end')),
           ),
         ),
       );
 
-      expect(controller.value, 0.5);
+      expect(controller.effectiveFraction, 0.5);
       expect(dragStart, isNull);
       expect(dragEnd, isNull);
 
@@ -73,7 +73,7 @@ void main() {
 
       expect(dragStart, isNotNull);
       expect(dragEnd, isNotNull);
-      expect(controller.value, closeTo(0.75, 1e-6));
+      expect(controller.effectiveFraction, closeTo(0.75, 1e-6));
       expect(ratioChanges, isNotEmpty);
       expect(overlayFinder(), findsNothing);
     },
@@ -98,10 +98,10 @@ void main() {
                       child: ResizableSplitter(
                         axis: Axis.vertical,
                         controller: controller,
-                        dividerThickness: 12,
+                        divider: const SplitterDividerStyle(thickness: 12),
                         semanticsLabel: 'handle',
-                        startPanel: Container(color: Colors.orange),
-                        endPanel: Container(color: Colors.blue),
+                        start: Container(color: Colors.orange),
+                        end: Container(color: Colors.blue),
                       ),
                     ),
                     const SizedBox(height: 800),
@@ -118,7 +118,7 @@ void main() {
       expect(scrollableFinder, findsOneWidget);
       final scrollState = tester.state<ScrollableState>(scrollableFinder);
       final initialOffset = scrollState.position.pixels;
-      final initialRatio = controller.value;
+      final initialRatio = controller.effectiveFraction;
 
       final handle = find.bySemanticsLabel('handle');
       expect(handle, findsOneWidget);
@@ -133,7 +133,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(scrollState.position.pixels, closeTo(initialOffset, 1e-6));
-      expect(controller.value, isNot(closeTo(initialRatio, 1e-6)));
+      expect(controller.effectiveFraction, isNot(closeTo(initialRatio, 1e-6)));
     },
   );
 
@@ -142,20 +142,22 @@ void main() {
   ) async {
     const dividerThickness = 8.0;
     const totalWidth = 360.0;
-    final controller = SplitterController(initialRatio: 0.6);
+    final controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.6),
+    );
 
     await tester.pumpWidget(
       host(
         width: totalWidth,
         child: ResizableSplitter(
           controller: controller,
-          dividerThickness: dividerThickness,
+          divider: const SplitterDividerStyle(thickness: dividerThickness),
           semanticsLabel: 'handle',
-          minRatio: 0.3,
-          maxRatio: 0.9,
-          minEndPanelSize: 150,
-          startPanel: const SizedBox(key: Key('start')),
-          endPanel: const SizedBox(key: Key('end')),
+          minStartFraction: 0.3,
+          maxStartFraction: 0.9,
+          endConstraints: const SplitterPaneConstraints(minExtent: 150),
+          start: const SizedBox(key: Key('start')),
+          end: const SizedBox(key: Key('end')),
         ),
       ),
     );
@@ -167,7 +169,7 @@ void main() {
     await gesture.up();
     await tester.pumpAndSettle();
 
-    expect(controller.value, greaterThanOrEqualTo(0.3));
+    expect(controller.effectiveFraction, greaterThanOrEqualTo(0.3));
   });
 
   testWidgets('controller exposes dragging listenable updates', (tester) async {
@@ -181,10 +183,10 @@ void main() {
       host(
         child: ResizableSplitter(
           controller: controller,
-          dividerThickness: 8,
+          divider: const SplitterDividerStyle(thickness: 8),
           semanticsLabel: 'handle',
-          startPanel: const SizedBox(),
-          endPanel: const SizedBox(),
+          start: const SizedBox(),
+          end: const SizedBox(),
         ),
       ),
     );
@@ -204,22 +206,23 @@ void main() {
   ) async {
     const dividerThickness = 8.0;
     const totalWidth = 320.0;
-    final controller = SplitterController(initialRatio: 0.6);
+    final controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.6),
+    );
 
     await tester.pumpWidget(
       host(
         width: totalWidth,
         child: ResizableSplitter(
           controller: controller,
-          dividerThickness: dividerThickness,
+          divider: const SplitterDividerStyle(thickness: dividerThickness),
           semanticsLabel: 'handle',
-          minPanelSize: 0,
-          minStartPanelSize: 130,
-          minRatio: 0.2,
-          snapPoints: const [0.0, 1.0],
-          snapTolerance: 1,
-          startPanel: const SizedBox(key: Key('start')),
-          endPanel: const SizedBox(key: Key('end')),
+          startConstraints: const SplitterPaneConstraints(minExtent: 130),
+          endConstraints: const SplitterPaneConstraints(),
+          minStartFraction: 0.2,
+          snap: SplitterSnapBehavior(points: [0.0, 1.0], tolerance: 1),
+          start: const SizedBox(key: Key('start')),
+          end: const SizedBox(key: Key('end')),
         ),
       ),
     );
@@ -233,13 +236,15 @@ void main() {
     await gesture.up();
     await tester.pumpAndSettle();
 
-    expect(controller.value, closeTo(130 / availableWidth, 1e-6));
+    expect(controller.effectiveFraction, closeTo(130 / availableWidth, 1e-6));
   });
 
   testWidgets('vertical drags respect pixel minimums', (tester) async {
     const dividerThickness = 12.0;
     const totalHeight = 360.0;
-    final controller = SplitterController(initialRatio: 0.4);
+    final controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.4),
+    );
 
     await tester.pumpWidget(
       host(
@@ -247,12 +252,12 @@ void main() {
         child: ResizableSplitter(
           axis: Axis.vertical,
           controller: controller,
-          dividerThickness: dividerThickness,
+          divider: const SplitterDividerStyle(thickness: dividerThickness),
           semanticsLabel: 'handle',
-          minStartPanelSize: 150,
-          minEndPanelSize: 120,
-          startPanel: Container(key: const Key('top')),
-          endPanel: Container(key: const Key('bottom')),
+          startConstraints: const SplitterPaneConstraints(minExtent: 150),
+          endConstraints: const SplitterPaneConstraints(minExtent: 120),
+          start: Container(key: const Key('top')),
+          end: Container(key: const Key('bottom')),
         ),
       ),
     );
@@ -283,10 +288,10 @@ void main() {
             child: showSplitter
                 ? ResizableSplitter(
                     controller: controller,
-                    dividerThickness: 10,
+                    divider: const SplitterDividerStyle(thickness: 10),
                     semanticsLabel: 'handle',
-                    startPanel: const SizedBox(),
-                    endPanel: const SizedBox(),
+                    start: const SizedBox(),
+                    end: const SizedBox(),
                   )
                 : const SizedBox.shrink(),
           );
@@ -316,7 +321,9 @@ void main() {
   testWidgets('resizable false keeps ratio unchanged on drag attempts', (
     tester,
   ) async {
-    final controller = SplitterController(initialRatio: 0.45);
+    final controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.45),
+    );
 
     await tester.pumpWidget(
       host(
@@ -324,8 +331,8 @@ void main() {
           controller: controller,
           resizable: false,
           semanticsLabel: 'handle',
-          startPanel: const SizedBox(),
-          endPanel: const SizedBox(),
+          start: const SizedBox(),
+          end: const SizedBox(),
         ),
       ),
     );
@@ -336,7 +343,7 @@ void main() {
     await gesture.up();
     await tester.pump();
 
-    expect(controller.value, 0.45);
+    expect(controller.effectiveFraction, 0.45);
     expect(controller.isDragging, isFalse);
   });
 
@@ -350,8 +357,8 @@ void main() {
         child: ResizableSplitter(
           semanticsLabel: 'handle',
           onHandleTap: () => tapCount++,
-          startPanel: const SizedBox(),
-          endPanel: const SizedBox(),
+          start: const SizedBox(),
+          end: const SizedBox(),
         ),
       ),
     );
@@ -366,18 +373,22 @@ void main() {
   testWidgets('double-tap callback fires and ratio resets when configured', (
     tester,
   ) async {
-    final controller = SplitterController(initialRatio: 0.3);
+    final controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.3),
+    );
     var doubleTapCount = 0;
 
     await tester.pumpWidget(
       host(
+        // 594px available so a 0.75 reset is feasible (both panes >= 100px min).
+        width: 600,
         child: ResizableSplitter(
           controller: controller,
           semanticsLabel: 'handle',
           doubleTapResetTo: 0.75,
           onHandleDoubleTap: () => doubleTapCount++,
-          startPanel: const SizedBox(),
-          endPanel: const SizedBox(),
+          start: const SizedBox(),
+          end: const SizedBox(),
         ),
       ),
     );
@@ -398,24 +409,29 @@ void main() {
     await tester.pump(const Duration(milliseconds: 200));
 
     expect(doubleTapCount, 1);
-    expect(controller.value, closeTo(0.75, 1e-6));
+    expect(controller.effectiveFraction, closeTo(0.75, 1e-6));
   });
 
-  testWidgets('double-tap reset skips onRatioChanged when already at target', (
+  testWidgets('double-tap reset skips onChanged when already at target', (
     tester,
   ) async {
-    final controller = SplitterController(initialRatio: 0.75);
+    final controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.75),
+    );
     var ratioChangedCount = 0;
 
     await tester.pumpWidget(
       host(
+        // 594px available so 0.75 is feasible; the controller starts exactly at
+        // the target, so the reset is a true no-op (no onChanged).
+        width: 600,
         child: ResizableSplitter(
           controller: controller,
           semanticsLabel: 'handle',
           doubleTapResetTo: 0.75,
-          onRatioChanged: (_) => ratioChangedCount++,
-          startPanel: const SizedBox(),
-          endPanel: const SizedBox(),
+          onChanged: (_) => ratioChangedCount++,
+          start: const SizedBox(),
+          end: const SizedBox(),
         ),
       ),
     );
@@ -433,7 +449,7 @@ void main() {
     await secondTap.up();
     await tester.pumpAndSettle();
 
-    expect(controller.value, closeTo(0.75, 1e-6));
+    expect(controller.effectiveFraction, closeTo(0.75, 1e-6));
     expect(ratioChangedCount, 0);
   });
 
@@ -444,7 +460,7 @@ void main() {
 
     final theme = ThemeData.light().copyWith(
       extensions: const <ThemeExtension<dynamic>>[
-        ResizableSplitterThemeOverrides(overlayEnabled: false),
+        ResizableSplitterThemeData(shieldPlatformViews: false),
       ],
     );
 
@@ -458,10 +474,10 @@ void main() {
               height: 220,
               child: ResizableSplitter(
                 controller: controller,
-                blockerColor: Colors.red,
+                dragBarrierColor: Colors.red,
                 semanticsLabel: 'handle',
-                startPanel: const SizedBox(),
-                endPanel: const SizedBox(),
+                start: const SizedBox(),
+                end: const SizedBox(),
               ),
             ),
           ),
@@ -493,7 +509,7 @@ void main() {
 
     final theme = ThemeData.light().copyWith(
       extensions: const <ThemeExtension<dynamic>>[
-        ResizableSplitterThemeOverrides(overlayEnabled: false),
+        ResizableSplitterThemeData(shieldPlatformViews: false),
       ],
     );
 
@@ -507,11 +523,11 @@ void main() {
               height: 220,
               child: ResizableSplitter(
                 controller: controller,
-                overlayEnabled: true,
-                blockerColor: Colors.red,
+                shieldPlatformViews: true,
+                dragBarrierColor: Colors.red,
                 semanticsLabel: 'handle',
-                startPanel: const SizedBox(),
-                endPanel: const SizedBox(),
+                start: const SizedBox(),
+                end: const SizedBox(),
               ),
             ),
           ),

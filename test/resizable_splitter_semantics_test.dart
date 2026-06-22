@@ -17,12 +17,16 @@ void main() {
     await tester.pumpWidget(
       host(
         const ResizableSplitter(
-          dividerThickness: 8,
-          startPanel: SizedBox(),
-          endPanel: SizedBox(),
+          divider: SplitterDividerStyle(thickness: 8),
+          start: SizedBox(),
+          end: SizedBox(),
         ),
       ),
     );
+    // The resolved geometry is published post-frame (the layoutListenable
+    // contract), so pump once to let the handle pick it up before reading the
+    // resolved slider value and actions.
+    await tester.pump();
 
     final semanticsHandle = tester.ensureSemantics();
     try {
@@ -32,6 +36,9 @@ void main() {
         ),
         matchesSemantics(
           label: 'Drag to resize left and right panels.',
+          isSlider: true,
+          hasEnabledState: true,
+          isEnabled: true,
           value: '50%',
           increasedValue: '51%',
           decreasedValue: '49%',
@@ -49,19 +56,24 @@ void main() {
   testWidgets('semantics value reflects effective ratio with pixel minimums', (
     tester,
   ) async {
-    final controller = SplitterController(initialRatio: 0.1);
+    final controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.1),
+    );
 
     await tester.pumpWidget(
       host(
         ResizableSplitter(
           controller: controller,
-          minStartPanelSize: 240,
-          minEndPanelSize: 120,
-          startPanel: const SizedBox(),
-          endPanel: const SizedBox(),
+          startConstraints: const SplitterPaneConstraints(minExtent: 240),
+          endConstraints: const SplitterPaneConstraints(minExtent: 120),
+          start: const SizedBox(),
+          end: const SizedBox(),
         ),
       ),
     );
+    // Resolved geometry is published post-frame; pump so the handle reflects the
+    // clamped effective ratio before the assertion.
+    await tester.pump();
 
     final semanticsHandle = tester.ensureSemantics();
     try {
@@ -71,13 +83,97 @@ void main() {
         ),
         matchesSemantics(
           label: 'Drag to resize left and right panels.',
+          isSlider: true,
+          hasEnabledState: true,
+          isEnabled: true,
           value: '61%',
-          increasedValue: '61%',
-          decreasedValue: '61%',
+          // The increase preview reflects what an adjust action actually does:
+          // nudge from the effective 61% to 62% (not the never-visible stored
+          // request).
+          increasedValue: '62%',
           isFocusable: true,
           hasFocusAction: true,
           hasIncreaseAction: true,
-          hasDecreaseAction: true,
+          // The start pane is clamped to its 240px minimum, so it cannot shrink
+          // further: the decrease action is dropped rather than offered as a
+          // no-op (review A#14).
+          hasDecreaseAction: false,
+        ),
+      );
+    } finally {
+      semanticsHandle.dispose();
+    }
+  });
+
+  testWidgets(
+    'assistive adjustment stays available when the keyboard is disabled',
+    (tester) async {
+      await tester.pumpWidget(
+        host(
+          const ResizableSplitter(
+            enableKeyboard: false,
+            startConstraints: SplitterPaneConstraints(),
+            endConstraints: SplitterPaneConstraints(),
+            semanticsLabel: 'handle',
+            start: SizedBox(),
+            end: SizedBox(),
+          ),
+        ),
+      );
+      // Resolved geometry is published post-frame; pump so the handle exposes
+      // its adjust actions before the assertion.
+      await tester.pump();
+
+      final semanticsHandle = tester.ensureSemantics();
+      try {
+        // No physical keyboard, so the node is not focusable - but a screen
+        // reader can still adjust it.
+        expect(
+          tester.getSemantics(find.bySemanticsLabel('handle')),
+          matchesSemantics(
+            label: 'handle',
+            isSlider: true,
+            hasEnabledState: true,
+            isEnabled: true,
+            value: '50%',
+            increasedValue: '51%',
+            decreasedValue: '49%',
+            hasIncreaseAction: true,
+            hasDecreaseAction: true,
+          ),
+        );
+      } finally {
+        semanticsHandle.dispose();
+      }
+    },
+  );
+
+  testWidgets('a non-resizable splitter reads as a disabled slider', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      host(
+        const ResizableSplitter(
+          resizable: false,
+          startConstraints: SplitterPaneConstraints(),
+          endConstraints: SplitterPaneConstraints(),
+          start: SizedBox(),
+          end: SizedBox(),
+        ),
+      ),
+    );
+
+    final semanticsHandle = tester.ensureSemantics();
+    try {
+      expect(
+        tester.getSemantics(
+          find.bySemanticsLabel('Splitter between left and right panels.'),
+        ),
+        matchesSemantics(
+          label: 'Splitter between left and right panels.',
+          isSlider: true,
+          hasEnabledState: true,
+          value: '50%',
         ),
       );
     } finally {
