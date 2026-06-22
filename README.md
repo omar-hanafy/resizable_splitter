@@ -129,15 +129,21 @@ ResizableSplitter(
   endConstraints: const SplitterPaneConstraints(minExtent: 120),
   minStartFraction: 0.1,   // fractional caps on the start pane
   maxStartFraction: 0.9,
-  // When both minimums cannot fit, decide who keeps theirs:
+  // When both minimums cannot fit (a shortage), decide who keeps theirs:
   constraintPolicy: SplitterConstraintPolicy.proportional,
+  // When both maximums cannot fill (a surplus), decide who absorbs the slack:
+  surplusPolicy: SplitterSurplusPolicy.giveToStart,
   start: const LeftPane(),
   end: const RightPane(),
 );
 ```
 
-`SplitterConstraintPolicy` is `favorStart`, `favorEnd`, or `proportional`, and
-only applies when the layout is too small to honor both minimums.
+`SplitterConstraintPolicy` (`favorStart` / `favorEnd` / `proportional`) only
+applies in a **shortage** - the layout is too small to honor both minimums.
+`SplitterSurplusPolicy` (`giveToStart` / `giveToEnd` / `proportional` /
+`leaveGap`) is its counterpart for a **surplus** - both panes have a `maxExtent`
+whose sum is below the available space; `leaveGap` keeps both at their max and
+leaves the remainder as a gap between them.
 
 ## Snapping
 

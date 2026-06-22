@@ -57,6 +57,11 @@ so the stored value can no longer disagree with what is drawn.
   / `position`.
 - `SplitterAnimationStatus` (`completed` / `canceled` / `detached`), the result
   of an `animateTo` run.
+- `SplitterSurplusPolicy` (`giveToStart` / `giveToEnd` / `proportional` /
+  `leaveGap`) + a `surplusPolicy` argument: the solver now defines the *surplus*
+  case (both maximums too small to fill the space) explicitly, instead of
+  silently overflowing a maximum. Defaults to `giveToStart` (the prior behavior);
+  `leaveGap` keeps both panes at their max and renders the leftover as a gap.
 - Pixel pinning: `SplitterPosition.startPixels` / `endPixels` keep a pane's pixel
   width as the container resizes (true fixed sidebars).
 - Collapse/expand: `controller.collapse(SplitterPane.start | SplitterPane.end)`,

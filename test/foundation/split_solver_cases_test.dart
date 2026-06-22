@@ -116,6 +116,52 @@ void main() {
     });
   });
 
+  group('surplus (both maximums too small to fill)', () {
+    // available 1000, maxes 200 + 300 = 500 < 1000 => 500 of slack.
+    SplitterSolution solveWith(SplitterSurplusPolicy policy) => SplitterSolver(
+      available: 1000,
+      start: const SplitterPaneConstraints(maxExtent: 200),
+      end: const SplitterPaneConstraints(maxExtent: 300),
+      surplusPolicy: policy,
+    ).solve(const SplitterPosition.fraction(0.5));
+
+    test('giveToStart grows the start pane to fill', () {
+      final sol = solveWith(SplitterSurplusPolicy.giveToStart);
+      expect(sol.startExtent, closeTo(700, 1e-9));
+      expect(sol.endExtent, closeTo(300, 1e-9));
+      expect(sol.isCramped, isTrue);
+    });
+
+    test('giveToEnd grows the end pane to fill', () {
+      final sol = solveWith(SplitterSurplusPolicy.giveToEnd);
+      expect(sol.startExtent, closeTo(200, 1e-9));
+      expect(sol.endExtent, closeTo(800, 1e-9));
+    });
+
+    test('proportional splits by the two maximums', () {
+      final sol = solveWith(SplitterSurplusPolicy.proportional);
+      expect(sol.startExtent, closeTo(400, 1e-9)); // 1000 * 200/500
+      expect(sol.endExtent, closeTo(600, 1e-9));
+    });
+
+    test('leaveGap keeps both panes at their maximum, leaving a gap', () {
+      final sol = solveWith(SplitterSurplusPolicy.leaveGap);
+      expect(sol.startExtent, closeTo(200, 1e-9));
+      expect(sol.endExtent, closeTo(300, 1e-9));
+      expect(sol.startExtent + sol.endExtent, lessThan(1000));
+    });
+
+    test('the default policy preserves the pre-policy behavior (giveToStart)', () {
+      final sol = const SplitterSolver(
+        available: 1000,
+        start: SplitterPaneConstraints(maxExtent: 200),
+        end: SplitterPaneConstraints(maxExtent: 300),
+      ).solve(const SplitterPosition.fraction(0.5));
+      expect(sol.startExtent, closeTo(700, 1e-9));
+      expect(sol.endExtent, closeTo(300, 1e-9));
+    });
+  });
+
   group('degenerate inputs never throw', () {
     test('zero available space yields zero extents', () {
       const solver = SplitterSolver(

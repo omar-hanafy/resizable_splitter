@@ -7,7 +7,9 @@ import 'package:resizable_splitter/src/split_position.dart';
 /// The resolved geometry of a split for one layout pass.
 ///
 /// Every field is finite and non-negative, and [startExtent] + [endExtent]
-/// equals the (sanitized) available space. The interval
+/// equals the (sanitized) available space - except under
+/// [SplitterSurplusPolicy.leaveGap], where their sum may be less (the remainder
+/// is an intentional gap between the panes). The interval
 /// [[minStartExtent], [maxStartExtent]] is the legal range the start extent was
 /// clamped into; interaction code uses it to convert and clamp pointer motion.
 @immutable
@@ -80,6 +82,7 @@ class SplitterSolver {
     this.minStartFraction = 0.0,
     this.maxStartFraction = 1.0,
     this.policy = SplitterConstraintPolicy.favorStart,
+    this.surplusPolicy = SplitterSurplusPolicy.giveToStart,
     this.startCollapsed = false,
     this.endCollapsed = false,
     this.devicePixelRatio = 1.0,
@@ -101,8 +104,13 @@ class SplitterSolver {
   /// Highest fraction of [available] the start pane may take.
   final double maxStartFraction;
 
-  /// Tie-break applied when the hard minimums cannot all be satisfied.
+  /// Tie-break applied when the hard minimums cannot all be satisfied
+  /// (a shortage).
   final SplitterConstraintPolicy policy;
+
+  /// Policy applied when both maximums are too small to fill the space
+  /// (a surplus). Defaults to [SplitterSurplusPolicy.giveToStart].
+  final SplitterSurplusPolicy surplusPolicy;
 
   /// Whether the start pane is collapsed.
   final bool startCollapsed;
@@ -193,32 +201,64 @@ class SplitterSolver {
     ].reduce(math.min).clamp(0.0, available).toDouble();
 
     final feasible = lo <= hi;
+    // Surplus: both panes are capped (finite max) below the available space, so
+    // their maximums cannot fill it. Distinct from a shortage (the minimums do
+    // not fit); the two are governed by separate policies.
+    final surplus = !feasible && (start.maxExtent + end.maxExtent) < available;
 
     var desired = requested.resolveFraction(available) * available;
     if (!desired.isFinite) desired = 0;
     desired = desired.clamp(0.0, available).toDouble();
 
     double startExtent;
+    double endExtent;
     if (feasible) {
       startExtent = desired.clamp(lo, hi).toDouble();
+      endExtent = available - startExtent;
+    } else if (surplus) {
+      switch (surplusPolicy) {
+        case SplitterSurplusPolicy.giveToStart:
+          startExtent = available - end.maxExtent;
+          endExtent = end.maxExtent;
+        case SplitterSurplusPolicy.giveToEnd:
+          startExtent = start.maxExtent;
+          endExtent = available - start.maxExtent;
+        case SplitterSurplusPolicy.proportional:
+          final sum = start.maxExtent + end.maxExtent;
+          startExtent = sum > 0
+              ? available * (start.maxExtent / sum)
+              : available * 0.5;
+          endExtent = available - startExtent;
+        case SplitterSurplusPolicy.leaveGap:
+          startExtent = start.maxExtent;
+          endExtent = end.maxExtent; // the remainder is an intentional gap
+      }
     } else {
+      // Shortage / fraction-vs-pixel conflict: the legal interval is empty;
+      // apply the shortage tie-break.
       startExtent = switch (policy) {
         SplitterConstraintPolicy.favorStart => lo,
         SplitterConstraintPolicy.favorEnd => hi,
         SplitterConstraintPolicy.proportional => _proportional(available),
       };
+      endExtent = available - startExtent;
     }
+
+    final leavingGap =
+        surplus && surplusPolicy == SplitterSurplusPolicy.leaveGap;
 
     if (snapToDevicePixels) {
       startExtent = _maybeSnap(startExtent, devicePixelRatio, true);
       startExtent = feasible
           ? startExtent.clamp(lo, hi).toDouble()
           : startExtent.clamp(0.0, available).toDouble();
+      // Keep the end extent in step with the snapped start, unless we are
+      // deliberately leaving a gap (then the end keeps its own maximum).
+      if (!leavingGap) endExtent = available - startExtent;
     }
 
-    final endExtent = (available - startExtent)
-        .clamp(0.0, available)
-        .toDouble();
+    startExtent = startExtent.clamp(0.0, available).toDouble();
+    endExtent = endExtent.clamp(0.0, available).toDouble();
 
     return SplitterSolution(
       startExtent: startExtent,

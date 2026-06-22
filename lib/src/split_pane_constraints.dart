@@ -94,11 +94,13 @@ enum SplitterPane {
   end,
 }
 
-/// Policy applied when both panes cannot satisfy their hard limits at once.
+/// Policy applied for a *shortage*: both panes' minimums cannot fit at once
+/// (`start.minExtent + end.minExtent > available`).
 ///
-/// This is the final tie-break in the constraint hierarchy: it only takes effect
-/// when the legal start-extent interval is empty (a layout too small to honor
-/// both minimums). Otherwise the requested position is simply clamped.
+/// A tie-break that only takes effect when the layout is too small to honor both
+/// minimums; otherwise the requested position is simply clamped. The opposite
+/// *surplus* case (both maximums too small to fill) is governed separately by
+/// [SplitterSurplusPolicy].
 enum SplitterConstraintPolicy {
   /// Keep the start pane at its minimum; the end pane gives up the deficit.
   favorStart,
@@ -108,4 +110,29 @@ enum SplitterConstraintPolicy {
 
   /// Divide the available space in proportion to the configured pane minimums.
   proportional,
+}
+
+/// Policy applied for a *surplus*: both panes' maximums are too small to fill the
+/// available space (`start.maxExtent + end.maxExtent < available`).
+///
+/// The counterpart to [SplitterConstraintPolicy] (which handles the shortage
+/// case). It only takes effect when both panes have a finite [maxExtent] whose
+/// sum is below the available space. The default, [giveToStart], matches the
+/// behavior before this policy existed (the start pane absorbs the slack).
+enum SplitterSurplusPolicy {
+  /// Grow the start pane past its maximum to fill; the end pane stays at its
+  /// maximum.
+  giveToStart,
+
+  /// Grow the end pane past its maximum to fill; the start pane stays at its
+  /// maximum.
+  giveToEnd,
+
+  /// Grow both panes past their maximum, splitting the space in proportion to
+  /// the two maximums.
+  proportional,
+
+  /// Keep both panes at their maximum and leave the leftover as an empty gap
+  /// between them (the divider sits at the start pane's trailing edge).
+  leaveGap,
 }

@@ -475,6 +475,7 @@ class ResizableSplitter extends StatefulWidget {
     this.onHandleTap,
     this.onHandleDoubleTap,
     this.constraintPolicy = SplitterConstraintPolicy.favorStart,
+    this.surplusPolicy = SplitterSurplusPolicy.giveToStart,
     this.unboundedBehavior,
     this.fallbackMainAxisExtent,
     this.antiAliasingWorkaround,
@@ -633,8 +634,13 @@ class ResizableSplitter extends StatefulWidget {
   /// Called when the divider is double-tapped.
   final VoidCallback? onHandleDoubleTap;
 
-  /// Policy applied when both panes cannot meet their minimums at once.
+  /// Policy applied when both panes cannot meet their minimums at once
+  /// (a shortage).
   final SplitterConstraintPolicy constraintPolicy;
+
+  /// Policy applied when both panes' maximums are too small to fill the space
+  /// (a surplus). Defaults to [SplitterSurplusPolicy.giveToStart].
+  final SplitterSurplusPolicy surplusPolicy;
 
   /// Fallback layout behavior when constraints are unbounded along the main
   /// axis. Defaults to [UnboundedBehavior.flexExpand].
@@ -1123,6 +1129,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
       minStartFraction: widget.minStartFraction,
       maxStartFraction: widget.maxStartFraction,
       policy: widget.constraintPolicy,
+      surplusPolicy: widget.surplusPolicy,
       // Only an actually-collapsible pane resolves collapsed; a collapse request
       // on a fixed pane is ignored by the layout (the request still lives on the
       // controller). This is the request-vs-resolved split, like position vs
@@ -1166,6 +1173,11 @@ class _ResizableSplitterState extends State<ResizableSplitter>
 
     final first = solution.startExtent;
     final second = solution.endExtent;
+    // Under SplitterSurplusPolicy.leaveGap the panes do not fill the space; the
+    // leftover becomes part of the middle slot (after the divider bar), so the
+    // two panes stay pinned to their edges with the gap between them.
+    final gap = (availableSize - first - second).clamp(0.0, availableSize);
+    final middleExtent = dividerThickness + gap;
 
     final divider = _DividerHandle(
       axis: widget.axis,
@@ -1238,8 +1250,8 @@ class _ResizableSplitterState extends State<ResizableSplitter>
               child: ClipRect(child: widget.start),
             ),
             SizedBox(
-              width: widget.axis.isH ? dividerThickness : null,
-              height: widget.axis.isH ? null : dividerThickness,
+              width: widget.axis.isH ? middleExtent : null,
+              height: widget.axis.isH ? null : middleExtent,
             ),
             SizedBox(
               width: widget.axis.isH ? second : null,
