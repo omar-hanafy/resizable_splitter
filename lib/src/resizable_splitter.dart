@@ -1312,6 +1312,14 @@ class _ResizableSplitterState extends State<ResizableSplitter>
       children: [
         Flex(
           direction: widget.axis,
+          // With a bounded cross axis, stretch the panes so an intrinsically
+          // small child (e.g. Text) fills the splitter's cross extent instead of
+          // centering at its natural size (review A#12). Under an unbounded cross
+          // axis the Stack sizes to the panes, so keep them at their intrinsic
+          // size (stretch against an unbounded extent would throw).
+          crossAxisAlignment: crossAxisBounded
+              ? CrossAxisAlignment.stretch
+              : CrossAxisAlignment.center,
           children: [
             SizedBox(
               width: widget.axis.isH ? first : null,
@@ -2201,7 +2209,14 @@ class _DragOverlay extends StatelessWidget {
       child: ExcludeSemantics(
         child: MouseRegion(
           cursor: axis.cursor,
-          child: Listener(behavior: HitTestBehavior.opaque, child: barrier),
+          child: Listener(
+            behavior: HitTestBehavior.opaque,
+            // The opaque Listener already wins every hit, so the shield works
+            // even with a transparent barrier. IgnorePointer additionally keeps
+            // a custom barrierBuilder strictly visual: its own recognizers or
+            // buttons can never receive the pointer events (review A#16).
+            child: IgnorePointer(child: barrier),
+          ),
         ),
       ),
     );
