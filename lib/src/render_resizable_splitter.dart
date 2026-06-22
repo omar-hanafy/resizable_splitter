@@ -41,63 +41,41 @@ double _splitterInteractiveSlop({
 class _ResolvedSplitterGeometry {
   const _ResolvedSplitterGeometry({
     required this.controller,
-    required this.config,
-    required this.requestedPosition,
-    required this.requestedCollapsedPane,
     required this.solver,
     required this.solution,
     required this.layout,
-    required this.axis,
-    required this.textDirection,
     required this.dividerThickness,
-    required this.interactiveSlop,
-    required this.gapExtent,
-    required this.size,
   });
 
   final SplitterController controller;
-  final SplitterSolverConfig config;
-  final SplitterPosition requestedPosition;
-  final SplitterPane? requestedCollapsedPane;
   final SplitterSolver solver;
   final SplitterSolution solution;
   final SplitterLayout layout;
-  final Axis axis;
-  final TextDirection textDirection;
   final double dividerThickness;
-  final double interactiveSlop;
-  final double gapExtent;
-  final Size size;
 
+  // Equality drives the handle's rebuild coalescing (via the notifier's
+  // [prime]). Every consumer reads only the [solution] (the handle), the
+  // [solver] derived from it, or the [controller]/[layout] (the state), so two
+  // geometries that resolve to the same [solution] for the same controller are
+  // interchangeable. Comparing the resolved [solution] directly - now that it is
+  // a value type - is the single, honest equality, replacing the former habit of
+  // comparing a dozen raw layout inputs as a stand-in for "did the result
+  // change". Add a field that affects a consumer's output and it must join here.
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is _ResolvedSplitterGeometry &&
           identical(other.controller, controller) &&
-          other.config == config &&
-          other.requestedPosition == requestedPosition &&
-          other.requestedCollapsedPane == requestedCollapsedPane &&
+          other.solution == solution &&
           other.layout == layout &&
-          other.axis == axis &&
-          other.textDirection == textDirection &&
-          other.dividerThickness == dividerThickness &&
-          other.interactiveSlop == interactiveSlop &&
-          other.gapExtent == gapExtent &&
-          other.size == size;
+          other.dividerThickness == dividerThickness;
 
   @override
   int get hashCode => Object.hash(
     identityHashCode(controller),
-    config,
-    requestedPosition,
-    requestedCollapsedPane,
+    solution,
     layout,
-    axis,
-    textDirection,
     dividerThickness,
-    interactiveSlop,
-    gapExtent,
-    size,
   );
 }
 
@@ -147,7 +125,11 @@ class _SplitterSlotChild extends ParentDataWidget<_SplitterParentData> {
     if (parentData.slot == slot) return;
     parentData.slot = slot;
     final parent = renderObject.parent;
-    if (parent is _RenderResizableSplitter) parent.markNeedsLayout();
+    if (parent is _RenderResizableSplitter) {
+      parent
+        .._invalidateSlotCache()
+        ..markNeedsLayout();
+    }
   }
 
   @override
@@ -287,10 +269,26 @@ class _RenderResizableSplitter extends RenderBox
   /// plain mutable field rather than a markNeedsLayout setter.
   _SplitterGeometryChanged onGeometryChanged;
 
-  // The solver from the last bounded layout, kept so a preview move can be a
-  // repaint (reposition the preview line) instead of a full relayout.
-  SplitterSolver? _lastSolver;
-  double _lastEffectiveDividerThickness = 0;
+  // The geometry from the last bounded layout, kept so a preview move can be a
+  // repaint (reposition the preview line) instead of a full relayout. Null after
+  // an unbounded shrink-wrap. This is the single retained copy of the published
+  // geometry: the preview path reads its solver and divider thickness, so there
+  // is no parallel cached state that could fall out of sync with it.
+  _ResolvedSplitterGeometry? _lastGeometry;
+
+  // O(1) slot lookup, rebuilt only when the child set or a slot assignment
+  // changes (the four slots never reorder). Without it every layout, paint, and
+  // hit-test pass re-scanned the child list for each of the four slots.
+  Map<_SplitterSlot, RenderBox>? _slotChildren;
+
+  void _invalidateSlotCache() => _slotChildren = null;
+
+  // Memoizes the bounded cross-intrinsic solve, keyed by the probed main extent.
+  // An IntrinsicHeight/Width parent queries min and max for the same main extent
+  // back-to-back; without this each query rebuilt and re-solved the solver. Any
+  // layout-affecting change clears it through the [markNeedsLayout] override.
+  double _crossIntrinsicMain = double.nan;
+  SplitterSolution? _crossIntrinsicSolutionCache;
 
   Axis get axis => _axis;
   set axis(Axis value) {
@@ -371,6 +369,36 @@ class _RenderResizableSplitter extends RenderBox
     }
   }
 
+  // Every structural mutation invalidates the slot cache, so a stale child can
+  // never be returned for a slot. These are the only ways the child set changes
+  // (a slot reassignment is caught in _SplitterSlotChild.applyParentData).
+  @override
+  void insert(RenderBox child, {RenderBox? after}) {
+    super.insert(child, after: after);
+    _invalidateSlotCache();
+  }
+
+  @override
+  void remove(RenderBox child) {
+    super.remove(child);
+    _invalidateSlotCache();
+  }
+
+  @override
+  void move(RenderBox child, {RenderBox? after}) {
+    super.move(child, after: after);
+    _invalidateSlotCache();
+  }
+
+  @override
+  void markNeedsLayout() {
+    // Any layout-affecting change (config, position, collapse, thickness, axis,
+    // size) routes through here, so it is the one place the cross-intrinsic memo
+    // can never outlive its inputs.
+    _crossIntrinsicSolutionCache = null;
+    super.markNeedsLayout();
+  }
+
   // Listen to the preview only while attached, so a preview move never calls
   // markNeedsPaint on a detached render object. Resync on attach in case the
   // value changed while detached.
@@ -402,27 +430,32 @@ class _RenderResizableSplitter extends RenderBox
 
   bool _updatePreviewOffsetFromCachedGeometry() {
     final preview = _childForSlot(_SplitterSlot.preview);
-    final solver = _lastSolver;
-    if (preview == null || solver == null || !hasSize) return false;
+    final geometry = _lastGeometry;
+    if (preview == null || geometry == null || !hasSize) return false;
     _setChildOffset(
       preview,
       _previewOffsetFor(
-        solver: solver,
+        solver: geometry.solver,
         renderSize: size,
-        dividerThickness: _lastEffectiveDividerThickness,
+        dividerThickness: geometry.dividerThickness,
       ),
     );
     return true;
   }
 
-  RenderBox? _childForSlot(_SplitterSlot slot) {
+  RenderBox? _childForSlot(_SplitterSlot slot) =>
+      (_slotChildren ??= _buildSlotMap())[slot];
+
+  Map<_SplitterSlot, RenderBox> _buildSlotMap() {
+    final map = <_SplitterSlot, RenderBox>{};
     var child = firstChild;
     while (child != null) {
       final parentData = child.parentData! as _SplitterParentData;
-      if (parentData.slot == slot) return child;
+      final slot = parentData.slot;
+      if (slot != null) map[slot] = child;
       child = parentData.nextSibling;
     }
-    return null;
+    return map;
   }
 
   bool _debugValidateSlots() {
@@ -446,7 +479,15 @@ class _RenderResizableSplitter extends RenderBox
   double _cross(Size size) => _axis.isH ? size.height : size.width;
   double _maxMain(BoxConstraints c) => _axis.isH ? c.maxWidth : c.maxHeight;
   double _maxCross(BoxConstraints c) => _axis.isH ? c.maxHeight : c.maxWidth;
-  bool _hasPaneMainExtent(double extent) => extent > 0;
+
+  /// The single definition of an *occupied* main extent: the raw value when it is
+  /// a usable positive, finite extent, else 0. Every "is this pane present?" and
+  /// "what main extent does it get?" decision routes through here, so the
+  /// absent-pane rule cannot drift between call sites.
+  double _sanitizedMainExtent(double extent) =>
+      extent.isFinite && extent > 0 ? extent : 0.0;
+
+  bool _hasPaneMainExtent(double extent) => _sanitizedMainExtent(extent) > 0;
 
   bool get _startRequestedCollapsed =>
       _collapsedPane == SplitterPane.start && _config.start.collapsible;
@@ -474,33 +515,84 @@ class _RenderResizableSplitter extends RenderBox
     required double mainExtent,
     required double? tightCrossExtent,
   }) {
-    final main = mainExtent.isFinite && mainExtent > 0 ? mainExtent : 0.0;
-    if (!_hasPaneMainExtent(main)) return BoxConstraints.tight(Size.zero);
-    if (_axis.isH) {
-      return BoxConstraints(
-        minWidth: main,
-        maxWidth: main,
-        minHeight: tightCrossExtent ?? 0,
-        maxHeight: tightCrossExtent ?? parent.maxHeight,
-      );
+    final main = _sanitizedMainExtent(mainExtent);
+    // Cross is decided independently of main, so a zero-main (collapsed or
+    // pinned-to-zero) pane is treated like any other on the cross axis instead of
+    // being force-collapsed to 0x0: a bounded splitter cross pins it (matching
+    // the pre-render-object 0xfullCross layout), an unbounded cross lets a
+    // *present* pane size to content, and only an absent pane under an unbounded
+    // cross is held tight at zero - so it neither drives the cross nor has to
+    // absorb an infinite one.
+    final double crossMin;
+    final double crossMax;
+    if (tightCrossExtent != null) {
+      crossMin = tightCrossExtent;
+      crossMax = tightCrossExtent;
+    } else if (main > 0) {
+      crossMin = 0;
+      crossMax = _maxCross(parent);
+    } else {
+      crossMin = 0;
+      crossMax = 0;
     }
-    return BoxConstraints(
-      minWidth: tightCrossExtent ?? 0,
-      maxWidth: tightCrossExtent ?? parent.maxWidth,
-      minHeight: main,
-      maxHeight: main,
-    );
+    return _axis.isH
+        ? BoxConstraints(
+            minWidth: main,
+            maxWidth: main,
+            minHeight: crossMin,
+            maxHeight: crossMax,
+          )
+        : BoxConstraints(
+            minWidth: crossMin,
+            maxWidth: crossMax,
+            minHeight: main,
+            maxHeight: main,
+          );
   }
 
   BoxConstraints _dividerConstraints({
     required double mainExtent,
     required double crossExtent,
   }) {
-    final main = mainExtent.isFinite && mainExtent > 0 ? mainExtent : 0.0;
-    final cross = crossExtent.isFinite && crossExtent > 0 ? crossExtent : 0.0;
+    final main = _sanitizedMainExtent(mainExtent);
+    final cross = _sanitizedMainExtent(crossExtent);
     return _axis.isH
         ? BoxConstraints.tight(Size(main, cross))
         : BoxConstraints.tight(Size(cross, main));
+  }
+
+  // The main extent a pane occupies when the main axis is unbounded
+  // (shrink-to-children): a collapsed pane stays pinned to its collapsedExtent
+  // (so collapse behaves exactly as in a bounded layout - it does not spring back
+  // to full size), otherwise the pane is free to take its natural main size
+  // (infinity). This is the single collapse-aware rule that the unbounded layout,
+  // the unbounded dry layout, and the unbounded cross-intrinsic all share, so
+  // they can never again disagree about a collapsed pane's contribution.
+  double _unboundedPaneMainExtent(SplitterPane pane) {
+    final collapsed = pane == SplitterPane.start
+        ? _startRequestedCollapsed
+        : _endRequestedCollapsed;
+    if (!collapsed) return double.infinity;
+    final constraints = pane == SplitterPane.start ? _config.start : _config.end;
+    return _sanitizedMainExtent(constraints.collapsedExtent ?? 0.0);
+  }
+
+  BoxConstraints _unboundedPaneConstraints(
+    SplitterPane pane,
+    BoxConstraints parent,
+  ) {
+    final mainExtent = _unboundedPaneMainExtent(pane);
+    // Present pane: loose on both axes (its natural size). Collapsed pane: pinned
+    // to collapsedExtent on main (Size.zero when that is 0) with a free cross -
+    // routed through _paneConstraints so the collapse rule and the cross rule
+    // stay in one place.
+    return mainExtent.isFinite
+        ? _paneConstraints(
+            parent: parent,
+            mainExtent: mainExtent,
+            tightCrossExtent: null,
+          )
+        : parent.loosen();
   }
 
   double _constrainCross(BoxConstraints c, double main, double cross) =>
@@ -700,9 +792,6 @@ class _RenderResizableSplitter extends RenderBox
       ),
     );
 
-    _lastSolver = solver;
-    _lastEffectiveDividerThickness = effectiveDividerThickness;
-
     _setChildOffset(
       preview,
       _previewOffsetFor(
@@ -727,23 +816,15 @@ class _RenderResizableSplitter extends RenderBox
           : null,
     );
 
-    onGeometryChanged(
-      _ResolvedSplitterGeometry(
-        controller: _controller,
-        config: _config,
-        requestedPosition: _position,
-        requestedCollapsedPane: _collapsedPane,
-        solver: solver,
-        solution: solution,
-        layout: layout,
-        axis: _axis,
-        textDirection: _textDirection,
-        dividerThickness: effectiveDividerThickness,
-        interactiveSlop: interactiveSlop,
-        gapExtent: gap,
-        size: size,
-      ),
+    final geometry = _ResolvedSplitterGeometry(
+      controller: _controller,
+      solver: solver,
+      solution: solution,
+      layout: layout,
+      dividerThickness: effectiveDividerThickness,
     );
+    _lastGeometry = geometry;
+    onGeometryChanged(geometry);
   }
 
   // Unbounded main axis (shrinkToChildren): shrink-wrap the two panes at their
@@ -755,9 +836,14 @@ class _RenderResizableSplitter extends RenderBox
     final divider = _childForSlot(_SplitterSlot.divider);
     final preview = _childForSlot(_SplitterSlot.preview);
 
-    final loose = constraints.loosen();
-    start?.layout(loose, parentUsesSize: true);
-    end?.layout(loose, parentUsesSize: true);
+    start?.layout(
+      _unboundedPaneConstraints(SplitterPane.start, constraints),
+      parentUsesSize: true,
+    );
+    end?.layout(
+      _unboundedPaneConstraints(SplitterPane.end, constraints),
+      parentUsesSize: true,
+    );
     divider?.layout(BoxConstraints.tight(Size.zero));
     preview?.layout(BoxConstraints.tight(Size.zero));
 
@@ -790,8 +876,7 @@ class _RenderResizableSplitter extends RenderBox
     _setChildOffset(divider, Offset.zero);
     _setChildOffset(preview, Offset.zero);
 
-    _lastSolver = null;
-    _lastEffectiveDividerThickness = 0;
+    _lastGeometry = null;
     onGeometryChanged(null);
   }
 
@@ -801,8 +886,16 @@ class _RenderResizableSplitter extends RenderBox
     if (!mainMax.isFinite) {
       final start = _childForSlot(_SplitterSlot.start);
       final end = _childForSlot(_SplitterSlot.end);
-      final startSize = start?.getDryLayout(constraints.loosen()) ?? Size.zero;
-      final endSize = end?.getDryLayout(constraints.loosen()) ?? Size.zero;
+      final startSize =
+          start?.getDryLayout(
+            _unboundedPaneConstraints(SplitterPane.start, constraints),
+          ) ??
+          Size.zero;
+      final endSize =
+          end?.getDryLayout(
+            _unboundedPaneConstraints(SplitterPane.end, constraints),
+          ) ??
+          Size.zero;
       return constraints.constrain(
         _sizeFrom(
           main: _main(startSize) + _main(endSize),
@@ -941,27 +1034,18 @@ class _RenderResizableSplitter extends RenderBox
     if (!mainExtent.isFinite || mainExtent <= 0) {
       final startCross = _crossIntrinsicForPane(
         child: start,
-        mainExtent: _startRequestedCollapsed
-            ? _config.start.collapsedExtent ?? 0.0
-            : double.infinity,
+        mainExtent: _unboundedPaneMainExtent(SplitterPane.start),
         getter: getter,
       );
       final endCross = _crossIntrinsicForPane(
         child: end,
-        mainExtent: _endRequestedCollapsed
-            ? _config.end.collapsedExtent ?? 0.0
-            : double.infinity,
+        mainExtent: _unboundedPaneMainExtent(SplitterPane.end),
         getter: getter,
       );
       return math.max(startCross, endCross);
     }
 
-    final divider = _clampedSplitterDividerThickness(
-      _dividerThickness,
-      mainExtent,
-    );
-    final solver = _solverFor(math.max(0.0, mainExtent - divider));
-    final solution = solver.solve(_position);
+    final solution = _crossIntrinsicSolution(mainExtent);
     final startCross = _crossIntrinsicForPane(
       child: start,
       mainExtent: solution.startExtent,
@@ -975,6 +1059,24 @@ class _RenderResizableSplitter extends RenderBox
     return math.max(startCross, endCross);
   }
 
+  // The bounded cross-intrinsic solve, memoized by [mainExtent] (see the cache
+  // fields). The solver depends only on [mainExtent] plus inputs that all clear
+  // the memo via [markNeedsLayout], so keying on [mainExtent] alone is sound.
+  SplitterSolution _crossIntrinsicSolution(double mainExtent) {
+    final cached = _crossIntrinsicSolutionCache;
+    if (cached != null && mainExtent == _crossIntrinsicMain) return cached;
+    final divider = _clampedSplitterDividerThickness(
+      _dividerThickness,
+      mainExtent,
+    );
+    final solution = _solverFor(math.max(0.0, mainExtent - divider)).solve(
+      _position,
+    );
+    _crossIntrinsicMain = mainExtent;
+    _crossIntrinsicSolutionCache = solution;
+    return solution;
+  }
+
   double _crossIntrinsicForPane({
     required RenderBox? child,
     required double mainExtent,
@@ -985,7 +1087,11 @@ class _RenderResizableSplitter extends RenderBox
   }
 
   @override
-  double? computeDistanceToActualBaseline(TextBaseline baseline) => null;
+  double? computeDistanceToActualBaseline(TextBaseline baseline) =>
+      // Expose the first child's (start pane's) baseline, as the old RenderStack
+      // did, so a split view can baseline-align inside a Row. The mixin already
+      // implements exactly this walk; reuse it rather than returning null.
+      defaultComputeDistanceToFirstActualBaseline(baseline);
 
   @override
   void paint(PaintingContext context, Offset offset) {
@@ -1055,9 +1161,10 @@ class _RenderResizableSplitter extends RenderBox
   @override
   bool hitTestChildren(BoxHitTestResult result, {required Offset position}) {
     assert(_debugValidateSlots());
-    // Divider first so it wins inside the transparent interactive slop that
-    // overlaps the panes (the old Stack achieved this by painting the handle on
-    // top; reverse-paint-order hit testing would otherwise let a pane win).
+    // Hit the divider first so it wins inside the transparent interactive slop
+    // that overlaps the panes. We key off the *slot*, not child or paint order,
+    // so this priority can't silently flip if the child list is ever reordered;
+    // start and end don't overlap, so their relative order is irrelevant.
     return _hitTestChild(
           result,
           _childForSlot(_SplitterSlot.divider),

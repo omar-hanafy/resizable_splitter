@@ -21,6 +21,19 @@ WidgetStateProperty<Color?> _railColors({
   });
 }
 
+Widget _stableDividerGrip(BuildContext context, SplitterHandleDetails details) {
+  return Center(
+    child: Container(
+      width: details.axis == Axis.horizontal ? 2 : 24,
+      height: details.axis == Axis.horizontal ? 24 : 2,
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.onSurface.withAlpha(77),
+        borderRadius: BorderRadius.circular(1),
+      ),
+    ),
+  );
+}
+
 class ResizableSplitterExampleApp extends StatelessWidget {
   const ResizableSplitterExampleApp({super.key});
 
@@ -141,6 +154,7 @@ class _SplitterDemoPageState extends State<SplitterDemoPage> {
             hover: colorScheme.primary.withAlpha(90),
             active: colorScheme.primary.withAlpha(130),
           ),
+          builder: _stableDividerGrip,
         ),
         enableKeyboard: true,
         shieldPlatformViews: useOverlay,

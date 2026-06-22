@@ -383,6 +383,17 @@ class _ResizableSplitterState extends State<ResizableSplitter>
   // collapse report scheduled for an older controller/generation is dropped.
   int _layoutPublicationGeneration = 0;
 
+  // Coalesces every deferred publication concern (geometry flush, controller
+  // layout flush, collapse report) into a single post-frame callback per frame,
+  // instead of one callback per concern per layout pass, all guarded once.
+  bool _postFrameScheduled = false;
+
+  // A collapse/expand transition detected during layout, queued to fire on
+  // onChanged after the frame. The transition bookkeeping (_reportedCollapsePane)
+  // is updated synchronously when detected; only this callback is deferred. A
+  // controller swap/disposal clears it (the new controller re-seeds its baseline).
+  SplitterChangeDetails? _pendingCollapseReport;
+
   // Persists the divider position when widget.restorationId is set. The mixin
   // owns and disposes it; _restorationReady gates writes until it is registered.
   // Its default is the controller's *current* value, so a first run with no
@@ -497,7 +508,8 @@ class _ResizableSplitterState extends State<ResizableSplitter>
       // outgoing controller, and drop the geometry it produced so the handle
       // does not briefly read the old controller's layout.
       _layoutPublicationGeneration++;
-      if (_geometry.prime(null)) _scheduleGeometryFlush();
+      _pendingCollapseReport = null;
+      if (_geometry.prime(null)) _scheduleFlush();
       // End any in-flight animation on the outgoing controller; it must not
       // continue ticking onto the incoming one.
       _animationController.stop();
@@ -550,6 +562,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     _restorablePosition.dispose();
     // Invalidate pending post-frame callbacks, then dispose the notifiers.
     _layoutPublicationGeneration++;
+    _pendingCollapseReport = null;
     _previewFraction.dispose();
     _geometry.dispose();
     super.dispose();
@@ -642,54 +655,70 @@ class _ResizableSplitterState extends State<ResizableSplitter>
   // a post-frame flush. A geometry built for a since-swapped controller is
   // ignored; everything else is mirrored to the attached controller.
   void _handleResolvedGeometry(_ResolvedSplitterGeometry? geometry) {
-    final controller = _attachedController ?? _effectiveController;
-    if (geometry != null && !identical(geometry.controller, controller)) {
-      return;
-    }
-    if (_geometry.prime(geometry)) _scheduleGeometryFlush();
-    _publishLayout(controller, geometry?.layout);
+    // Runs DURING the render object's performLayout, so it must never notify
+    // synchronously and never *construct* anything. Use the already-attached
+    // controller directly - never _effectiveController, whose lazy construction
+    // would allocate notifiers and attach listeners mid-layout. _attachedController
+    // is set in initState and only ever swapped (never nulled) before dispose, so
+    // it is non-null for any layout this can observe; the mounted guard backstops
+    // a stray layout during teardown so it can't touch the disposed notifiers.
+    if (!mounted) return;
+    final controller = _attachedController;
+    if (controller == null) return;
+    // A geometry built for a since-swapped controller is ignored.
+    if (geometry != null && !identical(geometry.controller, controller)) return;
+
+    // Prime synchronously (value-only; the notifiers never fire mid-layout) so
+    // this frame's read-outs are fresh, then defer every notification to one
+    // post-frame flush. Only schedule when something actually changed.
+    final geometryChanged = _geometry.prime(geometry);
+    final layoutChanged = controller._primeLayout(geometry?.layout);
+    var hasReport = false;
     if (geometry != null) {
-      _maybeReportCollapseChange(
+      final report = _resolveCollapseReport(
         controller,
         geometry.solver,
         geometry.solution,
       );
-    }
-  }
-
-  // Primes the controller's resolved layout synchronously (so its read-outs are
-  // fresh this frame) and schedules the listener notification after the frame,
-  // so it never triggers a listener's setState during build. Generation- and
-  // controller-guarded so a stale post-frame flush (after a swap or disposal) is
-  // dropped. No-ops when the layout is unchanged.
-  void _publishLayout(SplitterController controller, SplitterLayout? layout) {
-    if (!controller._primeLayout(layout)) return;
-    final generation = _layoutPublicationGeneration;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted ||
-          generation != _layoutPublicationGeneration ||
-          !identical(_attachedController, controller)) {
-        return;
+      if (report != null) {
+        _pendingCollapseReport = report;
+        hasReport = true;
       }
-      controller._flushLayout();
-    });
+    }
+    if (geometryChanged || layoutChanged || hasReport) _scheduleFlush();
   }
 
-  // Fires the deferred geometry notification post-frame, so the handle's
-  // ValueListenableBuilder never rebuilds mid-layout. Generation-guarded so a
-  // controller swap drops a stale flush.
-  void _scheduleGeometryFlush() {
+  // The single post-frame flush (at most one per frame) for all deferred
+  // publication: the geometry notifier (handle), the controller's layout
+  // notifier, and any queued collapse report. The geometry notifier is
+  // controller-agnostic; the generation guard alone covers a swap/disposal (both
+  // bump it), and the captured-then-reread _attachedController is the same
+  // controller that primed this frame. didUpdateWidget runs before layout, so on
+  // a swap its bump is in place before this is scheduled.
+  void _scheduleFlush() {
+    if (_postFrameScheduled) return;
+    _postFrameScheduled = true;
     final generation = _layoutPublicationGeneration;
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _postFrameScheduled = false;
+      // Stale (swap/disposal bumped the generation): drop everything. The
+      // pending report is cleared at the bump, so nothing leaks across.
       if (!mounted || generation != _layoutPublicationGeneration) return;
       _geometry.flush();
+      final controller = _attachedController;
+      if (controller == null) return;
+      controller._flushLayout();
+      final report = _pendingCollapseReport;
+      _pendingCollapseReport = null;
+      if (report != null) widget.onChanged?.call(report);
     });
   }
 
-  // Surfaces a collapse/expand transition to onChanged exactly once, tagged with
-  // the matching source, after the frame settles. Called from _buildBounded with
-  // the freshly solved geometry, so the reported extents match what is drawn.
-  void _maybeReportCollapseChange(
+  // Resolves whether this layout crossed a collapse/expand boundary and, if so,
+  // returns the change payload to fire post-frame (else null). The transition
+  // bookkeeping is updated synchronously here - only the onChanged call is
+  // deferred - so the reported extents match what is drawn this frame.
+  SplitterChangeDetails? _resolveCollapseReport(
     SplitterController controller,
     SplitterSolver solver,
     SplitterSolution solution,
@@ -701,22 +730,21 @@ class _ResizableSplitterState extends State<ResizableSplitter>
         : solution.endCollapsed
         ? SplitterPane.end
         : null;
-    // The first resolved layout seeds the baseline without emitting: a
-    // controller mounted already collapsed has not transitioned while attached
-    // here, so it must not fire a phantom collapse/restore.
+    // The first resolved layout seeds the baseline without emitting: a controller
+    // mounted already collapsed has not transitioned while attached here, so it
+    // must not fire a phantom collapse/restore.
     if (!_hasReportedInitialCollapse) {
       _hasReportedInitialCollapse = true;
       _reportedCollapsePane = pane;
-      return;
+      return null;
     }
-    if (pane == _reportedCollapsePane) return;
+    if (pane == _reportedCollapsePane) return null;
     final source = pane != null
         ? SplitterChangeSource.collapse
         : SplitterChangeSource.restore;
     _reportedCollapsePane = pane;
-    final onChanged = widget.onChanged;
-    if (onChanged == null) return;
-    final details = SplitterChangeDetails(
+    if (widget.onChanged == null) return null;
+    return SplitterChangeDetails(
       requestedPosition: controller.value.position,
       effectiveFraction: solution.effectiveFraction,
       startExtent: solution.startExtent,
@@ -724,15 +752,6 @@ class _ResizableSplitterState extends State<ResizableSplitter>
       availableExtent: solver.available,
       source: source,
     );
-    final generation = _layoutPublicationGeneration;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted ||
-          generation != _layoutPublicationGeneration ||
-          !identical(_attachedController, controller)) {
-        return;
-      }
-      onChanged(details);
-    });
   }
 
   @override

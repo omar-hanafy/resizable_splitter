@@ -62,6 +62,31 @@ class SplitterSolution {
   bool get canDecreaseStart => startExtent - minStartExtent > 1e-9;
 
   @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SplitterSolution &&
+          other.startExtent == startExtent &&
+          other.endExtent == endExtent &&
+          other.effectiveFraction == effectiveFraction &&
+          other.minStartExtent == minStartExtent &&
+          other.maxStartExtent == maxStartExtent &&
+          other.resolution == resolution &&
+          other.startCollapsed == startCollapsed &&
+          other.endCollapsed == endCollapsed;
+
+  @override
+  int get hashCode => Object.hash(
+    startExtent,
+    endExtent,
+    effectiveFraction,
+    minStartExtent,
+    maxStartExtent,
+    resolution,
+    startCollapsed,
+    endCollapsed,
+  );
+
+  @override
   String toString() =>
       'SplitterSolution(start: $startExtent, end: $endExtent, '
       'effective: $effectiveFraction, resolution: ${resolution.name})';

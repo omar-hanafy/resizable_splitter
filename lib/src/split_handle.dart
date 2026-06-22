@@ -162,6 +162,25 @@ class _DividerHandleState extends State<_DividerHandle> {
   ScrollHoldController? _scrollHold;
   final List<_PendingPointer> _pendingPointers = <_PendingPointer>[];
 
+  @override
+  void initState() {
+    super.initState();
+    // A drag is only valid while there is geometry to resize against; watch for
+    // it disappearing (see _handleGeometryChanged).
+    widget.geometryListenable.addListener(_handleGeometryChanged);
+  }
+
+  // Interrupts an in-flight drag the moment the splitter loses its geometry (e.g.
+  // its main axis becomes unbounded mid-drag): tears down on the controller the
+  // drag began on - no commit, no snap, no phantom end - instead of freezing the
+  // drag and later reporting a zeroed change payload. Fires post-frame (the
+  // notifier flush is deferred), so calling _endDrag here is safe.
+  void _handleGeometryChanged() {
+    if (_isDragging && widget.geometryListenable.value == null) {
+      _endDrag(_DragEndReason.interrupted);
+    }
+  }
+
   void _haptic() {
     if (widget.enableHaptics) unawaited(HapticFeedback.selectionClick());
   }
@@ -170,6 +189,12 @@ class _DividerHandleState extends State<_DividerHandle> {
   // or null before the first layout / while detached. Event handlers read this
   // so a drag, key press, or assistive action always uses the current solver.
   _ResolvedSplitterGeometry? get _geometry => widget.geometryListenable.value;
+
+  // The live solver, or null with no geometry. The single source every value
+  // read shares, so the "no live solver" fallback is decided in one place
+  // (_changeDetailsFromController / the controller's own derivation) instead of
+  // being reinvented per method.
+  SplitterSolver? get _solver => _geometry?.solver;
 
   // The pointer's position along the main axis in the splitter's local frame
   // (transform-safe), falling back to the raw global coordinate if the render
@@ -239,30 +264,40 @@ class _DividerHandleState extends State<_DividerHandle> {
     SplitterChangeSource source, {
     SplitterChangeEnd? end,
   }) {
-    final geometry = _geometry;
-    if (geometry == null) {
-      // Before the first layout / while detached: report from the controller's
-      // published layout (or zeros) rather than solving with no configured
-      // solver.
-      final layout = widget.controller.layout;
-      return SplitterChangeDetails(
-        requestedPosition: widget.controller.value.position,
-        effectiveFraction:
-            layout?.effectiveFraction ?? fraction.clamp(0.0, 1.0).toDouble(),
-        startExtent: layout?.startExtent ?? 0,
-        endExtent: layout?.endExtent ?? 0,
-        availableExtent: layout?.availableExtent ?? 0,
-        source: source,
-        end: end,
-      );
-    }
-    final solution = geometry.solver.solve(SplitterPosition.fraction(fraction));
+    final solver = _solver;
+    if (solver == null) return _changeDetailsFromController(source, end: end);
+    final solution = solver.solve(SplitterPosition.fraction(fraction));
     return SplitterChangeDetails(
       requestedPosition: widget.controller.value.position,
       effectiveFraction: solution.effectiveFraction,
       startExtent: solution.startExtent,
       endExtent: solution.endExtent,
-      availableExtent: geometry.solver.available,
+      availableExtent: solver.available,
+      source: source,
+      end: end,
+    );
+  }
+
+  /// The change payload when there is no live solver (before the first layout /
+  /// while detached), derived entirely from the controller's published state -
+  /// the SAME source [_effective] falls back to - so a payload built in this
+  /// window can never disagree with the semantics value or the keyboard/drag
+  /// accumulation base. A real interaction can't reach it (drag/keyboard/snap all
+  /// refuse to act without a solver, and a drag that loses its geometry is
+  /// interrupted); it backstops the settle/cancel terminals and the double-tap
+  /// callback.
+  SplitterChangeDetails _changeDetailsFromController(
+    SplitterChangeSource source, {
+    SplitterChangeEnd? end,
+  }) {
+    final controller = widget.controller;
+    final layout = controller.layout;
+    return SplitterChangeDetails(
+      requestedPosition: controller.value.position,
+      effectiveFraction: controller.effectiveFraction,
+      startExtent: layout?.startExtent ?? 0,
+      endExtent: layout?.endExtent ?? 0,
+      availableExtent: layout?.availableExtent ?? 0,
       source: source,
       end: end,
     );
@@ -270,16 +305,23 @@ class _DividerHandleState extends State<_DividerHandle> {
 
   /// The current on-screen start fraction, freshly re-solved from the
   /// controller's requested position so synchronous adjustments accumulate
-  /// against what is actually shown (not a stale build-time solution).
+  /// against what is actually shown (not a stale build-time solution). With no
+  /// live solver it falls back to the controller's own published derivation - the
+  /// single shared fallback, see [_changeDetailsFromController].
   double get _effective =>
-      _geometry?.solver
-          .solve(widget.controller.value.position)
-          .effectiveFraction ??
+      _solver?.solve(widget.controller.value.position).effectiveFraction ??
       widget.controller.effectiveFraction;
 
   @override
   void didUpdateWidget(_DividerHandle oldWidget) {
     super.didUpdateWidget(oldWidget);
+    // The geometry listenable is a stable field on the splitter state in
+    // practice, but move the watcher if it is ever swapped so the drag-interrupt
+    // can't be left listening to a dead notifier.
+    if (!identical(oldWidget.geometryListenable, widget.geometryListenable)) {
+      oldWidget.geometryListenable.removeListener(_handleGeometryChanged);
+      widget.geometryListenable.addListener(_handleGeometryChanged);
+    }
     final session = _session;
     if (session == null) return;
     // A drag is anchored to the controller, axis, and mode it began on. If the
@@ -297,6 +339,7 @@ class _DividerHandleState extends State<_DividerHandle> {
 
   @override
   void dispose() {
+    widget.geometryListenable.removeListener(_handleGeometryChanged);
     // Tear down on the session's controller (not necessarily widget.controller)
     // without setState. No commit, snap, or onChangeEnd.
     final session = _session;
@@ -692,12 +735,14 @@ class _DividerHandleState extends State<_DividerHandle> {
         kind == PointerDeviceKind.unknown;
   }
 
-  /// The on-screen ratio for [ratio], honoring ratio caps and pixel minimums.
-  /// Used for the semantics readout so it matches what the layout shows.
+  /// The on-screen ratio for an arbitrary hypothetical [ratio], honoring ratio
+  /// caps and pixel minimums. Used for the semantics increase/decrease readouts.
+  /// With no live solver a hypothetical ratio cannot be resolved, so it degrades
+  /// to a plain clamp - but every call site is gated on a non-null solution (the
+  /// canIncrease/canDecrease flags in build), so that fallback is unreachable in
+  /// practice and exists only for total safety.
   double _effectiveRatio(double ratio) =>
-      _geometry?.solver
-          .solve(SplitterPosition.fraction(ratio))
-          .effectiveFraction ??
+      _solver?.solve(SplitterPosition.fraction(ratio)).effectiveFraction ??
       ratio.clamp(0.0, 1.0).toDouble();
 
   void _nudge(double delta, SplitterChangeSource source) {
