@@ -2,6 +2,7 @@ import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
 import 'package:resizable_splitter/src/split_divider_style.dart';
+import 'package:resizable_splitter/src/split_semantics_labels.dart';
 
 /// Sentinel for the copyWith methods in this library so a nullable field can be
 /// explicitly cleared (set back to null) rather than only overwritten.
@@ -44,6 +45,7 @@ class ResizableSplitterThemeData
     this.unboundedBehavior,
     this.fallbackMainAxisExtent,
     this.antiAliasingWorkaround,
+    this.semantics,
   }) : assert(
          keyboardStep == null || keyboardStep >= 0,
          'keyboardStep must be non-negative',
@@ -87,6 +89,10 @@ class ResizableSplitterThemeData
   /// Whether to snap the leading panel size to whole physical pixels.
   final bool? antiAliasingWorkaround;
 
+  /// Localizable semantics strings and value formatting for descendant
+  /// splitters. Null defers to the built-in English defaults.
+  final SplitterSemanticsLabels? semantics;
+
   /// Returns a copy with the provided fields replaced.
   /// Returns a copy with the provided fields replaced. Every parameter accepts
   /// an explicit `null` to clear that field (fall back to the next layer);
@@ -103,6 +109,7 @@ class ResizableSplitterThemeData
     Object? unboundedBehavior = _noUpdate,
     Object? fallbackMainAxisExtent = _noUpdate,
     Object? antiAliasingWorkaround = _noUpdate,
+    Object? semantics = _noUpdate,
   }) {
     return ResizableSplitterThemeData(
       divider: identical(divider, _noUpdate)
@@ -135,6 +142,9 @@ class ResizableSplitterThemeData
       antiAliasingWorkaround: identical(antiAliasingWorkaround, _noUpdate)
           ? this.antiAliasingWorkaround
           : antiAliasingWorkaround as bool?,
+      semantics: identical(semantics, _noUpdate)
+          ? this.semantics
+          : semantics as SplitterSemanticsLabels?,
     );
   }
 
@@ -157,6 +167,7 @@ class ResizableSplitterThemeData
           other.fallbackMainAxisExtent ?? fallbackMainAxisExtent,
       antiAliasingWorkaround:
           other.antiAliasingWorkaround ?? antiAliasingWorkaround,
+      semantics: other.semantics ?? semantics,
     );
   }
 
@@ -184,6 +195,9 @@ class ResizableSplitterThemeData
       antiAliasingWorkaround: t < 0.5
           ? antiAliasingWorkaround
           : other.antiAliasingWorkaround,
+      // Labels are discrete strings/callbacks, not interpolable; swap at the
+      // midpoint like the other non-numeric fields.
+      semantics: t < 0.5 ? semantics : other.semantics,
     );
   }
 
@@ -200,7 +214,8 @@ class ResizableSplitterThemeData
           other.pageStep == pageStep &&
           other.unboundedBehavior == unboundedBehavior &&
           other.fallbackMainAxisExtent == fallbackMainAxisExtent &&
-          other.antiAliasingWorkaround == antiAliasingWorkaround;
+          other.antiAliasingWorkaround == antiAliasingWorkaround &&
+          other.semantics == semantics;
 
   @override
   int get hashCode => Object.hash(
@@ -214,6 +229,7 @@ class ResizableSplitterThemeData
     unboundedBehavior,
     fallbackMainAxisExtent,
     antiAliasingWorkaround,
+    semantics,
   );
 
   @override
@@ -224,7 +240,8 @@ class ResizableSplitterThemeData
       'keyboardStep: $keyboardStep, pageStep: $pageStep, '
       'unboundedBehavior: $unboundedBehavior, '
       'fallbackMainAxisExtent: $fallbackMainAxisExtent, '
-      'antiAliasingWorkaround: $antiAliasingWorkaround)';
+      'antiAliasingWorkaround: $antiAliasingWorkaround, '
+      'semantics: $semantics)';
 }
 
 /// Provides [ResizableSplitterThemeData] to a subtree.

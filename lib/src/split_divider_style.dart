@@ -14,6 +14,7 @@ class SplitterHandleDetails {
   const SplitterHandleDetails({
     required this.isDragging,
     required this.isHovering,
+    required this.isFocused,
     required this.axis,
     required this.thickness,
   });
@@ -23,6 +24,11 @@ class SplitterHandleDetails {
 
   /// Whether the pointer is hovering over the handle.
   final bool isHovering;
+
+  /// Whether the handle currently holds keyboard focus and should show a focus
+  /// affordance. A custom [SplitterDividerStyle.builder] owns its own focus
+  /// visual (the default ring is suppressed when a builder is supplied).
+  final bool isFocused;
 
   /// The axis (horizontal/vertical) of the associated splitter.
   final Axis axis;

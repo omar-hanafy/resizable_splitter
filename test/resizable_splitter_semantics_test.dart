@@ -84,11 +84,13 @@ void main() {
           // nudge from the effective 61% to 62% (not the never-visible stored
           // request).
           increasedValue: '62%',
-          decreasedValue: '61%',
           isFocusable: true,
           hasFocusAction: true,
           hasIncreaseAction: true,
-          hasDecreaseAction: true,
+          // The start pane is clamped to its 240px minimum, so it cannot shrink
+          // further: the decrease action is dropped rather than offered as a
+          // no-op (review A#14).
+          hasDecreaseAction: false,
         ),
       );
     } finally {

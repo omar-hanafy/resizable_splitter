@@ -14,6 +14,7 @@ import 'package:resizable_splitter/src/split_divider_style.dart';
 import 'package:resizable_splitter/src/split_layout.dart';
 import 'package:resizable_splitter/src/split_pane_constraints.dart';
 import 'package:resizable_splitter/src/split_position.dart';
+import 'package:resizable_splitter/src/split_semantics_labels.dart';
 import 'package:resizable_splitter/src/split_snap_behavior.dart';
 import 'package:resizable_splitter/src/split_solver.dart';
 import 'package:resizable_splitter/src/split_state.dart';
@@ -504,6 +505,7 @@ class ResizableSplitter extends StatefulWidget {
     this.keyboardStep,
     this.pageStep,
     this.semanticsLabel,
+    this.semantics,
     this.blockerColor,
     this.dragBarrierBuilder,
     this.overlayEnabled,
@@ -634,8 +636,16 @@ class ResizableSplitter extends StatefulWidget {
   /// Step applied with PageUp/PageDown keys (e.g., 0.1 = 10%). Defaults to 0.1.
   final double? pageStep;
 
-  /// Accessibility label for the divider.
+  /// Accessibility label for the divider. Overrides the label resolved from
+  /// [semantics] (or the ambient theme) when set, leaving the value formatting
+  /// intact - a quick way to relabel a single splitter without supplying a full
+  /// [SplitterSemanticsLabels].
   final String? semanticsLabel;
+
+  /// Localizable semantics strings and value formatting. Unset fields fall back
+  /// to [ResizableSplitterTheme], then to the built-in English defaults. Set it
+  /// app-wide via the theme to localize every splitter at once.
+  final SplitterSemanticsLabels? semantics;
 
   /// The blocked color when dragged. Ignored if [dragBarrierBuilder] is set.
   final Color? blockerColor;
@@ -1019,6 +1029,8 @@ class _ResizableSplitterState extends State<ResizableSplitter>
         ResizableSplitter._defaultHandleHitSlop;
     final handleBuilder = dividerStyle?.builder ?? themeDivider?.builder;
     final dividerColor = dividerStyle?.color ?? themeDivider?.color;
+    final semanticsLabels =
+        widget.semantics ?? theme.semantics ?? const SplitterSemanticsLabels();
 
     final keyboardStep =
         widget.keyboardStep ??
@@ -1105,6 +1117,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
                         antiAliasingWorkaround: antiAliasingWorkaround,
                         crossAxisBounded: _crossAxisBounded(bounded),
                         controller: controller,
+                        semantics: semanticsLabels,
                       );
                     },
                   );
@@ -1152,6 +1165,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
               antiAliasingWorkaround: antiAliasingWorkaround,
               crossAxisBounded: _crossAxisBounded(constraints),
               controller: controller,
+              semantics: semanticsLabels,
             );
           },
         );
@@ -1182,6 +1196,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     required bool antiAliasingWorkaround,
     required bool crossAxisBounded,
     required SplitterController controller,
+    required SplitterSemanticsLabels semantics,
   }) {
     // Raw configured minimums (not pre-clamped): the solver clamps internally
     // and uses the raw values for proportional distribution, so a cramped
@@ -1271,6 +1286,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
       pageStep: pageStep,
       focusNode: _focusNode,
       semanticsLabel: widget.semanticsLabel,
+      semantics: semantics,
       overlayEnabled: overlayEnabled && widget.resizable,
       snap: widget.snap,
       handleBuilder: handleBuilder,
@@ -1446,6 +1462,7 @@ class _DividerHandle extends StatefulWidget {
     required this.pageStep,
     required this.focusNode,
     required this.semanticsLabel,
+    required this.semantics,
     required this.overlayEnabled,
     required this.snap,
     required this.handleBuilder,
@@ -1477,6 +1494,7 @@ class _DividerHandle extends StatefulWidget {
   final double pageStep;
   final FocusNode focusNode;
   final String? semanticsLabel;
+  final SplitterSemanticsLabels semantics;
   final bool overlayEnabled;
   final SplitterSnapBehavior? snap;
   final Widget Function(BuildContext, SplitterHandleDetails)? handleBuilder;
@@ -1511,6 +1529,12 @@ class _DividerHandleState extends State<_DividerHandle> {
   _DragSession? _session;
   bool get _isDragging => _session != null;
   bool _isHovering = false;
+  // Whether the keyboard focus highlight should show. Driven by
+  // FocusableActionDetector.onShowFocusHighlight, so it tracks Flutter's focus
+  // highlight mode (a ring for keyboard traversal, not for touch). Only ever set
+  // true in the keyboard-enabled branch, so a divider without keyboard support
+  // never paints a misleading ring.
+  bool _isFocused = false;
   // Set when a PointerCancelEvent arrives for the active drag pointer. Flutter's
   // drag recognizer reports BOTH a normal release and a mid-drag cancel through
   // onEnd, so this flag - set by the Listener, which sees the raw cancel before
@@ -1603,7 +1627,8 @@ class _DividerHandleState extends State<_DividerHandle> {
     if (states.contains(WidgetState.dragged)) {
       return cs.onSurface.withAlpha(31);
     }
-    if (states.contains(WidgetState.hovered)) {
+    if (states.contains(WidgetState.hovered) ||
+        states.contains(WidgetState.focused)) {
       return cs.onSurface.withAlpha(20);
     }
     return cs.outlineVariant;
@@ -1959,13 +1984,28 @@ class _DividerHandleState extends State<_DividerHandle> {
 
   @override
   Widget build(BuildContext context) {
+    // Focus is only meaningful when the handle is a keyboard-navigable resize
+    // affordance; gate it so a stale highlight (e.g. after keyboard support is
+    // turned off) can never paint a ring on a non-interactive divider.
+    final isFocused = _isFocused && widget.enableKeyboard && widget.resizable;
     final states = <WidgetState>{
       if (!widget.resizable) WidgetState.disabled,
       if (_isHovering) WidgetState.hovered,
+      if (isFocused) WidgetState.focused,
       if (_isDragging) WidgetState.dragged,
     };
+    // The default focus ring is a border on the bar. A custom grip builder owns
+    // its own focus visual (it receives isFocused), so the default ring is
+    // suppressed when a builder is supplied to avoid a doubled indicator.
+    final showFocusRing = isFocused && widget.handleBuilder == null;
     final currentDecoration = BoxDecoration(
       color: _resolveDividerColor(states),
+      border: showFocusRing
+          ? Border.all(
+              color: Theme.of(context).colorScheme.primary,
+              width: 2,
+            )
+          : null,
     );
 
     final grip =
@@ -1974,6 +2014,7 @@ class _DividerHandleState extends State<_DividerHandle> {
           SplitterHandleDetails(
             isDragging: _isDragging,
             isHovering: _isHovering,
+            isFocused: isFocused,
             axis: widget.axis,
             thickness: widget.thickness,
           ),
@@ -2078,10 +2119,15 @@ class _DividerHandleState extends State<_DividerHandle> {
     // Value previews mirror what an adjust action actually does: move from the
     // current effective position by one step. Assistive adjustment is offered
     // whenever the splitter is resizable, independent of physical keyboard
-    // support - a screen reader is its own input channel.
+    // support - a screen reader is its own input channel. Each direction is
+    // additionally gated on whether the divider can actually move that way, so a
+    // pane pinned at a hard bound drops the action it cannot perform rather than
+    // announcing a no-op (review A#14).
     final effective = _effective;
-    String pct(double ratio) => '${(ratio.clamp(0.0, 1.0) * 100).round()}%';
-    final allowSemanticAdjust = widget.resizable;
+    final labels = widget.semantics;
+    String fmt(double ratio) => labels.formatValue(ratio.clamp(0.0, 1.0));
+    final canIncrease = widget.resizable && widget.solution.canIncreaseStart;
+    final canDecrease = widget.resizable && widget.solution.canDecreaseStart;
 
     divider = Semantics(
       slider: true,
@@ -2089,24 +2135,18 @@ class _DividerHandleState extends State<_DividerHandle> {
       textDirection: Directionality.maybeOf(context),
       label:
           widget.semanticsLabel ??
-          (widget.resizable
-              ? (widget.axis.isH
-                    ? 'Drag to resize left and right panels.'
-                    : 'Drag to resize top and bottom panels.')
-              : (widget.axis.isH
-                    ? 'Splitter between left and right panels.'
-                    : 'Splitter between top and bottom panels.')),
-      value: pct(effective),
-      increasedValue: allowSemanticAdjust
-          ? pct(_effectiveRatio(effective + widget.keyboardStep))
+          labels.label(axis: widget.axis, resizable: widget.resizable),
+      value: fmt(effective),
+      increasedValue: canIncrease
+          ? fmt(_effectiveRatio(effective + widget.keyboardStep))
           : null,
-      decreasedValue: allowSemanticAdjust
-          ? pct(_effectiveRatio(effective - widget.keyboardStep))
+      decreasedValue: canDecrease
+          ? fmt(_effectiveRatio(effective - widget.keyboardStep))
           : null,
-      onIncrease: allowSemanticAdjust
+      onIncrease: canIncrease
           ? () => _nudge(widget.keyboardStep, SplitterChangeSource.semantics)
           : null,
-      onDecrease: allowSemanticAdjust
+      onDecrease: canDecrease
           ? () => _nudge(-widget.keyboardStep, SplitterChangeSource.semantics)
           : null,
       child: divider,
@@ -2127,6 +2167,11 @@ class _DividerHandleState extends State<_DividerHandle> {
           : LogicalKeyboardKey.arrowDown;
       divider = FocusableActionDetector(
         focusNode: widget.focusNode,
+        // Tracks Flutter's focus highlight mode so the ring shows for keyboard
+        // traversal but not for a touch/mouse focus.
+        onShowFocusHighlight: (show) {
+          if (show != _isFocused) setState(() => _isFocused = show);
+        },
         shortcuts: <LogicalKeySet, Intent>{
           // Fine step (left/right swap under RTL on the horizontal axis).
           LogicalKeySet(decreaseKey): _AdjustIntent(-widget.keyboardStep),
