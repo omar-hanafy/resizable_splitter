@@ -86,8 +86,18 @@ class SplitterController extends ValueNotifier<SplitterState> {
   void _detach(Object owner) {
     if (identical(_owner, owner)) {
       _owner = null;
+      // No view is producing geometry anymore, so the published layout no
+      // longer reflects anything on screen. Clear it (and notify) so [layout]
+      // reads null while detached, as its documentation promises.
+      if (_layout.prime(null)) _layout.flush();
     }
   }
+
+  /// Whether this controller is currently attached to a [ResizableSplitter].
+  ///
+  /// While false, [layout] is null and [effectiveFraction] derives from the
+  /// request rather than any on-screen geometry.
+  bool get isAttached => _owner != null;
 
   @override
   void dispose() {
@@ -160,10 +170,12 @@ class SplitterController extends ValueNotifier<SplitterState> {
     // matching notification - the historic collapse/equal-write desync is gone.
     if (newValue == value) return;
     if (!_isAnimationTick) _animator?.cancel();
-    super.value = newValue;
-    // The request changed, so the published layout no longer reflects it until
-    // the next solve; [effectiveFraction] derives from the request meanwhile.
+    // Mark the published layout stale BEFORE notifying: the request changed, so
+    // it no longer reflects what is on screen. Doing this first means a listener
+    // reacting to this write reads an [effectiveFraction] consistent with the
+    // new request, not the prior layout's stale value (until the next solve).
     _layoutStale = true;
+    super.value = newValue;
   }
 
   /// Requests [position] as a fresh intent: clears any collapse and supersedes a
