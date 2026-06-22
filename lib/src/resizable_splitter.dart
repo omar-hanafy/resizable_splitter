@@ -877,6 +877,9 @@ class _ResizableSplitterState extends State<ResizableSplitter>
       .._detach(this);
     _focusNode.dispose();
     _internalController?.dispose();
+    // RestorationMixin unregisters the property but does not dispose it; do it
+    // here to avoid leaking the listener (review A#6).
+    _restorablePosition.dispose();
     super.dispose();
   }
 
@@ -2258,8 +2261,9 @@ class _RestorableSplitterPosition extends RestorableValue<SplitterPosition> {
 
   @override
   SplitterPosition fromPrimitives(Object? data) {
-    if (data is List && data.length == 2) {
-      final number = (data[1] as num).toDouble();
+    // Be defensive: restoration data can be malformed or from an older version.
+    if (data is List && data.length == 2 && data[1] is num) {
+      final number = (data[1]! as num).toDouble();
       return switch (data[0]) {
         1 => SplitterPosition.startPixels(number),
         2 => SplitterPosition.endPixels(number),
