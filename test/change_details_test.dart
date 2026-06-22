@@ -96,6 +96,44 @@ void main() {
     expect(controller.effectiveFraction, closeTo(0.75, 1e-6));
   });
 
+  testWidgets('a canceled drag does not snap or fire a successful end '
+      '(a cancel is not a release)', (tester) async {
+    final controller = SplitterController();
+    SplitterChangeDetails? end;
+
+    await tester.pumpWidget(
+      host(
+        ResizableSplitter(
+          controller: controller,
+          divider: const SplitterDividerStyle(thickness: 8),
+          startConstraints: const SplitterPaneConstraints(),
+          endConstraints: const SplitterPaneConstraints(),
+          semanticsLabel: 'handle',
+          snap: const SplitterSnapBehavior(points: [0.75], tolerance: 0.2),
+          onChangeEnd: (d) => end = d,
+          start: const SizedBox(),
+          end: const SizedBox(),
+        ),
+      ),
+    );
+
+    final handle = find.bySemanticsLabel('handle');
+    final gesture = await tester.startGesture(tester.getCenter(handle));
+    await tester.pump();
+    // Drag toward the 0.75 snap point, then a system cancel interrupts it.
+    await gesture.moveBy(const Offset(80, 0));
+    await tester.pump();
+    final atCancel = controller.effectiveFraction;
+    await gesture.cancel();
+    await tester.pumpAndSettle();
+
+    // A cancel is not a successful release: it must neither settle onto the
+    // snap point nor report a drag/snap end.
+    expect(controller.effectiveFraction, closeTo(atCancel, 1e-6));
+    expect(controller.effectiveFraction, isNot(closeTo(0.75, 1e-6)));
+    expect(end, isNull);
+  });
+
   testWidgets('a keyboard adjust reports SplitterChangeSource.keyboard', (
     tester,
   ) async {

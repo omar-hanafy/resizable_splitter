@@ -29,6 +29,24 @@ extension _AxisHelpers on Axis {
       isH ? SystemMouseCursors.resizeColumn : SystemMouseCursors.resizeRow;
 }
 
+/// Why a drag ended, so the handle settles only on a real release and never
+/// treats a cancel, a mid-drag reconfiguration, or a disposal as a successful
+/// completion.
+enum _DragEndReason {
+  /// The pointer lifted normally - a gesture end, or a pointer-up a platform
+  /// view swallowed that the global router still saw. Settles, snaps, and fires
+  /// onChangeEnd.
+  completed,
+
+  /// A system cancel (gesture/pointer cancel). No commit, snap, or end event.
+  canceled,
+
+  /// A mid-drag reconfiguration (controller, axis, or mode swap, or resizing
+  /// turned off). No commit, snap, or end event. Disposal tears down the same
+  /// way, but directly (it cannot call setState), so it needs no reason here.
+  interrupted,
+}
+
 /// A controller for a [ResizableSplitter]'s position.
 ///
 /// Holds the requested [SplitterPosition] (a fraction or a pixel pin) and
@@ -265,14 +283,17 @@ class SplitterController extends ValueNotifier<SplitterState> {
     _isAnimationTick = false;
   }
 
-  // Internal methods for global router
-  void _stopDrag() {
-    _dragCallback?.call();
+  // Internal methods for the global router. The reason distinguishes a normal
+  // release (the route saw a pointer-up a platform view swallowed) from a
+  // cancel, so the handle settles only on a real completion.
+  void _endDragFromRouter(_DragEndReason reason) {
+    final cb = _dragCallback;
     _dragCallback = null;
+    cb?.call(reason);
   }
 
-  void _setDragCallback(VoidCallback? cb) => _dragCallback = cb;
-  VoidCallback? _dragCallback;
+  void _setDragCallback(void Function(_DragEndReason)? cb) => _dragCallback = cb;
+  void Function(_DragEndReason)? _dragCallback;
 
   void _setDragging(bool dragging) => _isDragging.value = dragging;
 
@@ -405,8 +426,15 @@ class _GlobalPointerRouter {
   }
 
   void _handleGlobal(PointerEvent event) {
-    if (event is! PointerUpEvent && event is! PointerCancelEvent) return;
-    _activeByPointer.remove(event.pointer)?._stopDrag();
+    if (event is PointerUpEvent) {
+      _activeByPointer
+          .remove(event.pointer)
+          ?._endDragFromRouter(_DragEndReason.completed);
+    } else if (event is PointerCancelEvent) {
+      _activeByPointer
+          .remove(event.pointer)
+          ?._endDragFromRouter(_DragEndReason.canceled);
+    }
   }
 
   void dispose() {
@@ -802,8 +830,15 @@ class _ResizableSplitterState extends State<ResizableSplitter>
         .._detach(this);
 
       if (oldWidget.controller == null && widget.controller != null) {
-        _internalController?.dispose();
+        // Defer disposing the internal controller until after this frame: the
+        // child handle's didUpdateWidget (which runs later in this build) tears
+        // down any in-flight drag on it, and that must not touch a disposed
+        // controller (review C#4).
+        final disposing = _internalController;
         _internalController = null;
+        if (disposing != null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) => disposing.dispose());
+        }
       }
 
       newController
@@ -1310,6 +1345,52 @@ class _ResizableSplitterState extends State<ResizableSplitter>
   }
 }
 
+/// The immutable identity and start anchors of an in-flight drag.
+///
+/// Capturing the controller, pointer, axis, direction, start fraction/position,
+/// available extent, mode, and preview callback at the moment a drag begins is
+/// what lets it end cleanly on the controller it started on - even if the parent
+/// swaps the controller, axis, mode, or preview callback mid-drag - and keeps
+/// the pointer-to-fraction math stable if the container resizes underneath.
+@immutable
+class _DragSession {
+  const _DragSession({
+    required this.controller,
+    required this.pointerId,
+    required this.axis,
+    required this.isRtl,
+    required this.startEffectiveFraction,
+    required this.startLocalMainAxis,
+    required this.availableExtent,
+    required this.deferred,
+    required this.onPreviewChanged,
+  });
+
+  final SplitterController controller;
+  final int pointerId;
+  final Axis axis;
+  final bool isRtl;
+  final double startEffectiveFraction;
+  final double startLocalMainAxis;
+  final double availableExtent;
+  final bool deferred;
+  final ValueChanged<double?>? onPreviewChanged;
+
+  /// Maps the current local main-axis pointer position to a clamped effective
+  /// start fraction, measuring motion against the extent captured at drag start
+  /// (stable under a mid-drag container resize) and clamping through [solver].
+  double fractionFor(double currentLocalMainAxis, SplitterSolver solver) {
+    // In RTL the start pane sits on the right, so a rightward (positive) delta
+    // must shrink it. Vertical axes are unaffected.
+    final delta =
+        (currentLocalMainAxis - startLocalMainAxis) * (isRtl ? -1.0 : 1.0);
+    final deltaRatio = availableExtent > 0 ? delta / availableExtent : 0.0;
+    return solver
+        .solve(SplitterPosition.fraction(startEffectiveFraction + deltaRatio))
+        .effectiveFraction;
+  }
+}
+
 /// Internal widget for the draggable divider handle.
 class _DividerHandle extends StatefulWidget {
   const _DividerHandle({
@@ -1387,13 +1468,22 @@ class _DividerHandle extends StatefulWidget {
 }
 
 class _DividerHandleState extends State<_DividerHandle> {
-  bool _isDragging = false;
+  // The active drag, or null when not dragging. A single nullable field is the
+  // whole drag state machine: `_session != null` means dragging, and the
+  // terminal [_endDrag] claims it before any user code, so a cancel, a
+  // reconfiguration, a disposal, the router backup, or a throwing callback can
+  // never double-fire, snap on a cancel, or strand the controller.
+  _DragSession? _session;
+  bool get _isDragging => _session != null;
   bool _isHovering = false;
-  double? _dragStartPosition;
-  double? _dragStartRatio;
+  // Set when a PointerCancelEvent arrives for the active drag pointer. Flutter's
+  // drag recognizer reports BOTH a normal release and a mid-drag cancel through
+  // onEnd, so this flag - set by the Listener, which sees the raw cancel before
+  // the recognizer's onEnd - is what lets _onDragEnd tell them apart so a cancel
+  // never snaps or fires a successful onChangeEnd.
+  bool _activePointerCanceled = false;
   double? _lastDragRatio;
   OverlayEntry? _dragOverlay;
-  int? _activePointer;
   ScrollHoldController? _scrollHold;
   final List<_PendingPointer> _pendingPointers = <_PendingPointer>[];
 
@@ -1437,28 +1527,28 @@ class _DividerHandleState extends State<_DividerHandle> {
   @override
   void didUpdateWidget(_DividerHandle oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!_isDragging) return;
-    // A drag is anchored to the controller and axis it began on. If the parent
-    // swaps either mid-drag (or turns off resizing), end the drag cleanly on the
-    // ORIGINAL controller, so it is not left flagged as dragging with a live
-    // pointer-router registration and drag callback while a different controller
-    // takes over. The interruption commits no position and fires no onChangeEnd.
-    if (!identical(oldWidget.controller, widget.controller) ||
-        oldWidget.axis != widget.axis ||
+    final session = _session;
+    if (session == null) return;
+    // A drag is anchored to the controller, axis, and mode it began on. If the
+    // parent swaps any of those (or turns resizing off) mid-drag, interrupt it
+    // on the controller it began on (held by the session): no commit, no snap,
+    // no onChangeEnd. The idempotent [_endDrag] guard also means a later gesture
+    // end/cancel for the same pointer can no longer fire a phantom onChangeEnd.
+    if (!identical(session.controller, widget.controller) ||
+        session.axis != widget.axis ||
+        session.deferred != widget.deferred ||
         !widget.resizable) {
-      widget.onPreviewChanged?.call(null);
-      _teardownDrag(oldWidget.controller);
+      _endDrag(_DragEndReason.interrupted);
     }
   }
 
   @override
   void dispose() {
-    if (_isDragging) {
-      widget.controller._setDragging(false);
-      SplitterController._globalRouter.endDrag(widget.controller);
-      // Clear any deferred-drag preview so it does not linger after disposal.
-      widget.onPreviewChanged?.call(null);
-    }
+    // Tear down on the session's controller (not necessarily widget.controller)
+    // without setState. No commit, snap, or onChangeEnd.
+    final session = _session;
+    _session = null;
+    if (session != null) _teardown(session);
     widget.controller._setDragCallback(null);
     _removeOverlay();
     _scrollHold?.cancel();
@@ -1488,19 +1578,30 @@ class _DividerHandleState extends State<_DividerHandle> {
     if (!widget.resizable || _isDragging) return;
     if (!_isSupportedPointerKind(details.kind)) return;
 
-    setState(() => _isDragging = true);
-    widget.controller
-      .._cancelAnimation()
-      .._setDragging(true);
-
-    _dragStartRatio = widget.solution.effectiveFraction;
-    _dragStartPosition = _mainAxisPosition(details.globalPosition);
-
+    final controller = widget.controller;
     final pointerId = _takePendingPointer(details.globalPosition) ?? -1;
-    _activePointer = pointerId;
+    final isRtl =
+        widget.axis.isH && Directionality.maybeOf(context) == TextDirection.rtl;
+    final session = _DragSession(
+      controller: controller,
+      pointerId: pointerId,
+      axis: widget.axis,
+      isRtl: isRtl,
+      startEffectiveFraction: widget.solution.effectiveFraction,
+      startLocalMainAxis: _mainAxisPosition(details.globalPosition),
+      availableExtent: widget.solver.available,
+      deferred: widget.deferred,
+      onPreviewChanged: widget.onPreviewChanged,
+    );
+    setState(() => _session = session);
+    _lastDragRatio = null;
+    _activePointerCanceled = false;
 
-    SplitterController._globalRouter.beginDrag(widget.controller, pointerId);
-    widget.controller._setDragCallback(_stopDrag);
+    controller
+      .._cancelAnimation()
+      .._setDragging(true)
+      .._setDragCallback(_endDrag);
+    SplitterController._globalRouter.beginDrag(controller, pointerId);
 
     if (widget.holdScrollWhileDragging) {
       _scrollHold?.cancel();
@@ -1512,39 +1613,22 @@ class _DividerHandleState extends State<_DividerHandle> {
     _haptic();
     widget.focusNode.requestFocus();
     widget.onChangeStart?.call(
-      _changeDetails(
-        widget.solution.effectiveFraction,
-        SplitterChangeSource.drag,
-      ),
+      _changeDetails(session.startEffectiveFraction, SplitterChangeSource.drag),
     );
   }
 
   void _onDragUpdate(DragUpdateDetails details) {
-    final available = widget.solver.available;
-    if (!_isDragging ||
-        _dragStartPosition == null ||
-        _dragStartRatio == null ||
-        available <= 0) {
-      return;
-    }
+    final session = _session;
+    if (session == null) return;
 
+    // The session captured the start anchors and available extent, so the math
+    // stays stable even if the container resizes mid-drag; the live solver still
+    // clamps to current constraints (no dead zone, no inverted clamp).
     final currentPos = _mainAxisPosition(details.globalPosition);
-    // In RTL the start pane sits on the right, so dragging the divider right (a
-    // positive delta) must shrink it. Vertical axes are unaffected.
-    final isRtl =
-        widget.axis.isH && Directionality.maybeOf(context) == TextDirection.rtl;
-    final delta = (currentPos - _dragStartPosition!) * (isRtl ? -1.0 : 1.0);
-    final deltaRatio = delta / available;
-
-    // Resolve through the shared solver so the stored value tracks what is
-    // actually shown (no dead zone) and a cramped layout can never invert a
-    // clamp. The drag began at the effective fraction, so motion is 1:1.
-    final newRatio = widget.solver
-        .solve(SplitterPosition.fraction(_dragStartRatio! + deltaRatio))
-        .effectiveFraction;
+    final newRatio = session.fractionFor(currentPos, widget.solver);
     _lastDragRatio = newRatio;
 
-    if (widget.deferred) {
+    if (session.deferred) {
       // Defer the resize: move only the preview line. The panes keep their
       // committed size and onChanged stays silent until the drag is released.
       widget.onPreviewChanged?.call(newRatio);
@@ -1555,84 +1639,94 @@ class _DividerHandleState extends State<_DividerHandle> {
     widget.controller.updateRatio(newRatio);
     final current = _effective;
     if ((current - previous).abs() > 1e-9) {
-      widget.onChanged?.call(
-        _changeDetails(current, SplitterChangeSource.drag),
-      );
+      widget.onChanged?.call(_changeDetails(current, SplitterChangeSource.drag));
     }
   }
 
   void _onDragEnd(DragEndDetails details) {
-    _stopDrag();
+    // Flutter routes a mid-drag pointer cancel through onEnd, so classify it
+    // with the flag the Listener set from the raw PointerCancelEvent.
+    _endDrag(
+      _activePointerCanceled
+          ? _DragEndReason.canceled
+          : _DragEndReason.completed,
+    );
   }
 
-  void _onDragCancel() {
-    _stopDrag();
+  // Fires only when a drag is rejected before it is accepted (the session, if
+  // any, is already gone); the idempotent _endDrag makes it a safe no-op.
+  void _onDragCancel() => _endDrag(_DragEndReason.canceled);
+
+  // The single, idempotent terminal for a drag. Claims the session before any
+  // user code so a re-entrant call (the router backup plus the gesture end, or
+  // a callback that triggers a rebuild) no-ops; settles only on a real
+  // completion; and ALWAYS tears down, even if a user callback throws.
+  void _endDrag(_DragEndReason reason) {
+    final session = _session;
+    if (session == null) return;
+    _session = null;
+    if (mounted) setState(() {}); // drop the dragged visual state
+
+    SplitterChangeDetails? endDetails;
+    try {
+      if (reason == _DragEndReason.completed) endDetails = _settle(session);
+    } finally {
+      _teardown(session);
+    }
+
+    // onChangeEnd fires only on a real release, after teardown (so the
+    // controller already reads isDragging == false), and never if settle threw.
+    if (endDetails != null && mounted) widget.onChangeEnd?.call(endDetails);
   }
 
-  void _stopDrag() {
-    // Settle from the drag target. In deferred mode the controller has not moved
-    // during the drag, so the target is the last preview; in live mode the
-    // target equals the effective value, so this matches the previous behavior.
+  // Commits the final position (or a snap) for a completed drag and returns the
+  // end payload. May invoke onChanged; if that throws, [_endDrag]'s finally
+  // still tears the drag down.
+  SplitterChangeDetails _settle(_DragSession session) {
+    // In deferred mode the controller has not moved during the drag, so the
+    // target is the last preview; in live mode it equals the effective value.
     final target = _lastDragRatio ?? _effective;
-    widget.onPreviewChanged?.call(null);
+    session.onPreviewChanged?.call(null);
     final snapped = _maybeSnap(target);
 
-    // No snap point claimed the release: commit the exact final ratio. The
-    // per-update threshold can otherwise leave the handle a fraction short of
-    // where the pointer actually let go (and in deferred mode the controller has
-    // not moved at all yet).
+    // No snap claimed the release: commit the exact final ratio. The per-update
+    // threshold can otherwise leave the handle a fraction short of where the
+    // pointer let go (and in deferred mode the controller has not moved at all).
     if (snapped == null && _lastDragRatio != null) {
       final previous = _effective;
-      widget.controller.updateRatio(_lastDragRatio!, threshold: 0);
+      session.controller.updateRatio(_lastDragRatio!, threshold: 0);
       final current = _effective;
       if ((current - previous).abs() > 1e-9) {
-        widget.onChanged?.call(
-          _changeDetails(current, SplitterChangeSource.drag),
-        );
+        widget.onChanged?.call(_changeDetails(current, SplitterChangeSource.drag));
       }
     }
 
-    _teardownDrag(widget.controller);
-
-    if (mounted) {
-      widget.onChangeEnd?.call(
-        _changeDetails(
-          snapped ?? _effective,
-          snapped != null
-              ? SplitterChangeSource.snap
-              : SplitterChangeSource.drag,
-        ),
-      );
-    }
+    return _changeDetails(
+      snapped ?? _effective,
+      snapped != null ? SplitterChangeSource.snap : SplitterChangeSource.drag,
+    );
   }
 
-  // Releases [controller] from the active drag and clears all per-drag state.
-  // The controller is passed explicitly because the parent can swap
-  // widget.controller mid-drag, and the drag must be torn down on the controller
-  // it began on - not whichever is current. Commits no position.
-  void _teardownDrag(SplitterController controller) {
-    if (mounted) {
-      setState(() => _isDragging = false);
-    } else {
-      _isDragging = false;
-    }
-
+  // Releases the session's controller (the one the drag began on, never a
+  // swapped-in one) and clears all per-drag resources, using the preview
+  // callback captured at start so the preview clears even if the parent flipped
+  // deferredResize/resizable off mid-drag. Commits nothing and never calls
+  // setState, so it is safe to run from dispose.
+  void _teardown(_DragSession session) {
+    final controller = session.controller;
     controller
       .._setDragging(false)
       .._setDragCallback(null);
     SplitterController._globalRouter.endDrag(controller);
+    session.onPreviewChanged?.call(null);
     _removeOverlay();
     _scrollHold?.cancel();
     _scrollHold = null;
-
-    _dragStartPosition = null;
-    _dragStartRatio = null;
     _lastDragRatio = null;
-
-    if (_activePointer != null && _activePointer! >= 0) {
-      _pendingPointers.removeWhere((pointer) => pointer.id == _activePointer);
+    _activePointerCanceled = false;
+    if (session.pointerId >= 0) {
+      _pendingPointers.removeWhere((pointer) => pointer.id == session.pointerId);
     }
-    _activePointer = null;
   }
 
   double? _maybeSnap(double value) {
@@ -1757,8 +1851,18 @@ class _DividerHandleState extends State<_DividerHandle> {
     }
   }
 
-  void _handlePointerEnd(PointerEvent event) {
+  void _handlePointerUp(PointerEvent event) {
     _pendingPointers.removeWhere((pointer) => pointer.id == event.pointer);
+  }
+
+  void _handlePointerCancel(PointerEvent event) {
+    _pendingPointers.removeWhere((pointer) => pointer.id == event.pointer);
+    // The recognizer's onEnd (which Flutter fires next, for both a release and
+    // a cancel) reads this to settle a cancel as a cancel, not a completion.
+    final session = _session;
+    if (session != null && event.pointer == session.pointerId) {
+      _activePointerCanceled = true;
+    }
   }
 
   int? _takePendingPointer(Offset globalPosition) {
@@ -1929,8 +2033,8 @@ class _DividerHandleState extends State<_DividerHandle> {
           behavior: HitTestBehavior.opaque,
           onPointerDown: _rememberPointer,
           onPointerMove: _handlePointerMove,
-          onPointerUp: _handlePointerEnd,
-          onPointerCancel: _handlePointerEnd,
+          onPointerUp: _handlePointerUp,
+          onPointerCancel: _handlePointerCancel,
           child: handle,
         ),
       ),
