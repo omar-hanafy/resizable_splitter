@@ -193,7 +193,7 @@ class _NavigationPane extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return ColoredBox(
+    return Material(
       color: theme.colorScheme.surfaceContainerHighest,
       child: SafeArea(
         child: ListView.separated(
@@ -230,7 +230,7 @@ class _Panel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
-    return ColoredBox(
+    return Material(
       color: color,
       child: SafeArea(
         top: false,
@@ -493,14 +493,13 @@ class _ScheduleList extends StatelessWidget {
       separatorBuilder: (context, _) => const SizedBox(height: 12),
       itemBuilder: (context, index) {
         final entry = _entries[index];
-        return DecoratedBox(
-          decoration: BoxDecoration(
-            color: colorScheme.surface,
+        return Material(
+          color: colorScheme.surface,
+          shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: colorScheme.outline.withValues(alpha: 0.2),
-            ),
+            side: BorderSide(color: colorScheme.outline.withValues(alpha: 0.2)),
           ),
+          clipBehavior: Clip.antiAlias,
           child: ListTile(
             leading: CircleAvatar(
               backgroundColor: colorScheme.primary.withAlpha(32),
