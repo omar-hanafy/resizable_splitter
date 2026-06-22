@@ -336,9 +336,7 @@ class ResizableSplitter extends StatefulWidget {
           constraintPolicy,
         ),
       )
-      ..add(
-        EnumProperty<SplitterSurplusPolicy>('surplusPolicy', surplusPolicy),
-      )
+      ..add(EnumProperty<SplitterSurplusPolicy>('surplusPolicy', surplusPolicy))
       ..add(
         FlagProperty(
           'deferredResize',

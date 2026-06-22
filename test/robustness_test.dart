@@ -16,40 +16,43 @@ void main() {
     ),
   );
 
-  testWidgets('a throwing onChanged during a live drag does not strand the drag', (
+  testWidgets(
+    'a throwing onChanged during a live drag does not strand the drag',
+    (tester) async {
+      final controller = SplitterController();
+      await tester.pumpWidget(
+        host(
+          ResizableSplitter(
+            controller: controller,
+            startConstraints: const SplitterPaneConstraints(),
+            endConstraints: const SplitterPaneConstraints(),
+            semanticsLabel: 'handle',
+            onChanged: (_) => throw StateError('boom'),
+            start: const SizedBox(),
+            end: const SizedBox(),
+          ),
+        ),
+      );
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.bySemanticsLabel('handle')),
+      );
+      await tester.pump();
+      await gesture.moveBy(const Offset(30, 0)); // throws inside onChanged
+      await tester.pump();
+      // The throw surfaces, but the drag is still alive and consistent.
+      expect(tester.takeException(), isStateError);
+
+      await gesture.up();
+      await tester.pumpAndSettle();
+      // Teardown ran on release: not stranded.
+      expect(controller.isDragging, isFalse);
+    },
+  );
+
+  testWidgets('a throwing onChangeEnd does not strand the drag', (
     tester,
   ) async {
-    final controller = SplitterController();
-    await tester.pumpWidget(
-      host(
-        ResizableSplitter(
-          controller: controller,
-          startConstraints: const SplitterPaneConstraints(),
-          endConstraints: const SplitterPaneConstraints(),
-          semanticsLabel: 'handle',
-          onChanged: (_) => throw StateError('boom'),
-          start: const SizedBox(),
-          end: const SizedBox(),
-        ),
-      ),
-    );
-
-    final gesture = await tester.startGesture(
-      tester.getCenter(find.bySemanticsLabel('handle')),
-    );
-    await tester.pump();
-    await gesture.moveBy(const Offset(30, 0)); // throws inside onChanged
-    await tester.pump();
-    // The throw surfaces, but the drag is still alive and consistent.
-    expect(tester.takeException(), isStateError);
-
-    await gesture.up();
-    await tester.pumpAndSettle();
-    // Teardown ran on release: not stranded.
-    expect(controller.isDragging, isFalse);
-  });
-
-  testWidgets('a throwing onChangeEnd does not strand the drag', (tester) async {
     final controller = SplitterController();
     await tester.pumpWidget(
       host(
@@ -183,7 +186,9 @@ void main() {
     await tester.pump();
 
     // Remove the splitter mid-drag.
-    await tester.pumpWidget(const MaterialApp(home: Scaffold(body: SizedBox())));
+    await tester.pumpWidget(
+      const MaterialApp(home: Scaffold(body: SizedBox())),
+    );
     await gesture.up();
     await tester.pumpAndSettle();
 

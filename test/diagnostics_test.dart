@@ -52,7 +52,9 @@ void main() {
       expect(text, contains('isAttached: false'));
     });
 
-    testWidgets('reports drag + attachment state while mounted', (tester) async {
+    testWidgets('reports drag + attachment state while mounted', (
+      tester,
+    ) async {
       final controller = SplitterController();
       await tester.pumpWidget(
         MaterialApp(
