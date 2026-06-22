@@ -1,0 +1,918 @@
+// ignore_for_file: use_setters_to_change_properties
+part of 'resizable_splitter.dart';
+
+/// The immutable identity and start anchors of an in-flight drag.
+///
+/// Capturing the controller, pointer, axis, direction, start fraction/position,
+/// available extent, mode, and preview callback at the moment a drag begins is
+/// what lets it end cleanly on the controller it started on - even if the parent
+/// swaps the controller, axis, mode, or preview callback mid-drag - and keeps
+/// the pointer-to-fraction math stable if the container resizes underneath.
+@immutable
+class _DragSession {
+  const _DragSession({
+    required this.controller,
+    required this.pointerId,
+    required this.axis,
+    required this.isRtl,
+    required this.startEffectiveFraction,
+    required this.startLocalMainAxis,
+    required this.availableExtent,
+    required this.deferred,
+    required this.onPreviewChanged,
+  });
+
+  final SplitterController controller;
+  final int pointerId;
+  final Axis axis;
+  final bool isRtl;
+  final double startEffectiveFraction;
+  final double startLocalMainAxis;
+  final double availableExtent;
+  final bool deferred;
+  final ValueChanged<double?>? onPreviewChanged;
+
+  /// Maps the current local main-axis pointer position to a clamped effective
+  /// start fraction, measuring motion against the extent captured at drag start
+  /// (stable under a mid-drag container resize) and clamping through [solver].
+  double fractionFor(double currentLocalMainAxis, SplitterSolver solver) {
+    // In RTL the start pane sits on the right, so a rightward (positive) delta
+    // must shrink it. Vertical axes are unaffected.
+    final delta =
+        (currentLocalMainAxis - startLocalMainAxis) * (isRtl ? -1.0 : 1.0);
+    final deltaRatio = availableExtent > 0 ? delta / availableExtent : 0.0;
+    return solver
+        .solve(SplitterPosition.fraction(startEffectiveFraction + deltaRatio))
+        .effectiveFraction;
+  }
+}
+
+/// Internal widget for the draggable divider handle.
+class _DividerHandle extends StatefulWidget {
+  const _DividerHandle({
+    required this.axis,
+    required this.controller,
+    required this.thickness,
+    required this.solver,
+    required this.solution,
+    required this.dividerColor,
+    required this.dragBarrierColor,
+    required this.dragBarrierBuilder,
+    required this.onChanged,
+    required this.onChangeStart,
+    required this.onChangeEnd,
+    required this.enableKeyboard,
+    required this.enableHaptics,
+    required this.keyboardStep,
+    required this.pageStep,
+    required this.focusNode,
+    required this.semanticsLabel,
+    required this.semantics,
+    required this.shieldPlatformViews,
+    required this.snap,
+    required this.handleBuilder,
+    required this.holdScrollWhileDragging,
+    required this.interactiveSlop,
+    required this.doubleTapResetTo,
+    required this.resizable,
+    this.onTap,
+    this.onDoubleTap,
+    this.deferred = false,
+    this.onPreviewChanged,
+    required this.localMainAxisOf,
+  });
+
+  final Axis axis;
+  final SplitterController controller;
+  final double thickness;
+  final SplitterSolver solver;
+  final SplitterSolution solution;
+  final WidgetStateProperty<Color?>? dividerColor;
+  final Color? dragBarrierColor;
+  final Widget Function(BuildContext context)? dragBarrierBuilder;
+  final ValueChanged<SplitterChangeDetails>? onChanged;
+  final ValueChanged<SplitterChangeDetails>? onChangeStart;
+  final ValueChanged<SplitterChangeDetails>? onChangeEnd;
+  final bool enableKeyboard;
+  final bool enableHaptics;
+  final double keyboardStep;
+  final double pageStep;
+  final FocusNode focusNode;
+  final String? semanticsLabel;
+  final SplitterSemanticsLabels semantics;
+  final bool shieldPlatformViews;
+  final SplitterSnapBehavior? snap;
+  final Widget Function(BuildContext, SplitterHandleDetails)? handleBuilder;
+  final bool holdScrollWhileDragging;
+
+  /// Overhang on each side of the visible bar that the catcher overlays onto the
+  /// panels (half of `interactiveExtent - thickness`, zero when not resizable).
+  final double interactiveSlop;
+  final double? doubleTapResetTo;
+  final bool resizable;
+  final VoidCallback? onTap;
+  final VoidCallback? onDoubleTap;
+
+  /// Whether to defer the resize until release, tracking the drag with a preview
+  /// line instead of resizing the panes every frame.
+  final bool deferred;
+
+  /// Reports the live preview fraction during a deferred drag (null on release).
+  final ValueChanged<double?>? onPreviewChanged;
+
+  /// Maps a global pointer position to the splitter's local main-axis
+  /// coordinate so drag math is transform-safe. Returns null if unavailable.
+  final double? Function(Offset globalPosition) localMainAxisOf;
+
+  @override
+  State<_DividerHandle> createState() => _DividerHandleState();
+}
+
+class _DividerHandleState extends State<_DividerHandle> {
+  // The active drag, or null when not dragging. A single nullable field is the
+  // whole drag state machine: `_session != null` means dragging, and the
+  // terminal [_endDrag] claims it before any user code, so a cancel, a
+  // reconfiguration, a disposal, the router backup, or a throwing callback can
+  // never double-fire, snap on a cancel, or strand the controller.
+  _DragSession? _session;
+  bool get _isDragging => _session != null;
+  bool _isHovering = false;
+  // Whether the keyboard focus highlight should show. Driven by
+  // FocusableActionDetector.onShowFocusHighlight, so it tracks Flutter's focus
+  // highlight mode (a ring for keyboard traversal, not for touch). Only ever set
+  // true in the keyboard-enabled branch, so a divider without keyboard support
+  // never paints a misleading ring.
+  bool _isFocused = false;
+  // Set when a PointerCancelEvent arrives for the active drag pointer. Flutter's
+  // drag recognizer reports BOTH a normal release and a mid-drag cancel through
+  // onEnd, so this flag - set by the Listener, which sees the raw cancel before
+  // the recognizer's onEnd - is what lets _onDragEnd tell them apart so a cancel
+  // never snaps or fires a successful onChangeEnd.
+  bool _activePointerCanceled = false;
+  double? _lastDragRatio;
+  OverlayEntry? _dragOverlay;
+  ScrollHoldController? _scrollHold;
+  final List<_PendingPointer> _pendingPointers = <_PendingPointer>[];
+
+  void _haptic() {
+    if (widget.enableHaptics) unawaited(HapticFeedback.selectionClick());
+  }
+
+  // The pointer's position along the main axis in the splitter's local frame
+  // (transform-safe), falling back to the raw global coordinate if the render
+  // box is unavailable.
+  double _mainAxisPosition(Offset globalPosition) =>
+      widget.localMainAxisOf(globalPosition) ??
+      (widget.axis.isH ? globalPosition.dx : globalPosition.dy);
+
+  /// Builds the change payload for the effective [fraction], resolving the
+  /// layout through the shared solver so the reported extents match what is
+  /// drawn. [requestedPosition] is the controller's *actual* request - which may
+  /// be a pixel pin - rather than a fraction fabricated from the effective value,
+  /// so a drag that starts on a pinned pane reports the pin honestly.
+  SplitterChangeDetails _changeDetails(
+    double fraction,
+    SplitterChangeSource source, {
+    SplitterChangeEnd? end,
+  }) {
+    final solution = widget.solver.solve(SplitterPosition.fraction(fraction));
+    return SplitterChangeDetails(
+      requestedPosition: widget.controller.value.position,
+      effectiveFraction: solution.effectiveFraction,
+      startExtent: solution.startExtent,
+      endExtent: solution.endExtent,
+      availableExtent: widget.solver.available,
+      source: source,
+      end: end,
+    );
+  }
+
+  /// The current on-screen start fraction, freshly re-solved from the
+  /// controller's requested position so synchronous adjustments accumulate
+  /// against what is actually shown (not a stale build-time solution).
+  double get _effective =>
+      widget.solver.solve(widget.controller.value.position).effectiveFraction;
+
+  @override
+  void didUpdateWidget(_DividerHandle oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final session = _session;
+    if (session == null) return;
+    // A drag is anchored to the controller, axis, and mode it began on. If the
+    // parent swaps any of those (or turns resizing off) mid-drag, interrupt it
+    // on the controller it began on (held by the session): no commit, no snap,
+    // no onChangeEnd. The idempotent [_endDrag] guard also means a later gesture
+    // end/cancel for the same pointer can no longer fire a phantom onChangeEnd.
+    if (!identical(session.controller, widget.controller) ||
+        session.axis != widget.axis ||
+        session.deferred != widget.deferred ||
+        !widget.resizable) {
+      _endDrag(_DragEndReason.interrupted);
+    }
+  }
+
+  @override
+  void dispose() {
+    // Tear down on the session's controller (not necessarily widget.controller)
+    // without setState. No commit, snap, or onChangeEnd.
+    final session = _session;
+    _session = null;
+    if (session != null) _teardown(session);
+    widget.controller._setDragCallback(null);
+    _removeOverlay();
+    _scrollHold?.cancel();
+    _scrollHold = null;
+    _pendingPointers.clear();
+    super.dispose();
+  }
+
+  /// Resolves the divider color for the active [states], falling back to a tint
+  /// derived from the ambient [ColorScheme] when the style leaves it unset. The
+  /// merge of widget-over-theme already happened upstream, so [dividerColor] is
+  /// the single resolved property here.
+  Color _resolveDividerColor(Set<WidgetState> states) {
+    final resolved = widget.dividerColor?.resolve(states);
+    if (resolved != null) return resolved;
+    final cs = Theme.of(context).colorScheme;
+    if (states.contains(WidgetState.dragged)) {
+      return cs.onSurface.withAlpha(31);
+    }
+    if (states.contains(WidgetState.hovered) ||
+        states.contains(WidgetState.focused)) {
+      return cs.onSurface.withAlpha(20);
+    }
+    return cs.outlineVariant;
+  }
+
+  void _onDragStart(DragStartDetails details) {
+    if (!widget.resizable || _isDragging) return;
+    if (!_isSupportedPointerKind(details.kind)) return;
+
+    final controller = widget.controller;
+    final pointerId = _takePendingPointer(details.globalPosition) ?? -1;
+    final isRtl =
+        widget.axis.isH && Directionality.maybeOf(context) == TextDirection.rtl;
+    final session = _DragSession(
+      controller: controller,
+      pointerId: pointerId,
+      axis: widget.axis,
+      isRtl: isRtl,
+      startEffectiveFraction: widget.solution.effectiveFraction,
+      startLocalMainAxis: _mainAxisPosition(details.globalPosition),
+      availableExtent: widget.solver.available,
+      deferred: widget.deferred,
+      onPreviewChanged: widget.onPreviewChanged,
+    );
+    setState(() => _session = session);
+    _lastDragRatio = null;
+    _activePointerCanceled = false;
+
+    controller
+      .._cancelAnimation()
+      .._setDragging(true)
+      .._setDragCallback(_endDrag);
+    SplitterController._globalRouter.beginDrag(controller, pointerId);
+
+    if (widget.holdScrollWhileDragging) {
+      _scrollHold?.cancel();
+      _scrollHold = Scrollable.maybeOf(context)?.position.hold(() {});
+    }
+
+    if (widget.shieldPlatformViews) _insertOverlay();
+
+    _haptic();
+    widget.focusNode.requestFocus();
+    widget.onChangeStart?.call(
+      _changeDetails(session.startEffectiveFraction, SplitterChangeSource.drag),
+    );
+  }
+
+  void _onDragUpdate(DragUpdateDetails details) {
+    final session = _session;
+    if (session == null) return;
+
+    // The session captured the start anchors and available extent, so the math
+    // stays stable even if the container resizes mid-drag; the live solver still
+    // clamps to current constraints (no dead zone, no inverted clamp).
+    final currentPos = _mainAxisPosition(details.globalPosition);
+    final newRatio = session.fractionFor(currentPos, widget.solver);
+    _lastDragRatio = newRatio;
+
+    if (session.deferred) {
+      // Defer the resize: move only the preview line. The panes keep their
+      // committed size and onChanged stays silent until the drag is released.
+      widget.onPreviewChanged?.call(newRatio);
+      return;
+    }
+
+    final previous = _effective;
+    widget.controller.updateRatio(newRatio);
+    final current = _effective;
+    if ((current - previous).abs() > 1e-9) {
+      widget.onChanged?.call(
+        _changeDetails(current, SplitterChangeSource.drag),
+      );
+    }
+  }
+
+  void _onDragEnd(DragEndDetails details) {
+    // Flutter routes a mid-drag pointer cancel through onEnd, so classify it
+    // with the flag the Listener set from the raw PointerCancelEvent.
+    _endDrag(
+      _activePointerCanceled
+          ? _DragEndReason.canceled
+          : _DragEndReason.completed,
+    );
+  }
+
+  // Fires only when a drag is rejected before it is accepted (the session, if
+  // any, is already gone); the idempotent _endDrag makes it a safe no-op.
+  void _onDragCancel() => _endDrag(_DragEndReason.canceled);
+
+  // The single, idempotent terminal for a drag. Claims the session before any
+  // user code so a re-entrant call (the router backup plus the gesture end, or
+  // a callback that triggers a rebuild) no-ops; settles only on a real
+  // completion; and ALWAYS tears down, even if a user callback throws.
+  void _endDrag(_DragEndReason reason) {
+    final session = _session;
+    if (session == null) return;
+    _session = null;
+    if (mounted) setState(() {}); // drop the dragged visual state
+
+    SplitterChangeDetails? endDetails;
+    try {
+      switch (reason) {
+        case _DragEndReason.completed:
+          // A real release: settle (commit / snap) and report a committed end.
+          endDetails = _settle(session);
+        case _DragEndReason.canceled:
+          // A system cancel: commit nothing and do not snap, but still report a
+          // balanced end (marked canceled) so every onChangeStart has its end.
+          endDetails = _changeDetails(
+            _effective,
+            SplitterChangeSource.drag,
+            end: SplitterChangeEnd.canceled,
+          );
+        case _DragEndReason.interrupted:
+          // A mid-drag reconfiguration tears down from didUpdateWidget; calling
+          // back during a parent rebuild would be unsafe, so fire no end.
+          endDetails = null;
+      }
+    } finally {
+      _teardown(session);
+    }
+
+    // Fire after teardown (so the controller already reads isDragging == false),
+    // and never if settle threw (endDetails stays null).
+    if (endDetails != null && mounted) widget.onChangeEnd?.call(endDetails);
+  }
+
+  // Commits the final position (or a snap) for a completed drag and returns the
+  // end payload. May invoke onChanged; if that throws, [_endDrag]'s finally
+  // still tears the drag down.
+  SplitterChangeDetails _settle(_DragSession session) {
+    // In deferred mode the controller has not moved during the drag, so the
+    // target is the last preview; in live mode it equals the effective value.
+    final target = _lastDragRatio ?? _effective;
+    session.onPreviewChanged?.call(null);
+    final snapped = _maybeSnap(target);
+
+    // No snap claimed the release: commit the exact final ratio. The per-update
+    // threshold can otherwise leave the handle a fraction short of where the
+    // pointer let go (and in deferred mode the controller has not moved at all).
+    if (snapped == null && _lastDragRatio != null) {
+      final previous = _effective;
+      session.controller.updateRatio(_lastDragRatio!, threshold: 0);
+      final current = _effective;
+      if ((current - previous).abs() > 1e-9) {
+        widget.onChanged?.call(
+          _changeDetails(current, SplitterChangeSource.drag),
+        );
+      }
+    }
+
+    return _changeDetails(
+      snapped ?? _effective,
+      snapped != null ? SplitterChangeSource.snap : SplitterChangeSource.drag,
+      end: SplitterChangeEnd.committed,
+    );
+  }
+
+  // Releases the session's controller (the one the drag began on, never a
+  // swapped-in one) and clears all per-drag resources, using the preview
+  // callback captured at start so the preview clears even if the parent flipped
+  // deferredResize/resizable off mid-drag. Commits nothing and never calls
+  // setState, so it is safe to run from dispose.
+  void _teardown(_DragSession session) {
+    final controller = session.controller;
+    controller
+      .._setDragging(false)
+      .._setDragCallback(null);
+    SplitterController._globalRouter.endDrag(controller);
+    session.onPreviewChanged?.call(null);
+    _removeOverlay();
+    _scrollHold?.cancel();
+    _scrollHold = null;
+    _lastDragRatio = null;
+    _activePointerCanceled = false;
+    if (session.pointerId >= 0) {
+      _pendingPointers.removeWhere(
+        (pointer) => pointer.id == session.pointerId,
+      );
+    }
+  }
+
+  double? _maybeSnap(double value) {
+    final snap = widget.snap;
+    final points = snap?.points;
+    if (snap == null || points == null || points.isEmpty) return null;
+    final available = widget.solver.available;
+    if (available <= 0) return null;
+
+    // A pixel tolerance is measured in logical pixels (size-independent);
+    // otherwise the distance and tolerance are both in effective-ratio space.
+    final usePixels = snap.pixelTolerance != null;
+    final tolerance = snap.pixelTolerance ?? snap.tolerance;
+
+    // Compare in effective space: a snap point that constraints push aside is
+    // measured by where it actually lands, not by its nominal ratio.
+    var nearest = value;
+    var bestDist = double.infinity;
+    for (final p in points) {
+      final resolved = widget.solver
+          .solve(SplitterPosition.fraction(p))
+          .effectiveFraction;
+      final d = (value - resolved).abs() * (usePixels ? available : 1.0);
+      if (d < bestDist) {
+        bestDist = d;
+        nearest = resolved;
+      }
+    }
+    if (bestDist <= tolerance) {
+      final previous = _effective;
+      if ((nearest - previous).abs() > 1e-9) {
+        widget.controller.updateRatio(nearest, threshold: 0);
+        final current = _effective;
+        if ((current - previous).abs() > 1e-9) {
+          widget.onChanged?.call(
+            _changeDetails(current, SplitterChangeSource.snap),
+          );
+        }
+      }
+      return nearest;
+    }
+    return null;
+  }
+
+  void _insertOverlay() {
+    if (_dragOverlay != null) return;
+
+    // The shield needs a root Overlay to sit above platform views. Apps built on
+    // MaterialApp/Navigator have one; if there is none, degrade gracefully - the
+    // drag still works, just without the platform-view shield - rather than
+    // throwing from a reusable layout primitive (Overlay.of would).
+    final overlay = Overlay.maybeOf(context, rootOverlay: true);
+    if (overlay == null) {
+      assert(() {
+        debugPrint(
+          'ResizableSplitter: no Overlay ancestor, so the drag platform-view '
+          'shield is disabled. Provide a MaterialApp/Navigator (or any Overlay), '
+          'or set shieldPlatformViews: false to opt out and silence this.',
+        );
+        return true;
+      }());
+      return;
+    }
+
+    final entry = OverlayEntry(
+      builder: (context) => _DragOverlay(
+        axis: widget.axis,
+        dragBarrierColor: widget.dragBarrierColor,
+        barrierBuilder: widget.dragBarrierBuilder,
+      ),
+    );
+
+    // Only record the entry once it is actually inserted, so _removeOverlay can
+    // always pair a remove() with the dispose() (mounted tracks the built
+    // widget, not overlay membership).
+    overlay.insert(entry);
+    _dragOverlay = entry;
+  }
+
+  void _removeOverlay() {
+    final overlay = _dragOverlay;
+    _dragOverlay = null;
+    if (overlay == null) return;
+    overlay
+      ..remove()
+      ..dispose();
+  }
+
+  void _rememberPointer(PointerDownEvent event) {
+    if (!widget.resizable || _isDragging) return;
+
+    final isPrimaryMouse =
+        event.kind == PointerDeviceKind.mouse &&
+        event.buttons == kPrimaryMouseButton;
+    final isTouchLike =
+        event.kind == PointerDeviceKind.touch ||
+        event.kind == PointerDeviceKind.stylus ||
+        event.kind == PointerDeviceKind.invertedStylus ||
+        event.kind == PointerDeviceKind.trackpad ||
+        event.kind == PointerDeviceKind.unknown;
+
+    if (!isPrimaryMouse && !isTouchLike) return;
+
+    // Pressing the handle focuses it, so keyboard adjustment works after a tap
+    // (not only after a drag).
+    if (widget.enableKeyboard && widget.resizable) {
+      widget.focusNode.requestFocus();
+    }
+
+    _pendingPointers.removeWhere((pointer) => pointer.id == event.pointer);
+    _pendingPointers.add(_PendingPointer(event.pointer, event.position));
+  }
+
+  void _handlePointerMove(PointerMoveEvent event) {
+    if (_isDragging) return;
+
+    for (final pointer in _pendingPointers) {
+      if (pointer.id == event.pointer) {
+        pointer.position = event.position;
+        break;
+      }
+    }
+  }
+
+  void _handlePointerUp(PointerEvent event) {
+    _pendingPointers.removeWhere((pointer) => pointer.id == event.pointer);
+  }
+
+  void _handlePointerCancel(PointerEvent event) {
+    _pendingPointers.removeWhere((pointer) => pointer.id == event.pointer);
+    // The recognizer's onEnd (which Flutter fires next, for both a release and
+    // a cancel) reads this to settle a cancel as a cancel, not a completion.
+    final session = _session;
+    if (session != null && event.pointer == session.pointerId) {
+      _activePointerCanceled = true;
+    }
+  }
+
+  int? _takePendingPointer(Offset globalPosition) {
+    if (_pendingPointers.isEmpty) return null;
+
+    const double toleranceSquared = 16.0;
+    _PendingPointer? match;
+    var matchIndex = -1;
+
+    for (var i = _pendingPointers.length - 1; i >= 0; i--) {
+      final candidate = _pendingPointers[i];
+      final diff = candidate.position - globalPosition;
+      if (diff.distanceSquared <= toleranceSquared) {
+        match = candidate;
+        matchIndex = i;
+        break;
+      }
+    }
+
+    match ??= _pendingPointers.first;
+    matchIndex = matchIndex >= 0 ? matchIndex : 0;
+    _pendingPointers.removeAt(matchIndex);
+    return match.id;
+  }
+
+  bool _isSupportedPointerKind(PointerDeviceKind? kind) {
+    if (kind == null) return true;
+    return kind == PointerDeviceKind.touch ||
+        kind == PointerDeviceKind.mouse ||
+        kind == PointerDeviceKind.stylus ||
+        kind == PointerDeviceKind.invertedStylus ||
+        kind == PointerDeviceKind.trackpad ||
+        kind == PointerDeviceKind.unknown;
+  }
+
+  /// The on-screen ratio for [ratio], honoring ratio caps and pixel minimums.
+  /// Used for the semantics readout so it matches what the layout shows.
+  double _effectiveRatio(double ratio) =>
+      widget.solver.solve(SplitterPosition.fraction(ratio)).effectiveFraction;
+
+  void _nudge(double delta, SplitterChangeSource source) {
+    if (!widget.resizable) return;
+
+    // Step from the current *effective* position (re-solved fresh, so repeated
+    // presses without a rebuild still accumulate), then re-solve to clamp. This
+    // moves the divider by the step in what the user actually sees, instead of
+    // nudging a stored value through a dead band.
+    final base = _effective;
+    final newRatio = widget.solver
+        .solve(SplitterPosition.fraction(base + delta))
+        .effectiveFraction;
+    widget.controller.jumpTo(SplitterPosition.fraction(newRatio));
+    final current = _effective;
+    if ((current - base).abs() > 1e-9) {
+      widget.onChanged?.call(_changeDetails(current, source));
+      _haptic();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Focus is only meaningful when the handle is a keyboard-navigable resize
+    // affordance; gate it so a stale highlight (e.g. after keyboard support is
+    // turned off) can never paint a ring on a non-interactive divider.
+    final isFocused = _isFocused && widget.enableKeyboard && widget.resizable;
+    final states = <WidgetState>{
+      if (!widget.resizable) WidgetState.disabled,
+      if (_isHovering) WidgetState.hovered,
+      if (isFocused) WidgetState.focused,
+      if (_isDragging) WidgetState.dragged,
+    };
+    // The default focus ring is a border on the bar. A custom grip builder owns
+    // its own focus visual (it receives isFocused), so the default ring is
+    // suppressed when a builder is supplied to avoid a doubled indicator.
+    final showFocusRing = isFocused && widget.handleBuilder == null;
+    final currentDecoration = BoxDecoration(
+      color: _resolveDividerColor(states),
+      border: showFocusRing
+          ? Border.all(color: Theme.of(context).colorScheme.primary, width: 2)
+          : null,
+    );
+
+    final grip =
+        widget.handleBuilder?.call(
+          context,
+          SplitterHandleDetails(
+            isDragging: _isDragging,
+            isHovering: _isHovering,
+            isFocused: isFocused,
+            axis: widget.axis,
+            thickness: widget.thickness,
+          ),
+        ) ??
+        // Default subtle grip.
+        Center(
+          child: Container(
+            width: widget.axis.isH ? 2 : 24,
+            height: widget.axis.isH ? 24 : 2,
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.onSurface.withAlpha(77),
+              borderRadius: BorderRadius.circular(1),
+            ),
+          ),
+        );
+
+    Widget handle = AnimatedContainer(
+      duration: const Duration(milliseconds: 150),
+      decoration: currentDecoration,
+      child: grip,
+    );
+
+    if (widget.axis.isH) {
+      handle = SizedBox(width: widget.thickness, child: handle);
+    } else {
+      handle = SizedBox(height: widget.thickness, child: handle);
+    }
+
+    // Widen the *grab* area across the divider's thin dimension without moving
+    // the visible bar: the slop is transparent padding that still sits inside
+    // the opaque Listener below, so it hit-tests. The matching extent was
+    // already reserved out of the panels via the divider footprint.
+    if (widget.interactiveSlop > 0) {
+      handle = Padding(
+        padding: widget.axis.isH
+            ? EdgeInsets.symmetric(horizontal: widget.interactiveSlop)
+            : EdgeInsets.symmetric(vertical: widget.interactiveSlop),
+        child: handle,
+      );
+    }
+
+    Widget divider = GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      dragStartBehavior: DragStartBehavior.down,
+      excludeFromSemantics: true,
+      onHorizontalDragStart: widget.axis.isH ? _onDragStart : null,
+      onHorizontalDragUpdate: widget.axis.isH ? _onDragUpdate : null,
+      onHorizontalDragEnd: widget.axis.isH ? _onDragEnd : null,
+      onHorizontalDragCancel: widget.axis.isH ? _onDragCancel : null,
+      onVerticalDragStart: widget.axis.isH ? null : _onDragStart,
+      onVerticalDragUpdate: widget.axis.isH ? null : _onDragUpdate,
+      onVerticalDragEnd: widget.axis.isH ? null : _onDragEnd,
+      onVerticalDragCancel: widget.axis.isH ? null : _onDragCancel,
+      onTap: widget.onTap,
+      onDoubleTap:
+          (widget.onDoubleTap != null || widget.doubleTapResetTo != null)
+          ? () {
+              widget.onDoubleTap?.call();
+              if (widget.doubleTapResetTo != null && widget.resizable) {
+                final target = widget.doubleTapResetTo!;
+                final startValue = widget.controller.effectiveFraction;
+                unawaited(
+                  widget.controller.animateTo(target).then((status) {
+                    // Only report a settle when the animation actually reached
+                    // the target; a drag/value-write that cancelled it, or a
+                    // disposal, must not emit a phantom programmatic change.
+                    if (!mounted ||
+                        status != SplitterAnimationStatus.completed) {
+                      return;
+                    }
+                    final updated = _effective;
+                    if ((updated - startValue).abs() > 1e-9) {
+                      widget.onChanged?.call(
+                        _changeDetails(
+                          updated,
+                          SplitterChangeSource.doubleTapReset,
+                        ),
+                      );
+                    }
+                  }),
+                );
+              }
+            }
+          : null,
+      child: MouseRegion(
+        cursor: widget.resizable
+            ? widget.axis.cursor
+            : SystemMouseCursors.basic,
+        onEnter: (_) => setState(() => _isHovering = true),
+        onExit: (_) => setState(() => _isHovering = false),
+        child: Listener(
+          behavior: HitTestBehavior.opaque,
+          onPointerDown: _rememberPointer,
+          onPointerMove: _handlePointerMove,
+          onPointerUp: _handlePointerUp,
+          onPointerCancel: _handlePointerCancel,
+          child: handle,
+        ),
+      ),
+    );
+
+    // Value previews mirror what an adjust action actually does: move from the
+    // current effective position by one step. Assistive adjustment is offered
+    // whenever the splitter is resizable, independent of physical keyboard
+    // support - a screen reader is its own input channel. Each direction is
+    // additionally gated on whether the divider can actually move that way, so a
+    // pane pinned at a hard bound drops the action it cannot perform rather than
+    // announcing a no-op (review A#14).
+    final effective = _effective;
+    final labels = widget.semantics;
+    String fmt(double ratio) => labels.formatValue(ratio.clamp(0.0, 1.0));
+    final canIncrease = widget.resizable && widget.solution.canIncreaseStart;
+    final canDecrease = widget.resizable && widget.solution.canDecreaseStart;
+
+    divider = Semantics(
+      slider: true,
+      enabled: widget.resizable,
+      textDirection: Directionality.maybeOf(context),
+      label:
+          widget.semanticsLabel ??
+          labels.label(axis: widget.axis, resizable: widget.resizable),
+      value: fmt(effective),
+      increasedValue: canIncrease
+          ? fmt(_effectiveRatio(effective + widget.keyboardStep))
+          : null,
+      decreasedValue: canDecrease
+          ? fmt(_effectiveRatio(effective - widget.keyboardStep))
+          : null,
+      onIncrease: canIncrease
+          ? () => _nudge(widget.keyboardStep, SplitterChangeSource.semantics)
+          : null,
+      onDecrease: canDecrease
+          ? () => _nudge(-widget.keyboardStep, SplitterChangeSource.semantics)
+          : null,
+      child: divider,
+    );
+
+    if (widget.enableKeyboard && widget.resizable) {
+      final isRtl =
+          widget.axis.isH && Directionality.of(context) == TextDirection.rtl;
+      final decreaseKey = widget.axis.isH
+          ? (isRtl
+                ? LogicalKeyboardKey.arrowRight
+                : LogicalKeyboardKey.arrowLeft)
+          : LogicalKeyboardKey.arrowUp;
+      final increaseKey = widget.axis.isH
+          ? (isRtl
+                ? LogicalKeyboardKey.arrowLeft
+                : LogicalKeyboardKey.arrowRight)
+          : LogicalKeyboardKey.arrowDown;
+      divider = FocusableActionDetector(
+        focusNode: widget.focusNode,
+        // Tracks Flutter's focus highlight mode so the ring shows for keyboard
+        // traversal but not for a touch/mouse focus.
+        onShowFocusHighlight: (show) {
+          if (show != _isFocused) setState(() => _isFocused = show);
+        },
+        shortcuts: <LogicalKeySet, Intent>{
+          // Fine step (left/right swap under RTL on the horizontal axis).
+          LogicalKeySet(decreaseKey): _AdjustIntent(-widget.keyboardStep),
+          LogicalKeySet(increaseKey): _AdjustIntent(widget.keyboardStep),
+          // Page step
+          LogicalKeySet(LogicalKeyboardKey.pageUp): _AdjustIntent(
+            -widget.pageStep,
+          ),
+          LogicalKeySet(LogicalKeyboardKey.pageDown): _AdjustIntent(
+            widget.pageStep,
+          ),
+          // Jump to bounds
+          LogicalKeySet(LogicalKeyboardKey.home): const _JumpIntent.toMin(),
+          LogicalKeySet(LogicalKeyboardKey.end): const _JumpIntent.toMax(),
+        },
+        actions: <Type, Action<Intent>>{
+          _AdjustIntent: CallbackAction<_AdjustIntent>(
+            onInvoke: (intent) {
+              _nudge(intent.delta, SplitterChangeSource.keyboard);
+              return null;
+            },
+          ),
+          _JumpIntent: CallbackAction<_JumpIntent>(
+            onInvoke: (intent) {
+              final previous = _effective;
+              final dest = intent.toMin
+                  ? widget.solver
+                        .solve(const SplitterPosition.fraction(0))
+                        .effectiveFraction
+                  : widget.solver
+                        .solve(const SplitterPosition.fraction(1))
+                        .effectiveFraction;
+              widget.controller.jumpTo(SplitterPosition.fraction(dest));
+              final current = _effective;
+              if ((current - previous).abs() > 1e-9) {
+                widget.onChanged?.call(
+                  _changeDetails(current, SplitterChangeSource.keyboard),
+                );
+                _haptic();
+              }
+              return null;
+            },
+          ),
+        },
+        child: divider,
+      );
+    }
+
+    return divider;
+  }
+}
+
+class _PendingPointer {
+  _PendingPointer(this.id, this.position);
+
+  final int id;
+  Offset position;
+}
+
+/// An invisible overlay that acts as a shield to block pointer events
+/// from reaching platform views during a drag operation.
+class _DragOverlay extends StatelessWidget {
+  const _DragOverlay({
+    required this.axis,
+    this.dragBarrierColor,
+    this.barrierBuilder,
+  });
+
+  final Axis axis;
+  final Color? dragBarrierColor;
+  final Widget Function(BuildContext context)? barrierBuilder;
+
+  @override
+  Widget build(BuildContext context) {
+    // The Listener below hit-tests opaquely regardless of paint, so the visual
+    // is purely cosmetic - the shield works even with a transparent barrier. A
+    // custom barrierBuilder replaces only that visual, never the shield.
+    final barrier =
+        barrierBuilder?.call(context) ??
+        ColoredBox(color: dragBarrierColor ?? Colors.transparent);
+
+    return Positioned.fill(
+      child: ExcludeSemantics(
+        child: MouseRegion(
+          cursor: axis.cursor,
+          child: Listener(
+            behavior: HitTestBehavior.opaque,
+            // The opaque Listener already wins every hit, so the shield works
+            // even with a transparent barrier. IgnorePointer additionally keeps
+            // a custom barrierBuilder strictly visual: its own recognizers or
+            // buttons can never receive the pointer events (review A#16).
+            child: IgnorePointer(child: barrier),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Intent for keyboard-based splitter adjustment.
+class _AdjustIntent extends Intent {
+  const _AdjustIntent(this.delta);
+
+  final double delta;
+}
+
+class _JumpIntent extends Intent {
+  const _JumpIntent._(this.toMin);
+
+  const _JumpIntent.toMin() : this._(true);
+
+  const _JumpIntent.toMax() : this._(false);
+  final bool toMin;
+}
