@@ -266,27 +266,28 @@ is unbounded, bounded path unchanged.
 Status after this pass: 167 tests green, analyze clean (package + tests +
 example), publish dry-run 0 warnings.
 
-OWNER-GATED (product/behavior decisions - deliberately not invented):
-- #4 honest callback contract: today `onChanged` fires for drag/keyboard/snap/
-  semantics/collapse but NOT for `jumpTo`/`updateRatio`/`reset`/`animateTo`/
-  restoration. Making it fire for those (or splitting into
-  onInteractionStart/Update/End + a controller listenable, as the review offers)
-  changes what consumers observe - pick the model. Recommendation: keep
-  `onChanged` interaction-only (its current behavior) and let programmatic
-  changes be observed via `controller`/`layoutListenable` (now available); only
-  document the contract precisely. Low-risk, no API churn.
-- #5 collapse model: `SplitterPaneConstraints.collapsible` is never enforced (any
-  pane can collapse), and `collapsedExtent` may exceed `minExtent`/`maxExtent`
-  ("collapse" could enlarge). Recommendation: replace `collapsible` (bool) +
-  `collapsedExtent` with a single nullable `collapsedExtent` (null = not
-  collapsible), assert it is `<= minExtent`, and have the widget ignore a
-  collapse request for a non-collapsible pane. Breaking but small; needs the
-  owner's nod on the shape + the "collapse a fixed pane" policy.
-- #6 solver surplus policy: `favorStart`/`favorEnd`/`proportional` only define the
-  shortage case (mins don't fit); the surplus case (maxes can't fill) currently
-  violates a max silently. Recommendation: add a `SplitterSurplusPolicy`
-  (giveToStart/giveToEnd/proportional/leaveGap) with a documented default. New
-  public enum + default = product call.
+DONE (owner approved all three recommendations, 2026-06-22):
+- #4 honest callback contract. Kept `onChanged`/`onChangeStart`/`onChangeEnd`
+  interaction-only (drag/keyboard/semantics/snap/double-tap + collapse/expand);
+  documented precisely that programmatic writes (`jumpTo`/`updateRatio`/`reset`/
+  `animateTo`) and restoration are observed via the `controller` and
+  `layoutListenable`. Corrected the `SplitterChangeSource` docs. Lock test:
+  a direct `jumpTo` notifies the controller + layout but does not fire onChanged.
+- #5 collapse model. `collapsible` (bool) removed; a pane is collapsible iff its
+  `collapsedExtent` (`double?`, asserted in `[0, minExtent]`) is set - collapse
+  can never enlarge a pane, and a contradictory config is unrepresentable.
+  copyWith got a sentinel to clear the nullable. The widget gates the solver by
+  collapsibility (a collapse request on a fixed pane is a layout no-op);
+  `layout.collapsedPane` and the collapse/expand events use the RESOLVED collapse.
+- #6 solver surplus policy. Added `SplitterSurplusPolicy` {giveToStart, giveToEnd,
+  proportional, leaveGap} + a `surplusPolicy` widget arg (default giveToStart,
+  preserving prior behavior). The solver now defines the surplus case (both
+  maximums too small to fill) explicitly instead of silently overflowing a max;
+  leaveGap pins both panes to their max with a rendered gap between them.
+
+Status after the full review pass: 177 tests green, analyze clean (package +
+tests + example), publish dry-run 0 warnings. Every release-blocking issue from
+the external review (#1-#11) is now resolved.
 
 ## Working agreements
 
