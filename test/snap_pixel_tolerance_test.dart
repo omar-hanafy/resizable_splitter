@@ -35,7 +35,7 @@ void main() {
     await tester.pumpWidget(
       host(
         controller,
-        const SplitterSnapBehavior(points: [0.75], pixelTolerance: 12),
+        SplitterSnapBehavior(points: [0.75], pixelTolerance: 12),
       ),
     );
 
@@ -56,7 +56,7 @@ void main() {
     await tester.pumpWidget(
       host(
         controller,
-        const SplitterSnapBehavior(points: [0.75], pixelTolerance: 12),
+        SplitterSnapBehavior(points: [0.75], pixelTolerance: 12),
       ),
     );
 

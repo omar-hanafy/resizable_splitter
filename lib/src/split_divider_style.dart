@@ -2,6 +2,10 @@ import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/widgets.dart';
 
+/// Sentinel for [SplitterDividerStyle.copyWith] so a nullable field can be
+/// explicitly cleared (set back to null) rather than only overwritten.
+const Object _noUpdate = Object();
+
 /// Snapshot of the divider handle's interaction state, passed to a custom
 /// [SplitterDividerStyle.builder].
 @immutable
@@ -69,19 +73,28 @@ class SplitterDividerStyle {
   final Widget Function(BuildContext context, SplitterHandleDetails details)?
   builder;
 
-  /// Returns a copy with the given fields replaced.
+  /// Returns a copy with the given fields replaced. Every parameter accepts an
+  /// explicit `null` to clear that field (fall back to the theme/default);
+  /// omitting a parameter keeps the current value.
   SplitterDividerStyle copyWith({
-    double? thickness,
-    WidgetStateProperty<Color?>? color,
-    double? hitSlop,
-    Widget Function(BuildContext context, SplitterHandleDetails details)?
-    builder,
+    Object? thickness = _noUpdate,
+    Object? color = _noUpdate,
+    Object? hitSlop = _noUpdate,
+    Object? builder = _noUpdate,
   }) {
     return SplitterDividerStyle(
-      thickness: thickness ?? this.thickness,
-      color: color ?? this.color,
-      hitSlop: hitSlop ?? this.hitSlop,
-      builder: builder ?? this.builder,
+      thickness: identical(thickness, _noUpdate)
+          ? this.thickness
+          : (thickness as num?)?.toDouble(),
+      color: identical(color, _noUpdate)
+          ? this.color
+          : color as WidgetStateProperty<Color?>?,
+      hitSlop: identical(hitSlop, _noUpdate)
+          ? this.hitSlop
+          : (hitSlop as num?)?.toDouble(),
+      builder: identical(builder, _noUpdate)
+          ? this.builder
+          : builder as Widget Function(BuildContext, SplitterHandleDetails)?,
     );
   }
 

@@ -144,7 +144,7 @@ class _SplitterDemoPageState extends State<SplitterDemoPage> {
         enableKeyboard: true,
         overlayEnabled: useOverlay,
         startConstraints: SplitterPaneConstraints(minExtent: 220),
-        snap: const SplitterSnapBehavior(
+        snap: SplitterSnapBehavior(
           points: <double>[0.26, 0.32, 0.45],
           tolerance: 0.04,
         ),
@@ -680,7 +680,7 @@ class _OverviewExampleState extends State<_OverviewExample> {
                   active: colorScheme.secondary.withAlpha(150),
                 ),
               ),
-              snap: const SplitterSnapBehavior(
+              snap: SplitterSnapBehavior(
                 points: <double>[0.35, 0.5, 0.7],
               ),
               start: const _Panel(
@@ -831,7 +831,7 @@ class _KeyboardExampleState extends State<_KeyboardExample> {
               controller: _controller,
               keyboardStep: 0.05,
               pageStep: 0.2,
-              snap: const SplitterSnapBehavior(
+              snap: SplitterSnapBehavior(
                 points: <double>[0.25, 0.5, 0.75],
                 tolerance: 0.06,
               ),

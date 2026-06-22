@@ -78,7 +78,7 @@ void main() {
     await tester.pumpWidget(
       host(
         controller: controller,
-        snap: const SplitterSnapBehavior(points: [0.75], tolerance: 0.2),
+        snap: SplitterSnapBehavior(points: [0.75], tolerance: 0.2),
       ),
     );
 

@@ -39,7 +39,7 @@ void main() {
             startConstraints: const SplitterPaneConstraints(),
             endConstraints: const SplitterPaneConstraints(),
             blockerColor: Colors.green,
-            snap: const SplitterSnapBehavior(
+            snap: SplitterSnapBehavior(
               points: [0.25, 0.75],
               tolerance: 0.1,
             ),
@@ -223,7 +223,7 @@ void main() {
           startConstraints: const SplitterPaneConstraints(minExtent: 130),
           endConstraints: const SplitterPaneConstraints(),
           minStartFraction: 0.2,
-          snap: const SplitterSnapBehavior(points: [0.0, 1.0], tolerance: 1),
+          snap: SplitterSnapBehavior(points: [0.0, 1.0], tolerance: 1),
           start: const SizedBox(key: Key('start')),
           end: const SizedBox(key: Key('end')),
         ),
