@@ -314,6 +314,34 @@ void main() {
       expect(controller.layout!.collapsedPane, SplitterPane.start);
       expect(mainSize(tester, startKey, Axis.horizontal), closeTo(20, 0.5));
     });
+
+    testWidgets('a zero-extent pane child still fills the cross axis', (
+      tester,
+    ) async {
+      // A collapsed (or otherwise zero-main) pane is invisible on the main axis
+      // but still stretches the full bounded cross extent, exactly as the old
+      // Stack/Positioned layout did - cross treatment is decided independently of
+      // a zero main extent, not force-collapsed to 0x0.
+      final controller = SplitterController()..collapse(SplitterPane.start);
+      await tester.pumpWidget(
+        host(
+          width: 400,
+          height: 200,
+          child: splitter(
+            controller: controller,
+            start: const SplitterPaneConstraints(
+              minExtent: 50,
+              collapsedExtent: 0,
+            ),
+            startChild: const SizedBox(key: startKey),
+            endChild: const SizedBox(key: endKey),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.getSize(find.byKey(startKey)), const Size(0, 200));
+    });
   });
 
   group('hit testing (parity)', () {
@@ -381,6 +409,56 @@ void main() {
         // their intrinsic widths.
         expect(mainSize(tester, startKey, Axis.horizontal), closeTo(120, 0.5));
         expect(mainSize(tester, endKey, Axis.horizontal), closeTo(80, 0.5));
+      },
+    );
+
+    testWidgets(
+      'a collapsed pane stays collapsed and the layout matches the intrinsic',
+      (tester) async {
+        // The invariant: the unbounded-main layout and the unbounded-main
+        // cross-intrinsic share one collapse rule, so they can never disagree. A
+        // collapsed start pane contributes nothing - the splitter shrink-wraps to
+        // the end pane only - and the laid-out cross equals getMaxIntrinsicHeight.
+        // (Before the shared rule, the layout ignored collapse and rendered the
+        // 900-tall pane while the intrinsic reported 50: a silent disagreement.)
+        final controller = SplitterController()..collapse(SplitterPane.start);
+        await tester.pumpWidget(
+          host(
+            // Both axes unbounded, so the cross genuinely shrink-wraps (a tight
+            // host extent would just stretch it back and hide the disagreement).
+            child: UnconstrainedBox(
+              child: splitter(
+                controller: controller,
+                thickness: 10,
+                start: const SplitterPaneConstraints(
+                  minExtent: 50,
+                  collapsedExtent: 0,
+                ),
+                startChild: const SizedBox(
+                  key: startKey,
+                  width: 120,
+                  height: 900,
+                ),
+                endChild: const SizedBox(key: endKey, width: 80, height: 50),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isNull);
+        final render = tester.renderObject<RenderBox>(
+          find.byType(ResizableSplitter),
+        );
+        // Collapsed start is invisible; only the end pane sizes the splitter.
+        expect(tester.getSize(find.byKey(startKey)), Size.zero);
+        expect(render.size.width, closeTo(80, 0.5));
+        expect(render.size.height, closeTo(50, 0.5));
+        // Layout cross == intrinsic cross: the two paths agree about collapse.
+        expect(
+          render.size.height,
+          closeTo(render.getMaxIntrinsicHeight(double.infinity), 0.5),
+        );
       },
     );
   });

@@ -480,14 +480,21 @@ class _RenderResizableSplitter extends RenderBox
   double _maxMain(BoxConstraints c) => _axis.isH ? c.maxWidth : c.maxHeight;
   double _maxCross(BoxConstraints c) => _axis.isH ? c.maxHeight : c.maxWidth;
 
-  /// The single definition of an *occupied* main extent: the raw value when it is
-  /// a usable positive, finite extent, else 0. Every "is this pane present?" and
-  /// "what main extent does it get?" decision routes through here, so the
-  /// absent-pane rule cannot drift between call sites.
+  /// The single definition of the concrete *finite* main extent to lay a pane or
+  /// divider out at: the raw value when it is a usable positive, finite extent,
+  /// else 0. Used wherever a tight constraint is built, so the "an infinite or
+  /// non-positive extent means zero" rule can't drift between call sites. Note
+  /// this is distinct from [_hasPaneMainExtent]: an unbounded (`infinity`) extent
+  /// is *absent* here (you can't tightly lay out at infinity) but *present*
+  /// there (the intrinsic queries the child at its natural, unbounded size).
   double _sanitizedMainExtent(double extent) =>
       extent.isFinite && extent > 0 ? extent : 0.0;
 
-  bool _hasPaneMainExtent(double extent) => _sanitizedMainExtent(extent) > 0;
+  /// Whether a pane occupies the main axis at all - true for any positive extent,
+  /// *including* an unbounded one (the unbounded cross-intrinsic feeds `infinity`
+  /// to mean "query the child at its natural size"). Gates a pane's contribution
+  /// to the cross axis; see [_sanitizedMainExtent] for the finite-extent rule.
+  bool _hasPaneMainExtent(double extent) => extent > 0;
 
   bool get _startRequestedCollapsed =>
       _collapsedPane == SplitterPane.start && _config.start.collapsible;
@@ -573,7 +580,9 @@ class _RenderResizableSplitter extends RenderBox
         ? _startRequestedCollapsed
         : _endRequestedCollapsed;
     if (!collapsed) return double.infinity;
-    final constraints = pane == SplitterPane.start ? _config.start : _config.end;
+    final constraints = pane == SplitterPane.start
+        ? _config.start
+        : _config.end;
     return _sanitizedMainExtent(constraints.collapsedExtent ?? 0.0);
   }
 
@@ -1069,9 +1078,9 @@ class _RenderResizableSplitter extends RenderBox
       _dividerThickness,
       mainExtent,
     );
-    final solution = _solverFor(math.max(0.0, mainExtent - divider)).solve(
-      _position,
-    );
+    final solution = _solverFor(
+      math.max(0.0, mainExtent - divider),
+    ).solve(_position);
     _crossIntrinsicMain = mainExtent;
     _crossIntrinsicSolutionCache = solution;
     return solution;
