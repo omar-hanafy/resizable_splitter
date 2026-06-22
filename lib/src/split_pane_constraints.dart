@@ -1,5 +1,10 @@
 import 'package:flutter/foundation.dart';
 
+/// Sentinel for [SplitterPaneConstraints.copyWith] so the nullable
+/// [SplitterPaneConstraints.collapsedExtent] can be explicitly cleared (set back
+/// to null) rather than only overwritten.
+const Object _noUpdate = Object();
+
 /// Per-pane sizing limits for one side of a split, in logical pixels.
 ///
 /// Pixel limits (rather than fractions) are what let a pane keep a fixed size as
@@ -7,19 +12,30 @@ import 'package:flutter/foundation.dart';
 /// the start-fraction interval passed to the solver.
 @immutable
 class SplitterPaneConstraints {
-  /// Creates pane constraints. [maxExtent] must be `>=` [minExtent], and both
-  /// [minExtent] and [collapsedExtent] must be non-negative.
+  /// Creates pane constraints.
+  ///
+  /// [maxExtent] must be `>=` [minExtent]. [collapsedExtent], when set, marks the
+  /// pane collapsible and must be in `[0, minExtent]` - collapsing shrinks a pane
+  /// below its normal minimum, it never enlarges one. A null [collapsedExtent]
+  /// (the default) means the pane cannot be collapsed.
   const SplitterPaneConstraints({
     this.minExtent = 0,
     this.maxExtent = double.infinity,
-    this.collapsible = false,
-    this.collapsedExtent = 0,
+    this.collapsedExtent,
   }) : assert(minExtent >= 0, 'minExtent must be non-negative'),
        assert(
          maxExtent >= minExtent,
          'maxExtent must be greater than or equal to minExtent',
        ),
-       assert(collapsedExtent >= 0, 'collapsedExtent must be non-negative');
+       assert(
+         collapsedExtent == null || collapsedExtent >= 0,
+         'collapsedExtent must be non-negative',
+       ),
+       assert(
+         collapsedExtent == null || collapsedExtent <= minExtent,
+         'collapsedExtent must be <= minExtent '
+             '(collapse shrinks a pane below its minimum, it never enlarges it)',
+       );
 
   /// Smallest extent this pane may occupy, in logical pixels.
   final double minExtent;
@@ -28,24 +44,27 @@ class SplitterPaneConstraints {
   /// [double.infinity] (unbounded).
   final double maxExtent;
 
-  /// Whether this pane may be collapsed to [collapsedExtent].
-  final bool collapsible;
+  /// The extent this pane occupies while collapsed, in logical pixels, or null
+  /// (the default) if the pane cannot be collapsed. When set, must be
+  /// `<= minExtent`. Collapsing bypasses [minExtent] to reach this size.
+  final double? collapsedExtent;
 
-  /// Extent this pane occupies while collapsed, in logical pixels.
-  final double collapsedExtent;
+  /// Whether this pane may be collapsed (i.e. [collapsedExtent] is set).
+  bool get collapsible => collapsedExtent != null;
 
-  /// Returns a copy with the given fields replaced.
+  /// Returns a copy with the given fields replaced. Pass `collapsedExtent: null`
+  /// to make the pane non-collapsible; omit it to keep the current value.
   SplitterPaneConstraints copyWith({
     double? minExtent,
     double? maxExtent,
-    bool? collapsible,
-    double? collapsedExtent,
+    Object? collapsedExtent = _noUpdate,
   }) {
     return SplitterPaneConstraints(
       minExtent: minExtent ?? this.minExtent,
       maxExtent: maxExtent ?? this.maxExtent,
-      collapsible: collapsible ?? this.collapsible,
-      collapsedExtent: collapsedExtent ?? this.collapsedExtent,
+      collapsedExtent: identical(collapsedExtent, _noUpdate)
+          ? this.collapsedExtent
+          : collapsedExtent as double?,
     );
   }
 
@@ -55,18 +74,15 @@ class SplitterPaneConstraints {
       other is SplitterPaneConstraints &&
           other.minExtent == minExtent &&
           other.maxExtent == maxExtent &&
-          other.collapsible == collapsible &&
           other.collapsedExtent == collapsedExtent;
 
   @override
-  int get hashCode =>
-      Object.hash(minExtent, maxExtent, collapsible, collapsedExtent);
+  int get hashCode => Object.hash(minExtent, maxExtent, collapsedExtent);
 
   @override
   String toString() =>
       'SplitterPaneConstraints(minExtent: $minExtent, '
-      'maxExtent: $maxExtent, collapsible: $collapsible, '
-      'collapsedExtent: $collapsedExtent)';
+      'maxExtent: $maxExtent, collapsedExtent: $collapsedExtent)';
 }
 
 /// Identifies one of the two panes of a split.

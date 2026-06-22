@@ -124,7 +124,7 @@ void main() {
                 controller: controller,
                 startConstraints: const SplitterPaneConstraints(
                   minExtent: 100,
-                  collapsible: true,
+                  collapsedExtent: 0,
                 ),
                 start: const SizedBox(),
                 end: const SizedBox(),

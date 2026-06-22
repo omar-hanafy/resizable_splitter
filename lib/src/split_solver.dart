@@ -149,9 +149,13 @@ class SplitterSolver {
     if (startCollapsed || endCollapsed) {
       double startExtent;
       if (startCollapsed) {
-        startExtent = start.collapsedExtent.clamp(0.0, available).toDouble();
+        startExtent = (start.collapsedExtent ?? 0)
+            .clamp(0.0, available)
+            .toDouble();
       } else {
-        final endExtent = end.collapsedExtent.clamp(0.0, available).toDouble();
+        final endExtent = (end.collapsedExtent ?? 0)
+            .clamp(0.0, available)
+            .toDouble();
         startExtent = available - endExtent;
       }
       startExtent = _maybeSnap(

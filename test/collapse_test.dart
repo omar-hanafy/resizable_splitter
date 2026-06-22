@@ -23,11 +23,10 @@ void main() {
             divider: const SplitterDividerStyle(thickness: 8),
             startConstraints: const SplitterPaneConstraints(
               minExtent: 100,
-              collapsible: true,
+              collapsedExtent: 0,
             ),
             endConstraints: const SplitterPaneConstraints(
               minExtent: 100,
-              collapsible: true,
               collapsedExtent: 24,
             ),
             semanticsLabel: 'handle',
@@ -171,5 +170,50 @@ void main() {
     expect(controller.isCollapsed, isTrue);
     expect(controller.collapsedPane, SplitterPane.start);
     expect(startWidth(tester), closeTo(0, 1e-6));
+  });
+
+  testWidgets('collapsing a non-collapsible pane is a layout no-op (review #5)', (
+    tester,
+  ) async {
+    final controller = SplitterController();
+    final sources = <SplitterChangeSource>[];
+
+    // The default constraints (collapsedExtent null) are NOT collapsible.
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 408,
+              height: 240,
+              child: ResizableSplitter(
+                controller: controller,
+                divider: const SplitterDividerStyle(thickness: 8),
+                startConstraints: const SplitterPaneConstraints(minExtent: 100),
+                endConstraints: const SplitterPaneConstraints(minExtent: 100),
+                semanticsLabel: 'handle',
+                onChanged: (d) => sources.add(d.source),
+                start: Container(key: const Key('start')),
+                end: Container(key: const Key('end')),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(startWidth(tester), closeTo(200, 1e-6));
+
+    controller.collapse(SplitterPane.start);
+    await tester.pumpAndSettle();
+
+    // The request records the collapse intent...
+    expect(controller.isCollapsed, isTrue);
+    // ...but the layout never collapses a non-collapsible pane, and the resolved
+    // collapse the layout reports stays null.
+    expect(controller.layout!.collapsedPane, isNull);
+    expect(startWidth(tester), closeTo(200, 1e-6));
+    // No collapse event fires, because nothing actually collapsed.
+    expect(sources, isEmpty);
   });
 }

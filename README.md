@@ -158,8 +158,11 @@ ResizableSplitter(
 
 ## Collapse and expand
 
-`controller.collapse(...)` shrinks a pane to its `collapsedExtent` (bypassing its
-minimum) and remembers the position so `expand()` restores it.
+A pane is collapsible when its constraints set a `collapsedExtent` (in
+`[0, minExtent]`; null means not collapsible). `controller.collapse(...)` shrinks
+that pane to its `collapsedExtent` (bypassing its minimum) and remembers the
+position so `expand()` restores it. Collapsing a pane that has no `collapsedExtent`
+is a layout no-op; read the resolved state from `controller.layout?.collapsedPane`.
 
 ```dart
 final controller = SplitterController();
@@ -168,8 +171,7 @@ ResizableSplitter(
   controller: controller,
   startConstraints: const SplitterPaneConstraints(
     minExtent: 200,
-    collapsible: true,
-    collapsedExtent: 0,
+    collapsedExtent: 0, // set => collapsible (here, collapses fully)
   ),
   start: const Sidebar(),
   end: const Content(),

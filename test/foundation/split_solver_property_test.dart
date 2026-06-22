@@ -21,8 +21,8 @@ void main() {
       return SplitterPaneConstraints(
         minExtent: minExtent,
         maxExtent: maxExtent,
-        collapsible: r.nextBool(),
-        collapsedExtent: r.nextDouble() * 120,
+        // Either non-collapsible, or a valid collapsedExtent in [0, minExtent].
+        collapsedExtent: r.nextBool() ? r.nextDouble() * minExtent : null,
       );
     }
 

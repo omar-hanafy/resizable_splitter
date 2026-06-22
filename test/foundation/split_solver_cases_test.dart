@@ -90,7 +90,7 @@ void main() {
     test('a collapsed start pane takes its collapsedExtent', () {
       const solver = SplitterSolver(
         available: 1000,
-        start: SplitterPaneConstraints(collapsible: true, collapsedExtent: 48),
+        start: SplitterPaneConstraints(minExtent: 100, collapsedExtent: 48),
         end: SplitterPaneConstraints(),
         startCollapsed: true,
       );

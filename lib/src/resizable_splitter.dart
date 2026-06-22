@@ -895,7 +895,13 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     SplitterSolver solver,
     SplitterSolution solution,
   ) {
-    final pane = controller.value.collapsedPane;
+    // Use the resolved collapse (from the solution), not the request: a collapse
+    // of a non-collapsible pane resolves to nothing and must not fire an event.
+    final pane = solution.startCollapsed
+        ? SplitterPane.start
+        : solution.endCollapsed
+        ? SplitterPane.end
+        : null;
     if (pane == _reportedCollapsePane) return;
     final source = pane != null
         ? SplitterChangeSource.collapse
@@ -1117,8 +1123,15 @@ class _ResizableSplitterState extends State<ResizableSplitter>
       minStartFraction: widget.minStartFraction,
       maxStartFraction: widget.maxStartFraction,
       policy: widget.constraintPolicy,
-      startCollapsed: collapsedPane == SplitterPane.start,
-      endCollapsed: collapsedPane == SplitterPane.end,
+      // Only an actually-collapsible pane resolves collapsed; a collapse request
+      // on a fixed pane is ignored by the layout (the request still lives on the
+      // controller). This is the request-vs-resolved split, like position vs
+      // effective fraction.
+      startCollapsed:
+          collapsedPane == SplitterPane.start &&
+          widget.startConstraints.collapsible,
+      endCollapsed:
+          collapsedPane == SplitterPane.end && widget.endConstraints.collapsible,
       devicePixelRatio: MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0,
       snapToDevicePixels: antiAliasingWorkaround,
     );
@@ -1137,7 +1150,12 @@ class _ResizableSplitterState extends State<ResizableSplitter>
         endExtent: solution.endExtent,
         availableExtent: solver.available,
         isConstrained: solution.isCramped,
-        collapsedPane: collapsedPane,
+        // The resolved collapse, not the request.
+        collapsedPane: solution.startCollapsed
+            ? SplitterPane.start
+            : solution.endCollapsed
+            ? SplitterPane.end
+            : null,
       ),
     );
 

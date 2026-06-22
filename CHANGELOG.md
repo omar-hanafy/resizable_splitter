@@ -23,7 +23,10 @@ so the stored value can no longer disagree with what is drawn.
   `WidgetStateProperty<Color?>` resolved against `hovered` / `dragged`.
 - Pane limits grouped into `startConstraints` / `endConstraints`
   (`SplitterPaneConstraints`), replacing `minPanelSize` / `minStartPanelSize` /
-  `minEndPanelSize`. Adds per-pane `maxExtent`, `collapsible`, `collapsedExtent`.
+  `minEndPanelSize`. Adds per-pane `maxExtent`. A pane is collapsible when its
+  `collapsedExtent` is set (a nullable `double?` in `[0, minExtent]`; null = not
+  collapsible) - this replaces the separate `collapsible` bool, so an
+  unreachable/contradictory collapse config is now unrepresentable.
 - `minRatio` / `maxRatio` -> `minStartFraction` / `maxStartFraction`.
 - Snapping grouped into `snap: SplitterSnapBehavior(points, tolerance,
   pixelTolerance)`, replacing `snapPoints` / `snapTolerance`.
@@ -70,6 +73,10 @@ so the stored value can no longer disagree with what is drawn.
 - Collapse is now part of the atomic controller value, so collapsing and then
   writing an equal value can no longer silently desync the controller from the
   UI (it reported expanded while the pane stayed collapsed).
+- Collapsibility is enforced: a pane only collapses if it has a `collapsedExtent`,
+  and `collapsedExtent` is asserted `<= minExtent` (collapse can no longer
+  enlarge a pane). `controller.layout.collapsedPane` reports the *resolved*
+  collapse, so collapsing a fixed pane is a visible no-op rather than a phantom.
 - `effectiveFraction` now reports the true on-screen value and updates on
   container resize (via `layoutListenable`); it no longer leaks the unclamped
   request after settling onto a constrained target.

@@ -3,19 +3,18 @@ import 'package:resizable_splitter/src/split_pane_constraints.dart';
 
 void main() {
   group('SplitterPaneConstraints', () {
-    test('has permissive defaults', () {
+    test('has permissive defaults and is not collapsible', () {
       const c = SplitterPaneConstraints();
       expect(c.minExtent, 0);
       expect(c.maxExtent, double.infinity);
       expect(c.collapsible, isFalse);
-      expect(c.collapsedExtent, 0);
+      expect(c.collapsedExtent, isNull);
     });
 
-    test('stores provided values', () {
+    test('a set collapsedExtent makes the pane collapsible', () {
       const c = SplitterPaneConstraints(
         minExtent: 100,
         maxExtent: 400,
-        collapsible: true,
         collapsedExtent: 48,
       );
       expect(c.minExtent, 100);
@@ -37,6 +36,11 @@ void main() {
         () => SplitterPaneConstraints(collapsedExtent: -1),
         throwsAssertionError,
       );
+      // collapsedExtent must be <= minExtent: collapse never enlarges a pane.
+      expect(
+        () => SplitterPaneConstraints(minExtent: 10, collapsedExtent: 50),
+        throwsAssertionError,
+      );
     });
 
     test('copyWith replaces only the given fields', () {
@@ -44,6 +48,15 @@ void main() {
       final updated = c.copyWith(maxExtent: 500);
       expect(updated.minExtent, 100);
       expect(updated.maxExtent, 500);
+    });
+
+    test('copyWith can both set and clear the nullable collapsedExtent', () {
+      const c = SplitterPaneConstraints(minExtent: 100, collapsedExtent: 24);
+      // Omitting collapsedExtent keeps it.
+      expect(c.copyWith(minExtent: 120).collapsedExtent, 24);
+      // Passing null clears it (makes the pane non-collapsible).
+      expect(c.copyWith(collapsedExtent: null).collapsedExtent, isNull);
+      expect(c.copyWith(collapsedExtent: null).collapsible, isFalse);
     });
 
     test('has value equality', () {
