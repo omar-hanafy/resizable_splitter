@@ -54,26 +54,36 @@ class SplitterDividerStyle {
   const SplitterDividerStyle({
     this.thickness,
     this.color,
-    this.hitSlop,
+    this.interactiveExtent,
     this.builder,
   }) : assert(
          thickness == null || thickness >= 0,
          'thickness must be non-negative',
        ),
-       assert(hitSlop == null || hitSlop >= 0, 'hitSlop must be non-negative');
+       assert(
+         interactiveExtent == null || interactiveExtent >= 0,
+         'interactiveExtent must be non-negative',
+       );
 
   /// Visible thickness of the divider along the main axis, in logical pixels.
   /// Defaults to 6.
   final double? thickness;
 
   /// State-dependent divider color, resolved against the active [WidgetState]s
-  /// (`hovered`, `dragged`). A null result - or a null property - falls back to
-  /// a tint derived from the ambient [ColorScheme].
+  /// (`hovered`, `focused`, `dragged`). A null result - or a null property -
+  /// falls back to a tint derived from the ambient [ColorScheme].
   final WidgetStateProperty<Color?>? color;
 
-  /// Invisible padding on either side of the divider that enlarges the grab
-  /// target without widening the visible bar. Defaults to 0.
-  final double? hitSlop;
+  /// Size of the interactive grab target across the divider's thin dimension,
+  /// in logical pixels. Defaults to 48 (the Material minimum touch target).
+  ///
+  /// The target is centered on the visible bar and extends past it without
+  /// reserving layout: any extent beyond [thickness] overlaps the panel edges
+  /// from on top, so widening it never changes the panes' sizes. When it is
+  /// smaller than [thickness] the visible bar is the whole target. A
+  /// non-resizable divider ignores this and uses only [thickness] so it cannot
+  /// overlap the panes and steal their hits.
+  final double? interactiveExtent;
 
   /// Replaces the default inner grip with custom content.
   final Widget Function(BuildContext context, SplitterHandleDetails details)?
@@ -85,7 +95,7 @@ class SplitterDividerStyle {
   SplitterDividerStyle copyWith({
     Object? thickness = _noUpdate,
     Object? color = _noUpdate,
-    Object? hitSlop = _noUpdate,
+    Object? interactiveExtent = _noUpdate,
     Object? builder = _noUpdate,
   }) {
     return SplitterDividerStyle(
@@ -95,9 +105,9 @@ class SplitterDividerStyle {
       color: identical(color, _noUpdate)
           ? this.color
           : color as WidgetStateProperty<Color?>?,
-      hitSlop: identical(hitSlop, _noUpdate)
-          ? this.hitSlop
-          : (hitSlop as num?)?.toDouble(),
+      interactiveExtent: identical(interactiveExtent, _noUpdate)
+          ? this.interactiveExtent
+          : (interactiveExtent as num?)?.toDouble(),
       builder: identical(builder, _noUpdate)
           ? this.builder
           : builder as Widget Function(BuildContext, SplitterHandleDetails)?,
@@ -112,7 +122,7 @@ class SplitterDividerStyle {
     return SplitterDividerStyle(
       thickness: other.thickness ?? thickness,
       color: other.color ?? color,
-      hitSlop: other.hitSlop ?? hitSlop,
+      interactiveExtent: other.interactiveExtent ?? interactiveExtent,
       builder: other.builder ?? builder,
     );
   }
@@ -129,7 +139,11 @@ class SplitterDividerStyle {
     return SplitterDividerStyle(
       thickness: lerpDouble(a.thickness, b.thickness, t),
       color: WidgetStateProperty.lerp<Color?>(a.color, b.color, t, Color.lerp),
-      hitSlop: lerpDouble(a.hitSlop, b.hitSlop, t),
+      interactiveExtent: lerpDouble(
+        a.interactiveExtent,
+        b.interactiveExtent,
+        t,
+      ),
       builder: t < 0.5 ? a.builder : b.builder,
     );
   }
@@ -140,14 +154,15 @@ class SplitterDividerStyle {
       other is SplitterDividerStyle &&
           other.thickness == thickness &&
           other.color == color &&
-          other.hitSlop == hitSlop &&
+          other.interactiveExtent == interactiveExtent &&
           other.builder == builder;
 
   @override
-  int get hashCode => Object.hash(thickness, color, hitSlop, builder);
+  int get hashCode => Object.hash(thickness, color, interactiveExtent, builder);
 
   @override
   String toString() =>
       'SplitterDividerStyle(thickness: $thickness, color: $color, '
-      'hitSlop: $hitSlop, builder: ${builder == null ? null : 'set'})';
+      'interactiveExtent: $interactiveExtent, '
+      'builder: ${builder == null ? null : 'set'})';
 }

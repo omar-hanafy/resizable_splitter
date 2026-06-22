@@ -237,7 +237,7 @@ void main() {
     });
   });
 
-  group('handleHitSlop overlaps the panels instead of reserving layout', () {
+  group('interactiveExtent overlaps the panels instead of reserving layout', () {
     testWidgets('the divider footprint reserves only the visual thickness', (
       tester,
     ) async {
@@ -251,7 +251,7 @@ void main() {
           child: ResizableSplitter(
             divider: const SplitterDividerStyle(
               thickness: thickness,
-              hitSlop: slop,
+              interactiveExtent: thickness + 2 * slop,
             ),
             startConstraints: const SplitterPaneConstraints(),
             endConstraints: const SplitterPaneConstraints(),
@@ -291,7 +291,7 @@ void main() {
             controller: controller,
             divider: const SplitterDividerStyle(
               thickness: thickness,
-              hitSlop: slop,
+              interactiveExtent: thickness + 2 * slop,
             ),
             startConstraints: const SplitterPaneConstraints(),
             endConstraints: const SplitterPaneConstraints(),

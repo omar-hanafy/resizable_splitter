@@ -60,11 +60,11 @@ void main() {
       expect(data.copyWith(blockerColor: null).blockerColor, isNull);
     });
 
-    test('SplitterDividerStyle clears thickness and hitSlop', () {
-      const style = SplitterDividerStyle(thickness: 12, hitSlop: 8);
-      final cleared = style.copyWith(thickness: null, hitSlop: null);
+    test('SplitterDividerStyle clears thickness and interactiveExtent', () {
+      const style = SplitterDividerStyle(thickness: 12, interactiveExtent: 8);
+      final cleared = style.copyWith(thickness: null, interactiveExtent: null);
       expect(cleared.thickness, isNull);
-      expect(cleared.hitSlop, isNull);
+      expect(cleared.interactiveExtent, isNull);
     });
   });
 }

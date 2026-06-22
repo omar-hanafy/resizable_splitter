@@ -554,7 +554,7 @@ class ResizableSplitter extends StatefulWidget {
   static const double _defaultDividerThickness = 6;
   static const double _defaultKeyboardStep = 0.01;
   static const double _defaultPageStep = 0.1;
-  static const double _defaultHandleHitSlop = 0;
+  static const double _defaultInteractiveExtent = 48;
   static const double _defaultFallbackMainAxisExtent = 500;
 
   /// The widget to display in the start position (left/top).
@@ -595,8 +595,8 @@ class ResizableSplitter extends StatefulWidget {
   final double maxStartFraction;
 
   /// Divider appearance and grab configuration: thickness, a state-dependent
-  /// color, the grab [SplitterDividerStyle.hitSlop], and a custom grip
-  /// [SplitterDividerStyle.builder]. Unset fields fall back to
+  /// color, the [SplitterDividerStyle.interactiveExtent] grab target, and a
+  /// custom grip [SplitterDividerStyle.builder]. Unset fields fall back to
   /// [ResizableSplitterTheme], then to the built-in defaults.
   final SplitterDividerStyle? divider;
 
@@ -1023,10 +1023,10 @@ class _ResizableSplitterState extends State<ResizableSplitter>
         dividerStyle?.thickness ??
         themeDivider?.thickness ??
         ResizableSplitter._defaultDividerThickness;
-    final handleHitSlop =
-        dividerStyle?.hitSlop ??
-        themeDivider?.hitSlop ??
-        ResizableSplitter._defaultHandleHitSlop;
+    final interactiveExtent =
+        dividerStyle?.interactiveExtent ??
+        themeDivider?.interactiveExtent ??
+        ResizableSplitter._defaultInteractiveExtent;
     final handleBuilder = dividerStyle?.builder ?? themeDivider?.builder;
     final dividerColor = dividerStyle?.color ?? themeDivider?.color;
     final semanticsLabels =
@@ -1044,13 +1044,14 @@ class _ResizableSplitterState extends State<ResizableSplitter>
         widget.enableKeyboard ?? theme.enableKeyboard ?? true;
     final enableHaptics = widget.enableHaptics ?? theme.enableHaptics ?? true;
 
-    // The divider reserves only its visible thickness (not the grab slop): the
-    // slop is applied by the catcher overlay in _buildBounded, which sits on top
-    // of the panels and overlaps their edges instead of reducing panel layout.
-    // Decoupling the grab region (overlay) from the layout footprint (Flex) makes
-    // it structurally impossible for slop to eat layout. The footprint is also
-    // clamped to the container per layout below, so a parent smaller than the
-    // thickness shrinks the divider to fit rather than overflowing.
+    // The divider reserves only its visible thickness (not the interactive grab
+    // target): any extent beyond the bar is applied by the catcher overlay in
+    // _buildBounded, which sits on top of the panels and overlaps their edges
+    // instead of reducing panel layout. Decoupling the grab region (overlay)
+    // from the layout footprint (Flex) makes it structurally impossible for the
+    // target to eat layout. The footprint is also clamped to the container per
+    // layout below, so a parent smaller than the thickness shrinks the divider
+    // to fit rather than overflowing.
 
     final blockerColor = widget.blockerColor ?? theme.blockerColor;
 
@@ -1110,7 +1111,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
                         keyboardStep: keyboardStep,
                         pageStep: pageStep,
                         overlayEnabled: overlayEnabled,
-                        handleHitSlop: handleHitSlop,
+                        interactiveExtent: interactiveExtent,
                         blockerColor: blockerColor,
                         dividerColor: dividerColor,
                         handleBuilder: handleBuilder,
@@ -1158,7 +1159,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
               keyboardStep: keyboardStep,
               pageStep: pageStep,
               overlayEnabled: overlayEnabled,
-              handleHitSlop: handleHitSlop,
+              interactiveExtent: interactiveExtent,
               blockerColor: blockerColor,
               dividerColor: dividerColor,
               handleBuilder: handleBuilder,
@@ -1188,7 +1189,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     required double keyboardStep,
     required double pageStep,
     required bool overlayEnabled,
-    required double handleHitSlop,
+    required double interactiveExtent,
     required Color? blockerColor,
     required WidgetStateProperty<Color?>? dividerColor,
     required Widget Function(BuildContext, SplitterHandleDetails)?
@@ -1198,6 +1199,13 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     required SplitterController controller,
     required SplitterSemanticsLabels semantics,
   }) {
+    // The interactive target is centered on the visible bar; the extent past the
+    // bar becomes overhang (interactiveSlop) on each side that the catcher
+    // overlays onto the panels without reserving layout. A non-resizable divider
+    // uses no overhang, so it cannot cover and steal hits from the panes.
+    final rawSlop = (interactiveExtent - dividerThickness) / 2;
+    final interactiveSlop = widget.resizable && rawSlop > 0 ? rawSlop : 0.0;
+
     // Raw configured minimums (not pre-clamped): the solver clamps internally
     // and uses the raw values for proportional distribution, so a cramped
     // layout keeps its configured proportions instead of collapsing to 50/50.
@@ -1292,7 +1300,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
       handleBuilder: handleBuilder,
       holdScrollWhileDragging:
           widget.holdScrollWhileDragging && widget.resizable,
-      handleHitSlop: handleHitSlop,
+      interactiveSlop: interactiveSlop,
       doubleTapResetTo: widget.doubleTapResetTo,
       resizable: widget.resizable,
       onTap: widget.onHandleTap,
@@ -1361,14 +1369,14 @@ class _ResizableSplitterState extends State<ResizableSplitter>
         if (widget.axis.isH)
           Positioned.directional(
             textDirection: textDirection,
-            start: first - handleHitSlop,
+            start: first - interactiveSlop,
             top: 0,
             bottom: 0,
             child: divider,
           )
         else
           Positioned(
-            top: first - handleHitSlop,
+            top: first - interactiveSlop,
             left: 0,
             right: 0,
             child: divider,
@@ -1467,7 +1475,7 @@ class _DividerHandle extends StatefulWidget {
     required this.snap,
     required this.handleBuilder,
     required this.holdScrollWhileDragging,
-    required this.handleHitSlop,
+    required this.interactiveSlop,
     required this.doubleTapResetTo,
     required this.resizable,
     this.onTap,
@@ -1499,7 +1507,10 @@ class _DividerHandle extends StatefulWidget {
   final SplitterSnapBehavior? snap;
   final Widget Function(BuildContext, SplitterHandleDetails)? handleBuilder;
   final bool holdScrollWhileDragging;
-  final double handleHitSlop;
+
+  /// Overhang on each side of the visible bar that the catcher overlays onto the
+  /// panels (half of `interactiveExtent - thickness`, zero when not resizable).
+  final double interactiveSlop;
   final double? doubleTapResetTo;
   final bool resizable;
   final VoidCallback? onTap;
@@ -2047,11 +2058,11 @@ class _DividerHandleState extends State<_DividerHandle> {
     // the visible bar: the slop is transparent padding that still sits inside
     // the opaque Listener below, so it hit-tests. The matching extent was
     // already reserved out of the panels via the divider footprint.
-    if (widget.handleHitSlop > 0) {
+    if (widget.interactiveSlop > 0) {
       handle = Padding(
         padding: widget.axis.isH
-            ? EdgeInsets.symmetric(horizontal: widget.handleHitSlop)
-            : EdgeInsets.symmetric(vertical: widget.handleHitSlop),
+            ? EdgeInsets.symmetric(horizontal: widget.interactiveSlop)
+            : EdgeInsets.symmetric(vertical: widget.interactiveSlop),
         child: handle,
       );
     }

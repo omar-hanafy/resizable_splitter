@@ -234,6 +234,86 @@ void main() {
     });
   });
 
+  group('interactiveExtent (touch target)', () {
+    testWidgets('the default grab target is 48px wide, not the visible bar', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        host(
+          const ResizableSplitter(
+            divider: SplitterDividerStyle(thickness: 6),
+            semanticsLabel: 'handle',
+            start: SizedBox(),
+            end: SizedBox(),
+          ),
+        ),
+      );
+
+      final handleRect = tester.getRect(find.bySemanticsLabel('handle'));
+      expect(
+        handleRect.width,
+        closeTo(48, 1e-6),
+        reason: 'the default interactiveExtent is a 48px accessible target',
+      );
+    });
+
+    testWidgets('interactiveExtent sets the grab target and overlaps the panes', (
+      tester,
+    ) async {
+      const thickness = 10.0;
+      const target = 60.0;
+      const slop = (target - thickness) / 2; // 25
+      await tester.pumpWidget(
+        host(
+          width: 400,
+          ResizableSplitter(
+            divider: const SplitterDividerStyle(
+              thickness: thickness,
+              interactiveExtent: target,
+            ),
+            startConstraints: const SplitterPaneConstraints(),
+            endConstraints: const SplitterPaneConstraints(),
+            semanticsLabel: 'handle',
+            start: Container(key: const Key('start')),
+            end: Container(key: const Key('end')),
+          ),
+        ),
+      );
+
+      final startRect = tester.getRect(find.byKey(const Key('start')));
+      // The interactive target does not eat layout: the footprint still reserves
+      // only the visible thickness.
+      expect(startRect.width, closeTo((400 - thickness) / 2, 1e-6));
+
+      final handleRect = tester.getRect(find.bySemanticsLabel('handle'));
+      expect(handleRect.width, closeTo(target, 1e-6));
+      expect(handleRect.left, closeTo(startRect.right - slop, 1e-6));
+    });
+
+    testWidgets('a non-resizable divider collapses the target to its thickness', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        host(
+          const ResizableSplitter(
+            resizable: false,
+            divider: SplitterDividerStyle(thickness: 8),
+            semanticsLabel: 'handle',
+            start: SizedBox(),
+            end: SizedBox(),
+          ),
+        ),
+      );
+
+      final handleRect = tester.getRect(find.bySemanticsLabel('handle'));
+      expect(
+        handleRect.width,
+        closeTo(8, 1e-6),
+        reason: 'a static divider must not overlap the panes and steal hits',
+      );
+    });
+  });
+
   group('assistive actions are gated on the resolved bounds', () {
     testWidgets('increase is dropped when the start pane is pinned at its max', (
       tester,

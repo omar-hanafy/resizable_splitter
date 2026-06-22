@@ -8,29 +8,29 @@ void main() {
       const style = SplitterDividerStyle();
       expect(style.thickness, isNull);
       expect(style.color, isNull);
-      expect(style.hitSlop, isNull);
+      expect(style.interactiveExtent, isNull);
       expect(style.builder, isNull);
     });
 
-    test('rejects negative thickness and hitSlop', () {
+    test('rejects negative thickness and interactiveExtent', () {
       expect(() => SplitterDividerStyle(thickness: -1), throwsAssertionError);
-      expect(() => SplitterDividerStyle(hitSlop: -1), throwsAssertionError);
+      expect(() => SplitterDividerStyle(interactiveExtent: -1), throwsAssertionError);
     });
 
     test('copyWith replaces only the given fields', () {
-      const style = SplitterDividerStyle(thickness: 8, hitSlop: 4);
+      const style = SplitterDividerStyle(thickness: 8, interactiveExtent: 4);
       final updated = style.copyWith(thickness: 12);
       expect(updated.thickness, 12);
-      expect(updated.hitSlop, 4);
+      expect(updated.interactiveExtent, 4);
     });
 
     group('merge', () {
       test('other wins where set; the base falls through', () {
-        const base = SplitterDividerStyle(thickness: 8, hitSlop: 4);
+        const base = SplitterDividerStyle(thickness: 8, interactiveExtent: 4);
         const other = SplitterDividerStyle(thickness: 12);
         final merged = base.merge(other);
         expect(merged.thickness, 12);
-        expect(merged.hitSlop, 4);
+        expect(merged.interactiveExtent, 4);
       });
 
       test('a null override returns the base unchanged', () {
@@ -52,8 +52,8 @@ void main() {
     group('value equality', () {
       test('equal field for field', () {
         expect(
-          const SplitterDividerStyle(thickness: 8, hitSlop: 4),
-          const SplitterDividerStyle(thickness: 8, hitSlop: 4),
+          const SplitterDividerStyle(thickness: 8, interactiveExtent: 4),
+          const SplitterDividerStyle(thickness: 8, interactiveExtent: 4),
         );
         expect(
           const SplitterDividerStyle(thickness: 8).hashCode,
@@ -70,12 +70,12 @@ void main() {
     });
 
     group('lerp', () {
-      test('interpolates thickness and hitSlop', () {
-        const a = SplitterDividerStyle(thickness: 0, hitSlop: 0);
-        const b = SplitterDividerStyle(thickness: 10, hitSlop: 4);
+      test('interpolates thickness and interactiveExtent', () {
+        const a = SplitterDividerStyle(thickness: 0, interactiveExtent: 0);
+        const b = SplitterDividerStyle(thickness: 10, interactiveExtent: 4);
         final mid = SplitterDividerStyle.lerp(a, b, 0.5)!;
         expect(mid.thickness, closeTo(5, 1e-9));
-        expect(mid.hitSlop, closeTo(2, 1e-9));
+        expect(mid.interactiveExtent, closeTo(2, 1e-9));
       });
 
       test('null endpoints pass through', () {
