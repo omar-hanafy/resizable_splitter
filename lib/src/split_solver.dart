@@ -67,6 +67,108 @@ class SplitterSolution {
       'effective: $effectiveFraction, resolution: ${resolution.name})';
 }
 
+/// The constraint inputs the solver needs, bundled into one value independent of
+/// the available space (which the layout supplies per frame) and of the collapse
+/// flags (which depend on the controller's current state).
+///
+/// This is the geometry-input channel that flows from the widget down to the
+/// layout layer: the layer calls [solverFor] with the measured space to obtain a
+/// [SplitterSolver] for that frame. Bundling the inputs as one value type with
+/// cheap equality lets the layer skip work when nothing relevant changed, and
+/// isolates a future render-object layout from how the inputs are gathered.
+@immutable
+class SplitterSolverConfig {
+  /// Creates a solver configuration. Mirrors [SplitterSolver]'s inputs minus the
+  /// per-frame [SplitterSolver.available] and the per-state collapse flags.
+  const SplitterSolverConfig({
+    required this.start,
+    required this.end,
+    this.minStartFraction = 0.0,
+    this.maxStartFraction = 1.0,
+    this.policy = SplitterConstraintPolicy.favorStart,
+    this.surplusPolicy = SplitterSurplusPolicy.leaveGap,
+    this.devicePixelRatio = 1.0,
+    this.snapToPhysicalPixels = false,
+  });
+
+  /// Start (left/top) pane constraints.
+  final SplitterPaneConstraints start;
+
+  /// End (right/bottom) pane constraints.
+  final SplitterPaneConstraints end;
+
+  /// Lowest fraction of the available space the start pane may take.
+  final double minStartFraction;
+
+  /// Highest fraction of the available space the start pane may take.
+  final double maxStartFraction;
+
+  /// Tie-break applied in a minimum shortage.
+  final SplitterConstraintPolicy policy;
+
+  /// Policy applied in a maximum surplus.
+  final SplitterSurplusPolicy surplusPolicy;
+
+  /// The device pixel ratio used when [snapToPhysicalPixels] is set.
+  final double devicePixelRatio;
+
+  /// Whether to snap the start extent to a whole physical pixel.
+  final bool snapToPhysicalPixels;
+
+  /// Builds a solver for [available] space and the given collapse flags. This is
+  /// the only place the config becomes a per-frame solver.
+  SplitterSolver solverFor(
+    double available, {
+    bool startCollapsed = false,
+    bool endCollapsed = false,
+  }) => SplitterSolver(
+    available: available,
+    start: start,
+    end: end,
+    minStartFraction: minStartFraction,
+    maxStartFraction: maxStartFraction,
+    policy: policy,
+    surplusPolicy: surplusPolicy,
+    startCollapsed: startCollapsed,
+    endCollapsed: endCollapsed,
+    devicePixelRatio: devicePixelRatio,
+    snapToPhysicalPixels: snapToPhysicalPixels,
+  );
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SplitterSolverConfig &&
+          other.start == start &&
+          other.end == end &&
+          other.minStartFraction == minStartFraction &&
+          other.maxStartFraction == maxStartFraction &&
+          other.policy == policy &&
+          other.surplusPolicy == surplusPolicy &&
+          other.devicePixelRatio == devicePixelRatio &&
+          other.snapToPhysicalPixels == snapToPhysicalPixels;
+
+  @override
+  int get hashCode => Object.hash(
+    start,
+    end,
+    minStartFraction,
+    maxStartFraction,
+    policy,
+    surplusPolicy,
+    devicePixelRatio,
+    snapToPhysicalPixels,
+  );
+
+  @override
+  String toString() =>
+      'SplitterSolverConfig(start: $start, end: $end, '
+      'minStartFraction: $minStartFraction, maxStartFraction: $maxStartFraction, '
+      'policy: ${policy.name}, surplusPolicy: ${surplusPolicy.name}, '
+      'devicePixelRatio: $devicePixelRatio, '
+      'snapToPhysicalPixels: $snapToPhysicalPixels)';
+}
+
 /// Pure constraint solver: turns a requested [SplitterPosition] into legal pane
 /// extents for a given layout.
 ///

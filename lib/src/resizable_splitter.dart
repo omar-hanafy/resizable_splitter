@@ -776,6 +776,10 @@ class _ResizableSplitterState extends State<ResizableSplitter>
   // letting its ticks bleed onto a different controller or hang forever.
   _AnimationSession? _animSession;
 
+  // The solver inputs captured at the last build (null before the first). Lets
+  // animateTo resolve a target through the same configuration the layout draws.
+  SplitterSolverConfig? _solverConfig;
+
   SplitterController get _effectiveController =>
       widget.controller ??
       (_internalController ??= SplitterController(
@@ -936,13 +940,12 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     // the edge. The uncollapsed solver is used because a fresh animateTo clears
     // any collapse (see _setAnimatedPosition).
     final available = controller.layout?.availableExtent ?? 0.0;
-    final resolved = available > 0
-        ? _solverFor(
-            available: available,
-            snapToPixels: false,
-            startCollapsed: false,
-            endCollapsed: false,
-          ).solve(SplitterPosition.fraction(target)).effectiveFraction
+    final config = _solverConfig;
+    final resolved = (available > 0 && config != null)
+        ? config
+              .solverFor(available)
+              .solve(SplitterPosition.fraction(target))
+              .effectiveFraction
         : target;
 
     final disable = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
@@ -1111,6 +1114,22 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     final snapToPhysicalPixels =
         widget.snapToPhysicalPixels ?? theme.snapToPhysicalPixels ?? false;
 
+    // The geometry-input channel that flows down to the layout layer. Captured
+    // once per build and cached so animateTo can resolve a target the same way
+    // the layout will draw it; in 2.1 this is exactly what the seam widget
+    // forwards to the render object.
+    final solverConfig = SplitterSolverConfig(
+      start: widget.startConstraints,
+      end: widget.endConstraints,
+      minStartFraction: widget.minStartFraction,
+      maxStartFraction: widget.maxStartFraction,
+      policy: widget.constraintPolicy,
+      surplusPolicy: widget.surplusPolicy,
+      devicePixelRatio: MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0,
+      snapToPhysicalPixels: snapToPhysicalPixels,
+    );
+    _solverConfig = solverConfig;
+
     final controller = _attachedController ?? _effectiveController;
 
     return LayoutBuilder(
@@ -1158,7 +1177,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
                         dragBarrierColor: dragBarrierColor,
                         dividerColor: dividerColor,
                         handleBuilder: handleBuilder,
-                        snapToPhysicalPixels: snapToPhysicalPixels,
+                        config: solverConfig,
                         crossAxisBounded: _crossAxisBounded(bounded),
                         controller: controller,
                         semantics: semanticsLabels,
@@ -1206,7 +1225,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
               dragBarrierColor: dragBarrierColor,
               dividerColor: dividerColor,
               handleBuilder: handleBuilder,
-              snapToPhysicalPixels: snapToPhysicalPixels,
+              config: solverConfig,
               crossAxisBounded: _crossAxisBounded(constraints),
               controller: controller,
               semantics: semanticsLabels,
@@ -1223,29 +1242,6 @@ class _ResizableSplitterState extends State<ResizableSplitter>
   bool _crossAxisBounded(BoxConstraints constraints) =>
       (widget.axis.isH ? constraints.maxHeight : constraints.maxWidth).isFinite;
 
-  // Builds the constraint solver from the widget configuration for [available]
-  // space. The single source of truth for resolving a request into geometry,
-  // shared by the layout (per frame) and the animator (to resolve a target) so
-  // the two can never disagree about what is reachable.
-  SplitterSolver _solverFor({
-    required double available,
-    required bool snapToPixels,
-    required bool startCollapsed,
-    required bool endCollapsed,
-  }) => SplitterSolver(
-    available: available,
-    start: widget.startConstraints,
-    end: widget.endConstraints,
-    minStartFraction: widget.minStartFraction,
-    maxStartFraction: widget.maxStartFraction,
-    policy: widget.constraintPolicy,
-    surplusPolicy: widget.surplusPolicy,
-    startCollapsed: startCollapsed,
-    endCollapsed: endCollapsed,
-    devicePixelRatio: MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0,
-    snapToPhysicalPixels: snapToPixels,
-  );
-
   Widget _buildBounded({
     required SplitterPosition position,
     required double availableSize,
@@ -1260,7 +1256,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     required WidgetStateProperty<Color?>? dividerColor,
     required Widget Function(BuildContext, SplitterHandleDetails)?
     handleBuilder,
-    required bool snapToPhysicalPixels,
+    required SplitterSolverConfig config,
     required bool crossAxisBounded,
     required SplitterController controller,
     required SplitterSemanticsLabels semantics,
@@ -1283,9 +1279,8 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     // here for layout, and inside the handle for drag/keyboard/snap/semantics/
     // preview - snaps identically. The callbacks can never report a position the
     // layout did not actually draw.
-    final solver = _solverFor(
-      available: availableSize,
-      snapToPixels: snapToPhysicalPixels,
+    final solver = config.solverFor(
+      availableSize,
       // Only an actually-collapsible pane resolves collapsed; a collapse request
       // on a fixed pane is ignored by the layout (the request still lives on the
       // controller). This is the request-vs-resolved split, like position vs
