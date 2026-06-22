@@ -104,6 +104,12 @@ so the stored value can no longer disagree with what is drawn.
   router is keyed by pointer id (independent concurrent drags).
 - Slider semantics: role, enabled/disabled state, focus, text direction, and
   assistive adjustment decoupled from the keyboard flag.
+- The change-callback contract is now explicit and honest: `onChanged` /
+  `onChangeStart` / `onChangeEnd` fire for interactions (drag, keyboard, assistive
+  adjust, snap, double-tap) and collapse/expand only; programmatic writes
+  (`jumpTo` / `updateRatio` / `reset` / `animateTo`) and restoration are observed
+  through the `controller` and `layoutListenable` instead (documented, not a
+  silent partial contract).
 
 ## 1.1.1
 

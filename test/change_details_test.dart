@@ -167,4 +167,50 @@ void main() {
     await gesture.up();
     await tester.pumpAndSettle();
   });
+
+  testWidgets('a direct controller write notifies the controller but does not '
+      'fire onChanged (review #4)', (tester) async {
+    final controller = SplitterController();
+    var onChangedCount = 0;
+    var controllerNotifications = 0;
+    var layoutNotifications = 0;
+    controller.addListener(() => controllerNotifications++);
+    controller.layoutListenable.addListener(() => layoutNotifications++);
+
+    await tester.pumpWidget(
+      host(
+        ResizableSplitter(
+          controller: controller,
+          startConstraints: const SplitterPaneConstraints(),
+          endConstraints: const SplitterPaneConstraints(),
+          semanticsLabel: 'handle',
+          onChanged: (_) => onChangedCount++,
+          onChangeStart: (_) => onChangedCount++,
+          onChangeEnd: (_) => onChangedCount++,
+          start: const SizedBox(),
+          end: const SizedBox(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final onChangedBefore = onChangedCount;
+    final controllerBefore = controllerNotifications;
+    final layoutBefore = layoutNotifications;
+
+    // A direct programmatic write.
+    controller.jumpTo(const SplitterPosition.fraction(0.7));
+    await tester.pumpAndSettle();
+
+    // The contract: programmatic writes are observed via the controller /
+    // layoutListenable, NOT via the interaction callbacks.
+    expect(
+      onChangedCount,
+      onChangedBefore,
+      reason: 'onChanged is interaction-only',
+    );
+    expect(controllerNotifications, greaterThan(controllerBefore));
+    expect(layoutNotifications, greaterThan(layoutBefore));
+    expect(controller.effectiveFraction, closeTo(0.7, 1e-6));
+  });
 }

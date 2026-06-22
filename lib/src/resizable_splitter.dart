@@ -557,12 +557,21 @@ class ResizableSplitter extends StatefulWidget {
   /// [ResizableSplitterTheme], then to the built-in defaults.
   final SplitterDividerStyle? divider;
 
-  /// Called whenever the split position changes, with both the request and the
-  /// effective layout plus the [SplitterChangeSource] (drag, keyboard, snap,
-  /// semantics, or the built-in double-tap reset).
+  /// Called as the divider moves through an interaction or a collapse, with both
+  /// the request and the resolved layout plus the [SplitterChangeSource].
+  ///
+  /// Fires for a pointer drag, keyboard adjustment, assistive (semantics)
+  /// adjustment, a snap settling a release, the built-in double-tap reset, and
+  /// `controller.collapse` / `expand`. It deliberately does NOT fire for direct
+  /// programmatic writes ([SplitterController.jumpTo], `updateRatio`, `reset`,
+  /// `animateTo`) or state restoration - those are observed by listening to the
+  /// `controller` (request changes) and `controller.layoutListenable` (resolved
+  /// geometry), which avoids feedback loops. This mirrors how `Slider.onChanged`
+  /// reports interaction rather than every value write.
   final ValueChanged<SplitterChangeDetails>? onChanged;
 
-  /// Called when a drag gesture starts, with the position at that moment.
+  /// Called when a drag gesture starts, with the position at that moment - the
+  /// real request, which may be a pixel pin.
   final ValueChanged<SplitterChangeDetails>? onChangeStart;
 
   /// Called when a drag gesture ends, with the settled position. The source is

@@ -62,8 +62,14 @@ class SplitterValue {
       'end: $endExtent, available: $availableExtent)';
 }
 
-/// What triggered a split change. Lets consumers tell a user drag apart from a
-/// programmatic move, a restore, or a snap.
+/// What triggered a split change reported to the change callbacks. Lets
+/// consumers tell a user drag apart from a snap, a collapse, or the double-tap
+/// reset.
+///
+/// Note: direct controller writes ([SplitterController.jumpTo], `updateRatio`,
+/// `reset`, `animateTo`) and state restoration do not produce a change event -
+/// observe those through the controller and its `layoutListenable` - so there is
+/// no source value for them.
 enum SplitterChangeSource {
   /// A pointer drag of the divider.
   drag,
@@ -74,16 +80,18 @@ enum SplitterChangeSource {
   /// An assistive-technology adjust action.
   semantics,
 
-  /// A controller call (`updatePosition`, `animateTo`, ...).
+  /// A splitter-initiated move that settled programmatically - currently the
+  /// built-in double-tap reset reaching its target.
   programmatic,
 
   /// Settling onto a snap point at the end of a drag.
   snap,
 
-  /// Collapsing or expanding a pane.
+  /// Collapsing a pane (`controller.collapse`).
   collapse,
 
-  /// Restoring a persisted position.
+  /// Expanding a collapsed pane back to its prior position
+  /// (`controller.expand`).
   restore,
 }
 

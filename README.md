@@ -217,6 +217,12 @@ the request, the resolved `effectiveFraction`, both pane extents, the available
 extent, and the `SplitterChangeSource` (`drag`, `keyboard`, `semantics`,
 `programmatic`, `snap`, `collapse`, `restore`).
 
+These fire for interactions (drag, keyboard, assistive adjust, snap, the
+double-tap reset) and `collapse` / `expand`. Direct controller writes
+(`jumpTo`, `updateRatio`, `reset`, `animateTo`) and state restoration do **not**
+fire them - observe those with the `controller` (request) and
+`controller.layoutListenable` (resolved geometry), which avoids feedback loops.
+
 ```dart
 ResizableSplitter(
   onChanged: (d) => save(d.effectiveFraction),
