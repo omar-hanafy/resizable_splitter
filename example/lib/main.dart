@@ -142,7 +142,7 @@ class _SplitterDemoPageState extends State<SplitterDemoPage> {
           ),
         ),
         enableKeyboard: true,
-        overlayEnabled: useOverlay,
+        shieldPlatformViews: useOverlay,
         startConstraints: SplitterPaneConstraints(minExtent: 220),
         snap: SplitterSnapBehavior(
           points: <double>[0.26, 0.32, 0.45],
@@ -680,9 +680,7 @@ class _OverviewExampleState extends State<_OverviewExample> {
                   active: colorScheme.secondary.withAlpha(150),
                 ),
               ),
-              snap: SplitterSnapBehavior(
-                points: <double>[0.35, 0.5, 0.7],
-              ),
+              snap: SplitterSnapBehavior(points: <double>[0.35, 0.5, 0.7]),
               start: const _Panel(
                 title: 'Navigation',
                 color: Colors.transparent,

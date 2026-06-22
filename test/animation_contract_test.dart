@@ -158,9 +158,6 @@ void main() {
     expect(controller.effectiveFraction, closeTo(resolved, 1e-3));
     // The stored request settles at the achievable target rather than the
     // unreachable 0.9: "completed" means the divider actually arrived there.
-    expect(
-      controller.position.resolveFraction(394),
-      closeTo(resolved, 1e-3),
-    );
+    expect(controller.position.resolveFraction(394), closeTo(resolved, 1e-3));
   });
 }

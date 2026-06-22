@@ -18,7 +18,7 @@ import 'package:resizable_splitter/src/split_semantics_labels.dart';
 import 'package:resizable_splitter/src/split_snap_behavior.dart';
 import 'package:resizable_splitter/src/split_solver.dart';
 import 'package:resizable_splitter/src/split_state.dart';
-import 'package:resizable_splitter/src/split_view_value.dart';
+import 'package:resizable_splitter/src/split_change_details.dart';
 
 /// Axis helpers to eliminate H/V duplication.
 extension _AxisHelpers on Axis {
@@ -298,7 +298,8 @@ class SplitterController extends ValueNotifier<SplitterState> {
     cb?.call(reason);
   }
 
-  void _setDragCallback(void Function(_DragEndReason)? cb) => _dragCallback = cb;
+  void _setDragCallback(void Function(_DragEndReason)? cb) =>
+      _dragCallback = cb;
   void Function(_DragEndReason)? _dragCallback;
 
   void _setDragging(bool dragging) => _isDragging.value = dragging;
@@ -477,7 +478,7 @@ class _GlobalPointerRouter {
 /// splitter cannot resize, so it shows the two panels without the divider:
 /// [Expanded] when the extent is a finite zero, or at their intrinsic size
 /// when truly unbounded (flexing into an unbounded axis would throw). Opt into
-/// [UnboundedBehavior.limitedBox] (via [ResizableSplitterTheme] or the
+/// [UnboundedBehavior.useFallbackExtent] (via [ResizableSplitterTheme] or the
 /// constructor) to give the handle a finite sandbox while preserving side
 /// panels.
 ///
@@ -511,9 +512,9 @@ class ResizableSplitter extends StatefulWidget {
     this.pageStep,
     this.semanticsLabel,
     this.semantics,
-    this.blockerColor,
+    this.dragBarrierColor,
     this.dragBarrierBuilder,
-    this.overlayEnabled,
+    this.shieldPlatformViews,
     this.snap,
     this.holdScrollWhileDragging = false,
     this.deferredResize = false,
@@ -524,8 +525,8 @@ class ResizableSplitter extends StatefulWidget {
     this.constraintPolicy = SplitterConstraintPolicy.favorStart,
     this.surplusPolicy = SplitterSurplusPolicy.leaveGap,
     this.unboundedBehavior,
-    this.fallbackMainAxisExtent,
-    this.antiAliasingWorkaround,
+    this.fallbackExtent,
+    this.snapToPhysicalPixels,
     this.restorationId,
   }) : assert(
          minStartFraction >= 0.0 && minStartFraction <= 1.0,
@@ -553,14 +554,14 @@ class ResizableSplitter extends StatefulWidget {
          'doubleTapResetTo must be between 0.0 and 1.0',
        ),
        assert(
-         fallbackMainAxisExtent == null || fallbackMainAxisExtent > 0,
-         'fallbackMainAxisExtent must be greater than zero',
+         fallbackExtent == null || fallbackExtent > 0,
+         'fallbackExtent must be greater than zero',
        );
   static const double _defaultDividerThickness = 6;
   static const double _defaultKeyboardStep = 0.01;
   static const double _defaultPageStep = 0.1;
   static const double _defaultInteractiveExtent = 48;
-  static const double _defaultFallbackMainAxisExtent = 500;
+  static const double _defaultFallbackExtent = 500;
 
   /// The widget to display in the start position (left/top).
   final Widget start;
@@ -653,17 +654,17 @@ class ResizableSplitter extends StatefulWidget {
   final SplitterSemanticsLabels? semantics;
 
   /// The blocked color when dragged. Ignored if [dragBarrierBuilder] is set.
-  final Color? blockerColor;
+  final Color? dragBarrierColor;
 
   /// Builds the visual of the drag barrier - the overlay that shields embedded
   /// platform views from stealing pointer events while dragging. The framework
   /// always keeps the opaque hit shield; this only replaces what it looks like
-  /// (the default is a [blockerColor] fill). Only used when the overlay is
+  /// (the default is a [dragBarrierColor] fill). Only used when the overlay is
   /// enabled.
   final Widget Function(BuildContext context)? dragBarrierBuilder;
 
   /// Whether the protective overlay is used while dragging. Defaults to true.
-  final bool? overlayEnabled;
+  final bool? shieldPlatformViews;
 
   /// Optional snap points; a drag settles onto the nearest within tolerance.
   final SplitterSnapBehavior? snap;
@@ -700,16 +701,16 @@ class ResizableSplitter extends StatefulWidget {
   final SplitterSurplusPolicy surplusPolicy;
 
   /// Fallback layout behavior when constraints are unbounded along the main
-  /// axis. Defaults to [UnboundedBehavior.flexExpand].
+  /// axis. Defaults to [UnboundedBehavior.shrinkToChildren].
   final UnboundedBehavior? unboundedBehavior;
 
   /// Extent in pixels to use when [unboundedBehavior] is
-  /// [UnboundedBehavior.limitedBox]. Defaults to 500.
-  final double? fallbackMainAxisExtent;
+  /// [UnboundedBehavior.useFallbackExtent]. Defaults to 500.
+  final double? fallbackExtent;
 
   /// Floors the leading panel size to whole physical pixels to avoid anti-alias
   /// gaps. Defaults to false.
-  final bool? antiAliasingWorkaround;
+  final bool? snapToPhysicalPixels;
 
   /// Restoration id for persisting the divider position across app restarts.
   ///
@@ -808,7 +809,9 @@ class _ResizableSplitterState extends State<ResizableSplitter>
   void _handlePositionChanged() {
     if (!_restorationReady) return;
     final controller = _attachedController;
-    if (controller != null) _restorablePosition.value = controller.value.position;
+    if (controller != null) {
+      _restorablePosition.value = controller.value.position;
+    }
   }
 
   @override
@@ -864,7 +867,9 @@ class _ResizableSplitterState extends State<ResizableSplitter>
         final disposing = _internalController;
         _internalController = null;
         if (disposing != null) {
-          WidgetsBinding.instance.addPostFrameCallback((_) => disposing.dispose());
+          WidgetsBinding.instance.addPostFrameCallback(
+            (_) => disposing.dispose(),
+          );
         }
       }
 
@@ -1062,8 +1067,8 @@ class _ResizableSplitterState extends State<ResizableSplitter>
         ResizableSplitter._defaultKeyboardStep;
     final pageStep =
         widget.pageStep ?? theme.pageStep ?? ResizableSplitter._defaultPageStep;
-    final overlayEnabled =
-        widget.overlayEnabled ?? theme.overlayEnabled ?? true;
+    final shieldPlatformViews =
+        widget.shieldPlatformViews ?? theme.shieldPlatformViews ?? true;
     final enableKeyboard =
         widget.enableKeyboard ?? theme.enableKeyboard ?? true;
     final enableHaptics = widget.enableHaptics ?? theme.enableHaptics ?? true;
@@ -1077,20 +1082,20 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     // layout below, so a parent smaller than the thickness shrinks the divider
     // to fit rather than overflowing.
 
-    final blockerColor = widget.blockerColor ?? theme.blockerColor;
+    final dragBarrierColor = widget.dragBarrierColor ?? theme.dragBarrierColor;
 
     final unboundedBehavior =
         widget.unboundedBehavior ??
         theme.unboundedBehavior ??
-        UnboundedBehavior.flexExpand;
+        UnboundedBehavior.shrinkToChildren;
 
     final fallbackExtent =
-        widget.fallbackMainAxisExtent ??
-        theme.fallbackMainAxisExtent ??
-        ResizableSplitter._defaultFallbackMainAxisExtent;
+        widget.fallbackExtent ??
+        theme.fallbackExtent ??
+        ResizableSplitter._defaultFallbackExtent;
 
-    final antiAliasingWorkaround =
-        widget.antiAliasingWorkaround ?? theme.antiAliasingWorkaround ?? false;
+    final snapToPhysicalPixels =
+        widget.snapToPhysicalPixels ?? theme.snapToPhysicalPixels ?? false;
 
     final controller = _attachedController ?? _effectiveController;
 
@@ -1099,7 +1104,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
         final maxSize = widget.axis.size(constraints.biggest);
 
         if (!maxSize.isFinite || maxSize <= 0) {
-          if (unboundedBehavior == UnboundedBehavior.limitedBox) {
+          if (unboundedBehavior == UnboundedBehavior.useFallbackExtent) {
             return LimitedBox(
               maxWidth: widget.axis.isH ? fallbackExtent : double.infinity,
               maxHeight: widget.axis.isH ? double.infinity : fallbackExtent,
@@ -1134,12 +1139,12 @@ class _ResizableSplitterState extends State<ResizableSplitter>
                         enableHaptics: enableHaptics,
                         keyboardStep: keyboardStep,
                         pageStep: pageStep,
-                        overlayEnabled: overlayEnabled,
+                        shieldPlatformViews: shieldPlatformViews,
                         interactiveExtent: interactiveExtent,
-                        blockerColor: blockerColor,
+                        dragBarrierColor: dragBarrierColor,
                         dividerColor: dividerColor,
                         handleBuilder: handleBuilder,
-                        antiAliasingWorkaround: antiAliasingWorkaround,
+                        snapToPhysicalPixels: snapToPhysicalPixels,
                         crossAxisBounded: _crossAxisBounded(bounded),
                         controller: controller,
                         semantics: semanticsLabels,
@@ -1151,11 +1156,11 @@ class _ResizableSplitterState extends State<ResizableSplitter>
             );
           }
 
-          // flexExpand fallback. Expanded requires a bounded main axis - under
+          // shrinkToChildren fallback. Expanded requires a bounded main axis - under
           // a truly unbounded constraint RenderFlex throws ("children have
           // non-zero flex but incoming constraints are unbounded"). So only
           // flex when finite (e.g. a zero extent); otherwise let the panels
-          // take their intrinsic size. Use limitedBox for a working splitter
+          // take their intrinsic size. Use useFallbackExtent for a working splitter
           // under unbounded constraints.
           final bounded = maxSize.isFinite;
           return Flex(
@@ -1182,12 +1187,12 @@ class _ResizableSplitterState extends State<ResizableSplitter>
               enableHaptics: enableHaptics,
               keyboardStep: keyboardStep,
               pageStep: pageStep,
-              overlayEnabled: overlayEnabled,
+              shieldPlatformViews: shieldPlatformViews,
               interactiveExtent: interactiveExtent,
-              blockerColor: blockerColor,
+              dragBarrierColor: dragBarrierColor,
               dividerColor: dividerColor,
               handleBuilder: handleBuilder,
-              antiAliasingWorkaround: antiAliasingWorkaround,
+              snapToPhysicalPixels: snapToPhysicalPixels,
               crossAxisBounded: _crossAxisBounded(constraints),
               controller: controller,
               semantics: semanticsLabels,
@@ -1224,7 +1229,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     startCollapsed: startCollapsed,
     endCollapsed: endCollapsed,
     devicePixelRatio: MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0,
-    snapToDevicePixels: snapToPixels,
+    snapToPhysicalPixels: snapToPixels,
   );
 
   Widget _buildBounded({
@@ -1235,13 +1240,13 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     required bool enableHaptics,
     required double keyboardStep,
     required double pageStep,
-    required bool overlayEnabled,
+    required bool shieldPlatformViews,
     required double interactiveExtent,
-    required Color? blockerColor,
+    required Color? dragBarrierColor,
     required WidgetStateProperty<Color?>? dividerColor,
     required Widget Function(BuildContext, SplitterHandleDetails)?
     handleBuilder,
-    required bool antiAliasingWorkaround,
+    required bool snapToPhysicalPixels,
     required bool crossAxisBounded,
     required SplitterController controller,
     required SplitterSemanticsLabels semantics,
@@ -1266,7 +1271,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
     // layout did not actually draw.
     final solver = _solverFor(
       available: availableSize,
-      snapToPixels: antiAliasingWorkaround,
+      snapToPixels: snapToPhysicalPixels,
       // Only an actually-collapsible pane resolves collapsed; a collapse request
       // on a fixed pane is ignored by the layout (the request still lives on the
       // controller). This is the request-vs-resolved split, like position vs
@@ -1275,7 +1280,8 @@ class _ResizableSplitterState extends State<ResizableSplitter>
           collapsedPane == SplitterPane.start &&
           widget.startConstraints.collapsible,
       endCollapsed:
-          collapsedPane == SplitterPane.end && widget.endConstraints.collapsible,
+          collapsedPane == SplitterPane.end &&
+          widget.endConstraints.collapsible,
     );
 
     final solution = solver.solve(position);
@@ -1322,7 +1328,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
       thickness: dividerThickness,
       solver: solver,
       solution: solution,
-      blockerColor: blockerColor,
+      dragBarrierColor: dragBarrierColor,
       dragBarrierBuilder: widget.dragBarrierBuilder,
       dividerColor: dividerColor,
       onChanged: widget.onChanged,
@@ -1335,7 +1341,7 @@ class _ResizableSplitterState extends State<ResizableSplitter>
       focusNode: _focusNode,
       semanticsLabel: widget.semanticsLabel,
       semantics: semantics,
-      overlayEnabled: overlayEnabled && widget.resizable,
+      shieldPlatformViews: shieldPlatformViews && widget.resizable,
       snap: widget.snap,
       handleBuilder: handleBuilder,
       holdScrollWhileDragging:
@@ -1499,7 +1505,7 @@ class _DividerHandle extends StatefulWidget {
     required this.solver,
     required this.solution,
     required this.dividerColor,
-    required this.blockerColor,
+    required this.dragBarrierColor,
     required this.dragBarrierBuilder,
     required this.onChanged,
     required this.onChangeStart,
@@ -1511,7 +1517,7 @@ class _DividerHandle extends StatefulWidget {
     required this.focusNode,
     required this.semanticsLabel,
     required this.semantics,
-    required this.overlayEnabled,
+    required this.shieldPlatformViews,
     required this.snap,
     required this.handleBuilder,
     required this.holdScrollWhileDragging,
@@ -1531,7 +1537,7 @@ class _DividerHandle extends StatefulWidget {
   final SplitterSolver solver;
   final SplitterSolution solution;
   final WidgetStateProperty<Color?>? dividerColor;
-  final Color? blockerColor;
+  final Color? dragBarrierColor;
   final Widget Function(BuildContext context)? dragBarrierBuilder;
   final ValueChanged<SplitterChangeDetails>? onChanged;
   final ValueChanged<SplitterChangeDetails>? onChangeStart;
@@ -1543,7 +1549,7 @@ class _DividerHandle extends StatefulWidget {
   final FocusNode focusNode;
   final String? semanticsLabel;
   final SplitterSemanticsLabels semantics;
-  final bool overlayEnabled;
+  final bool shieldPlatformViews;
   final SplitterSnapBehavior? snap;
   final Widget Function(BuildContext, SplitterHandleDetails)? handleBuilder;
   final bool holdScrollWhileDragging;
@@ -1719,7 +1725,7 @@ class _DividerHandleState extends State<_DividerHandle> {
       _scrollHold = Scrollable.maybeOf(context)?.position.hold(() {});
     }
 
-    if (widget.overlayEnabled) _insertOverlay();
+    if (widget.shieldPlatformViews) _insertOverlay();
 
     _haptic();
     widget.focusNode.requestFocus();
@@ -1750,7 +1756,9 @@ class _DividerHandleState extends State<_DividerHandle> {
     widget.controller.updateRatio(newRatio);
     final current = _effective;
     if ((current - previous).abs() > 1e-9) {
-      widget.onChanged?.call(_changeDetails(current, SplitterChangeSource.drag));
+      widget.onChanged?.call(
+        _changeDetails(current, SplitterChangeSource.drag),
+      );
     }
   }
 
@@ -1808,7 +1816,9 @@ class _DividerHandleState extends State<_DividerHandle> {
       session.controller.updateRatio(_lastDragRatio!, threshold: 0);
       final current = _effective;
       if ((current - previous).abs() > 1e-9) {
-        widget.onChanged?.call(_changeDetails(current, SplitterChangeSource.drag));
+        widget.onChanged?.call(
+          _changeDetails(current, SplitterChangeSource.drag),
+        );
       }
     }
 
@@ -1836,7 +1846,9 @@ class _DividerHandleState extends State<_DividerHandle> {
     _lastDragRatio = null;
     _activePointerCanceled = false;
     if (session.pointerId >= 0) {
-      _pendingPointers.removeWhere((pointer) => pointer.id == session.pointerId);
+      _pendingPointers.removeWhere(
+        (pointer) => pointer.id == session.pointerId,
+      );
     }
   }
 
@@ -1895,7 +1907,7 @@ class _DividerHandleState extends State<_DividerHandle> {
         debugPrint(
           'ResizableSplitter: no Overlay ancestor, so the drag platform-view '
           'shield is disabled. Provide a MaterialApp/Navigator (or any Overlay), '
-          'or set overlayEnabled: false to opt out and silence this.',
+          'or set shieldPlatformViews: false to opt out and silence this.',
         );
         return true;
       }());
@@ -1905,7 +1917,7 @@ class _DividerHandleState extends State<_DividerHandle> {
     final entry = OverlayEntry(
       builder: (context) => _DragOverlay(
         axis: widget.axis,
-        blockerColor: widget.blockerColor,
+        dragBarrierColor: widget.dragBarrierColor,
         barrierBuilder: widget.dragBarrierBuilder,
       ),
     );
@@ -2052,10 +2064,7 @@ class _DividerHandleState extends State<_DividerHandle> {
     final currentDecoration = BoxDecoration(
       color: _resolveDividerColor(states),
       border: showFocusRing
-          ? Border.all(
-              color: Theme.of(context).colorScheme.primary,
-              width: 2,
-            )
+          ? Border.all(color: Theme.of(context).colorScheme.primary, width: 2)
           : null,
     );
 
@@ -2141,7 +2150,7 @@ class _DividerHandleState extends State<_DividerHandle> {
                       widget.onChanged?.call(
                         _changeDetails(
                           updated,
-                          SplitterChangeSource.programmatic,
+                          SplitterChangeSource.doubleTapReset,
                         ),
                       );
                     }
@@ -2287,12 +2296,12 @@ class _PendingPointer {
 class _DragOverlay extends StatelessWidget {
   const _DragOverlay({
     required this.axis,
-    this.blockerColor,
+    this.dragBarrierColor,
     this.barrierBuilder,
   });
 
   final Axis axis;
-  final Color? blockerColor;
+  final Color? dragBarrierColor;
   final Widget Function(BuildContext context)? barrierBuilder;
 
   @override
@@ -2302,7 +2311,7 @@ class _DragOverlay extends StatelessWidget {
     // custom barrierBuilder replaces only that visual, never the shield.
     final barrier =
         barrierBuilder?.call(context) ??
-        ColoredBox(color: blockerColor ?? Colors.transparent);
+        ColoredBox(color: dragBarrierColor ?? Colors.transparent);
 
     return Positioned.fill(
       child: ExcludeSemantics(

@@ -103,7 +103,10 @@ void main() {
       expect(controller.isCollapsed, isTrue);
 
       controller.jumpTo(const SplitterPosition.startPixels(120));
-      expect(controller.value.position, const SplitterPosition.startPixels(120));
+      expect(
+        controller.value.position,
+        const SplitterPosition.startPixels(120),
+      );
       expect(controller.isCollapsed, isFalse);
     });
 
@@ -164,46 +167,43 @@ void main() {
       },
     );
 
-    testWidgets(
-      'a listener notified by a position write sees a consistent '
-      'effectiveFraction (no stale-layout desync)',
-      (tester) async {
-        final controller = SplitterController(); // fraction 0.5
-        await tester.pumpWidget(
-          MaterialApp(
-            home: Scaffold(
-              body: Center(
-                child: SizedBox(
-                  width: 408,
-                  height: 240,
-                  child: ResizableSplitter(
-                    controller: controller,
-                    startConstraints: const SplitterPaneConstraints(),
-                    endConstraints: const SplitterPaneConstraints(),
-                    start: const SizedBox(),
-                    end: const SizedBox(),
-                  ),
+    testWidgets('a listener notified by a position write sees a consistent '
+        'effectiveFraction (no stale-layout desync)', (tester) async {
+      final controller = SplitterController(); // fraction 0.5
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 408,
+                height: 240,
+                child: ResizableSplitter(
+                  controller: controller,
+                  startConstraints: const SplitterPaneConstraints(),
+                  endConstraints: const SplitterPaneConstraints(),
+                  start: const SizedBox(),
+                  end: const SizedBox(),
                 ),
               ),
             ),
           ),
-        );
-        await tester.pumpAndSettle();
-        expect(controller.effectiveFraction, closeTo(0.5, 1e-6));
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(controller.effectiveFraction, closeTo(0.5, 1e-6));
 
-        // Capture effectiveFraction at the instant the controller notifies.
-        double? observed;
-        controller.addListener(() => observed ??= controller.effectiveFraction);
+      // Capture effectiveFraction at the instant the controller notifies.
+      double? observed;
+      controller.addListener(() => observed ??= controller.effectiveFraction);
 
-        // A fresh request. The listener fires synchronously inside the write; it
-        // must observe a fraction consistent with the NEW request (0.8), not the
-        // stale published layout (0.5).
-        controller.jumpTo(const SplitterPosition.fraction(0.8));
+      // A fresh request. The listener fires synchronously inside the write; it
+      // must observe a fraction consistent with the NEW request (0.8), not the
+      // stale published layout (0.5).
+      controller.jumpTo(const SplitterPosition.fraction(0.8));
 
-        expect(observed, isNotNull);
-        expect(observed, closeTo(0.8, 1e-6));
-      },
-    );
+      expect(observed, isNotNull);
+      expect(observed, closeTo(0.8, 1e-6));
+    });
 
     testWidgets(
       'detaching the controller (splitter removed) clears the published layout',

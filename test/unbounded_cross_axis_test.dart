@@ -77,55 +77,57 @@ void main() {
     );
   });
 
-  testWidgets('both axes unbounded: flexExpand shows panes without throwing', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      const MaterialApp(
-        home: Scaffold(
-          body: UnconstrainedBox(
-            child: ResizableSplitter(
-              axis: Axis.horizontal,
-              start: SizedBox(width: 30, height: 30, key: Key('start')),
-              end: SizedBox(width: 30, height: 30, key: Key('end')),
+  testWidgets(
+    'both axes unbounded: shrinkToChildren shows panes without throwing',
+    (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: UnconstrainedBox(
+              child: ResizableSplitter(
+                axis: Axis.horizontal,
+                start: SizedBox(width: 30, height: 30, key: Key('start')),
+                end: SizedBox(width: 30, height: 30, key: Key('end')),
+              ),
             ),
           ),
         ),
-      ),
-    );
+      );
 
-    expect(tester.takeException(), isNull);
-    expect(find.byKey(const Key('start')), findsOneWidget);
-    expect(find.byKey(const Key('end')), findsOneWidget);
-  });
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const Key('start')), findsOneWidget);
+      expect(find.byKey(const Key('end')), findsOneWidget);
+    },
+  );
 
-  testWidgets('limitedBox fallback renders with an unbounded cross axis', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      const MaterialApp(
-        home: Scaffold(
-          body: UnconstrainedBox(
-            child: ResizableSplitter(
-              axis: Axis.horizontal,
-              unboundedBehavior: UnboundedBehavior.limitedBox,
-              fallbackMainAxisExtent: 408,
-              divider: SplitterDividerStyle(thickness: 8),
-              startConstraints: SplitterPaneConstraints(),
-              endConstraints: SplitterPaneConstraints(),
-              start: SizedBox(height: 50, key: Key('start')),
-              end: SizedBox(height: 50, key: Key('end')),
+  testWidgets(
+    'useFallbackExtent fallback renders with an unbounded cross axis',
+    (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: UnconstrainedBox(
+              child: ResizableSplitter(
+                axis: Axis.horizontal,
+                unboundedBehavior: UnboundedBehavior.useFallbackExtent,
+                fallbackExtent: 408,
+                divider: SplitterDividerStyle(thickness: 8),
+                startConstraints: SplitterPaneConstraints(),
+                endConstraints: SplitterPaneConstraints(),
+                start: SizedBox(height: 50, key: Key('start')),
+                end: SizedBox(height: 50, key: Key('end')),
+              ),
             ),
           ),
         ),
-      ),
-    );
+      );
 
-    expect(tester.takeException(), isNull);
-    // main axis limited to 408; available = 408 - 8 = 400; centered => 200.
-    expect(
-      tester.getSize(find.byKey(const Key('start'))).width,
-      closeTo(200, 1e-6),
-    );
-  });
+      expect(tester.takeException(), isNull);
+      // main axis limited to 408; available = 408 - 8 = 400; centered => 200.
+      expect(
+        tester.getSize(find.byKey(const Key('start'))).width,
+        closeTo(200, 1e-6),
+      );
+    },
+  );
 }

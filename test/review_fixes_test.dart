@@ -54,34 +54,33 @@ void main() {
     });
   });
 
-  group('unbounded flexExpand no longer throws', () {
-    testWidgets(
-      'splitter under an unbounded main axis with the default policy',
-      (tester) async {
-        await tester.pumpWidget(
-          const MaterialApp(
-            home: Scaffold(
-              body: Center(
-                // Both axes unbounded: Expanded here would throw RenderFlex.
-                child: UnconstrainedBox(
-                  child: ResizableSplitter(
-                    semanticsLabel: 'handle',
-                    start: SizedBox(width: 40, height: 40),
-                    end: SizedBox(width: 40, height: 40),
-                  ),
+  group('unbounded shrinkToChildren no longer throws', () {
+    testWidgets('splitter under an unbounded main axis with the default policy', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: Center(
+              // Both axes unbounded: Expanded here would throw RenderFlex.
+              child: UnconstrainedBox(
+                child: ResizableSplitter(
+                  semanticsLabel: 'handle',
+                  start: SizedBox(width: 40, height: 40),
+                  end: SizedBox(width: 40, height: 40),
                 ),
               ),
             ),
           ),
-        );
-        await tester.pump();
+        ),
+      );
+      await tester.pump();
 
-        expect(tester.takeException(), isNull);
-        expect(find.byType(Flex), findsWidgets);
-        // flexExpand was requested (the default), so no LimitedBox sandbox.
-        expect(find.byType(LimitedBox), findsNothing);
-      },
-    );
+      expect(tester.takeException(), isNull);
+      expect(find.byType(Flex), findsWidgets);
+      // shrinkToChildren was requested (the default), so no LimitedBox sandbox.
+      expect(find.byType(LimitedBox), findsNothing);
+    });
   });
 
   group('theme precedence: local theme overrides the global extension', () {
@@ -160,7 +159,7 @@ void main() {
                   // re-asserting a default.
                   child: ResizableSplitterTheme(
                     data: const ResizableSplitterThemeData(
-                      blockerColor: Color(0xFFFF0000),
+                      dragBarrierColor: Color(0xFFFF0000),
                     ),
                     child: ResizableSplitter(
                       semanticsLabel: 'handle',

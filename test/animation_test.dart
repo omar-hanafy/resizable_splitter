@@ -121,7 +121,9 @@ void main() {
     expect(controller.effectiveFraction, closeTo(0.7, 1e-6));
   });
 
-  testWidgets('a drag resolves the run as canceled (review #2)', (tester) async {
+  testWidgets('a drag resolves the run as canceled (review #2)', (
+    tester,
+  ) async {
     final controller = SplitterController(
       initialPosition: const SplitterPosition.fraction(0.2),
     );
@@ -160,7 +162,9 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
 
     // Remove the splitter from the tree while the animation is in flight.
-    await tester.pumpWidget(const MaterialApp(home: Scaffold(body: SizedBox())));
+    await tester.pumpWidget(
+      const MaterialApp(home: Scaffold(body: SizedBox())),
+    );
 
     expect(await future, SplitterAnimationStatus.detached);
   });

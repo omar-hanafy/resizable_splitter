@@ -12,11 +12,11 @@ void main() {
         MaterialApp(
           home: ResizableSplitterTheme(
             data: const ResizableSplitterThemeData(
-              blockerColor: Color(0xFF0000FF),
+              dragBarrierColor: Color(0xFF0000FF),
               enableHaptics: true,
             ),
             child: ResizableSplitterTheme(
-              // Inner overrides only enableHaptics; the outer blockerColor must
+              // Inner overrides only enableHaptics; the outer dragBarrierColor must
               // still show through.
               data: const ResizableSplitterThemeData(enableHaptics: false),
               child: Builder(
@@ -30,7 +30,10 @@ void main() {
         ),
       );
 
-      expect(resolved.blockerColor, const Color(0xFF0000FF)); // from the outer
+      expect(
+        resolved.dragBarrierColor,
+        const Color(0xFF0000FF),
+      ); // from the outer
       expect(resolved.enableHaptics, isFalse); // from the inner
     });
   });
@@ -56,8 +59,10 @@ void main() {
 
   group('copyWith can clear nullables (review C)', () {
     test('ResizableSplitterThemeData clears a color', () {
-      const data = ResizableSplitterThemeData(blockerColor: Color(0xFF000000));
-      expect(data.copyWith(blockerColor: null).blockerColor, isNull);
+      const data = ResizableSplitterThemeData(
+        dragBarrierColor: Color(0xFF000000),
+      );
+      expect(data.copyWith(dragBarrierColor: null).dragBarrierColor, isNull);
     });
 
     test('SplitterDividerStyle clears thickness and interactiveExtent', () {

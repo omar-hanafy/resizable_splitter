@@ -34,7 +34,7 @@ class SplitterPaneConstraints {
        assert(
          collapsedExtent == null || collapsedExtent <= minExtent,
          'collapsedExtent must be <= minExtent '
-             '(collapse shrinks a pane below its minimum, it never enlarges it)',
+         '(collapse shrinks a pane below its minimum, it never enlarges it)',
        );
 
   /// Smallest extent this pane may occupy, in logical pixels.

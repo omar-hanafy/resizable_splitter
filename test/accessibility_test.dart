@@ -28,7 +28,8 @@ void main() {
   );
 
   BoxDecoration barDecoration(WidgetTester tester) =>
-      tester.widget<AnimatedContainer>(barFinder()).decoration! as BoxDecoration;
+      tester.widget<AnimatedContainer>(barFinder()).decoration!
+          as BoxDecoration;
 
   void forceKeyboardHighlight() {
     FocusManager.instance.highlightStrategy =
@@ -106,65 +107,67 @@ void main() {
       expect(barDecoration(tester).color, focused);
     });
 
-    testWidgets('SplitterHandleDetails.isFocused reaches a custom grip builder', (
-      tester,
-    ) async {
-      forceKeyboardHighlight();
-      final focusedSamples = <bool>[];
-      await tester.pumpWidget(
-        host(
-          ResizableSplitter(
-            divider: SplitterDividerStyle(
-              builder: (context, details) {
-                focusedSamples.add(details.isFocused);
-                return const SizedBox.expand();
-              },
+    testWidgets(
+      'SplitterHandleDetails.isFocused reaches a custom grip builder',
+      (tester) async {
+        forceKeyboardHighlight();
+        final focusedSamples = <bool>[];
+        await tester.pumpWidget(
+          host(
+            ResizableSplitter(
+              divider: SplitterDividerStyle(
+                builder: (context, details) {
+                  focusedSamples.add(details.isFocused);
+                  return const SizedBox.expand();
+                },
+              ),
+              semanticsLabel: 'handle',
+              start: const SizedBox(),
+              end: const SizedBox(),
             ),
-            semanticsLabel: 'handle',
-            start: const SizedBox(),
-            end: const SizedBox(),
           ),
-        ),
-      );
+        );
 
-      expect(focusedSamples.last, isFalse);
+        expect(focusedSamples.last, isFalse);
 
-      requestHandleFocus(tester);
-      await tester.pump();
+        requestHandleFocus(tester);
+        await tester.pump();
 
-      expect(focusedSamples.last, isTrue);
-    });
+        expect(focusedSamples.last, isTrue);
+      },
+    );
   });
 
   group('localizable semantics', () {
-    testWidgets('SplitterSemanticsLabels overrides the label and value format', (
-      tester,
-    ) async {
-      await tester.pumpWidget(
-        host(
-          ResizableSplitter(
-            semantics: SplitterSemanticsLabels(
-              resizeHorizontal: 'Redimensionner',
-              formatValue: (fraction) =>
-                  'ratio ${fraction.toStringAsFixed(2)}',
+    testWidgets(
+      'SplitterSemanticsLabels overrides the label and value format',
+      (tester) async {
+        await tester.pumpWidget(
+          host(
+            ResizableSplitter(
+              semantics: SplitterSemanticsLabels(
+                resizeHorizontal: 'Redimensionner',
+                formatValue: (fraction) =>
+                    'ratio ${fraction.toStringAsFixed(2)}',
+              ),
+              start: const SizedBox(),
+              end: const SizedBox(),
             ),
-            start: const SizedBox(),
-            end: const SizedBox(),
           ),
-        ),
-      );
-
-      final handle = tester.ensureSemantics();
-      try {
-        final node = tester.getSemantics(
-          find.bySemanticsLabel('Redimensionner'),
         );
-        expect(node.label, 'Redimensionner');
-        expect(node.value, 'ratio 0.50');
-      } finally {
-        handle.dispose();
-      }
-    });
+
+        final handle = tester.ensureSemantics();
+        try {
+          final node = tester.getSemantics(
+            find.bySemanticsLabel('Redimensionner'),
+          );
+          expect(node.label, 'Redimensionner');
+          expect(node.value, 'ratio 0.50');
+        } finally {
+          handle.dispose();
+        }
+      },
+    );
 
     testWidgets('static labels are used when the splitter is not resizable', (
       tester,
@@ -290,28 +293,29 @@ void main() {
       expect(handleRect.left, closeTo(startRect.right - slop, 1e-6));
     });
 
-    testWidgets('a non-resizable divider collapses the target to its thickness', (
-      tester,
-    ) async {
-      await tester.pumpWidget(
-        host(
-          const ResizableSplitter(
-            resizable: false,
-            divider: SplitterDividerStyle(thickness: 8),
-            semanticsLabel: 'handle',
-            start: SizedBox(),
-            end: SizedBox(),
+    testWidgets(
+      'a non-resizable divider collapses the target to its thickness',
+      (tester) async {
+        await tester.pumpWidget(
+          host(
+            const ResizableSplitter(
+              resizable: false,
+              divider: SplitterDividerStyle(thickness: 8),
+              semanticsLabel: 'handle',
+              start: SizedBox(),
+              end: SizedBox(),
+            ),
           ),
-        ),
-      );
+        );
 
-      final handleRect = tester.getRect(find.bySemanticsLabel('handle'));
-      expect(
-        handleRect.width,
-        closeTo(8, 1e-6),
-        reason: 'a static divider must not overlap the panes and steal hits',
-      );
-    });
+        final handleRect = tester.getRect(find.bySemanticsLabel('handle'));
+        expect(
+          handleRect.width,
+          closeTo(8, 1e-6),
+          reason: 'a static divider must not overlap the panes and steal hits',
+        );
+      },
+    );
   });
 
   group('assistive actions are gated on the resolved bounds', () {

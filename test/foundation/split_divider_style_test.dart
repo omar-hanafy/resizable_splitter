@@ -14,7 +14,10 @@ void main() {
 
     test('rejects negative thickness and interactiveExtent', () {
       expect(() => SplitterDividerStyle(thickness: -1), throwsAssertionError);
-      expect(() => SplitterDividerStyle(interactiveExtent: -1), throwsAssertionError);
+      expect(
+        () => SplitterDividerStyle(interactiveExtent: -1),
+        throwsAssertionError,
+      );
     });
 
     test('copyWith replaces only the given fields', () {

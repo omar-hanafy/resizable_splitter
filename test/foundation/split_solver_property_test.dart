@@ -76,7 +76,7 @@ void main() {
         startCollapsed: startCollapsed,
         endCollapsed: endCollapsed,
         devicePixelRatio: dpr,
-        snapToDevicePixels: snap,
+        snapToPhysicalPixels: snap,
       );
 
       final sol = solver.solve(randPosition());
@@ -111,8 +111,16 @@ void main() {
         );
       }
 
-      expect(sol.effectiveFraction, greaterThanOrEqualTo(-1e-9), reason: reason);
-      expect(sol.effectiveFraction, lessThanOrEqualTo(1 + 1e-9), reason: reason);
+      expect(
+        sol.effectiveFraction,
+        greaterThanOrEqualTo(-1e-9),
+        reason: reason,
+      );
+      expect(
+        sol.effectiveFraction,
+        lessThanOrEqualTo(1 + 1e-9),
+        reason: reason,
+      );
 
       // The reported band always contains the resolved extent.
       expect(

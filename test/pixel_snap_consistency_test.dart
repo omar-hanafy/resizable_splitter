@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:resizable_splitter/resizable_splitter.dart';
 
-/// Review issue #7: with `antiAliasingWorkaround` on, the pixel snap must apply
+/// Review issue #7: with `snapToPhysicalPixels` on, the pixel snap must apply
 /// to *every* solve (layout, drag, callbacks, the published layout) - not only
 /// the layout - so a callback can never report an extent the layout never drew.
 /// The snap config now lives on the solver, so all of its solves snap alike.
@@ -31,7 +31,7 @@ void main() {
                       divider: const SplitterDividerStyle(thickness: 7),
                       startConstraints: const SplitterPaneConstraints(),
                       endConstraints: const SplitterPaneConstraints(),
-                      antiAliasingWorkaround: true,
+                      snapToPhysicalPixels: true,
                       semanticsLabel: 'handle',
                       onChangeEnd: (d) => end = d,
                       start: const SizedBox(key: Key('start')),

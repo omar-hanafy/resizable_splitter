@@ -38,11 +38,8 @@ void main() {
             semanticsLabel: 'handle',
             startConstraints: const SplitterPaneConstraints(),
             endConstraints: const SplitterPaneConstraints(),
-            blockerColor: Colors.green,
-            snap: SplitterSnapBehavior(
-              points: [0.25, 0.75],
-              tolerance: 0.1,
-            ),
+            dragBarrierColor: Colors.green,
+            snap: SplitterSnapBehavior(points: [0.25, 0.75], tolerance: 0.1),
             onChangeStart: (d) => dragStart = d.effectiveFraction,
             onChangeEnd: (d) => dragEnd = d.effectiveFraction,
             onChanged: (d) => ratioChanges.add(d.effectiveFraction),
@@ -463,7 +460,7 @@ void main() {
 
     final theme = ThemeData.light().copyWith(
       extensions: const <ThemeExtension<dynamic>>[
-        ResizableSplitterThemeData(overlayEnabled: false),
+        ResizableSplitterThemeData(shieldPlatformViews: false),
       ],
     );
 
@@ -477,7 +474,7 @@ void main() {
               height: 220,
               child: ResizableSplitter(
                 controller: controller,
-                blockerColor: Colors.red,
+                dragBarrierColor: Colors.red,
                 semanticsLabel: 'handle',
                 start: const SizedBox(),
                 end: const SizedBox(),
@@ -512,7 +509,7 @@ void main() {
 
     final theme = ThemeData.light().copyWith(
       extensions: const <ThemeExtension<dynamic>>[
-        ResizableSplitterThemeData(overlayEnabled: false),
+        ResizableSplitterThemeData(shieldPlatformViews: false),
       ],
     );
 
@@ -526,8 +523,8 @@ void main() {
               height: 220,
               child: ResizableSplitter(
                 controller: controller,
-                overlayEnabled: true,
-                blockerColor: Colors.red,
+                shieldPlatformViews: true,
+                dragBarrierColor: Colors.red,
                 semanticsLabel: 'handle',
                 start: const SizedBox(),
                 end: const SizedBox(),

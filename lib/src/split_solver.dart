@@ -99,7 +99,7 @@ class SplitterSolver {
     this.startCollapsed = false,
     this.endCollapsed = false,
     this.devicePixelRatio = 1.0,
-    this.snapToDevicePixels = false,
+    this.snapToPhysicalPixels = false,
   });
 
   /// Space shared by the two panes, in logical pixels.
@@ -132,7 +132,7 @@ class SplitterSolver {
   /// Whether the end pane is collapsed.
   final bool endCollapsed;
 
-  /// The device pixel ratio used when [snapToDevicePixels] is set.
+  /// The device pixel ratio used when [snapToPhysicalPixels] is set.
   final double devicePixelRatio;
 
   /// Whether to snap the start extent to a whole physical pixel (removing
@@ -141,11 +141,11 @@ class SplitterSolver {
   /// Carried on the solver rather than passed per-call so that every [solve]
   /// from this instance - layout, drag, snapping, semantics, preview - is
   /// pixel-consistent: the callbacks and the drawn extents can never disagree.
-  final bool snapToDevicePixels;
+  final bool snapToPhysicalPixels;
 
   /// Resolves [requested] into legal extents.
   ///
-  /// When [snapToDevicePixels] is set, the start extent is snapped to a whole
+  /// When [snapToPhysicalPixels] is set, the start extent is snapped to a whole
   /// physical pixel for [devicePixelRatio] then re-clamped into the resolved
   /// band (never just to `[0, available]`), so snapping can never violate the
   /// policy-chosen value.
@@ -181,9 +181,11 @@ class SplitterSolver {
             .toDouble();
         startExtent = available - endExtent;
       }
-      startExtent = _maybeSnap(startExtent, devicePixelRatio, snapToDevicePixels)
-          .clamp(0.0, available)
-          .toDouble();
+      startExtent = _maybeSnap(
+        startExtent,
+        devicePixelRatio,
+        snapToPhysicalPixels,
+      ).clamp(0.0, available).toDouble();
       return SplitterSolution(
         startExtent: startExtent,
         endExtent: available - startExtent,
@@ -255,7 +257,8 @@ class SplitterSolver {
         SplitterSurplusPolicy.giveToEnd => start.maxExtent,
         SplitterSurplusPolicy.proportional =>
           (start.maxExtent + end.maxExtent) > 0
-              ? available * (start.maxExtent / (start.maxExtent + end.maxExtent))
+              ? available *
+                    (start.maxExtent / (start.maxExtent + end.maxExtent))
               : available * 0.5,
         SplitterSurplusPolicy.leaveGap => start.maxExtent,
       };
@@ -286,7 +289,7 @@ class SplitterSolver {
 
     // STEP 5 - snap to a physical pixel, then re-clamp to the SAME band the
     // policy used so snapping cannot violate the chosen value.
-    if (snapToDevicePixels) {
+    if (snapToPhysicalPixels) {
       startExtent = _maybeSnap(
         startExtent,
         devicePixelRatio,

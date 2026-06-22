@@ -36,8 +36,10 @@ class SplitterState {
   /// collapse, construct a new [SplitterState] (or use the controller's
   /// `jumpTo`) instead - there is intentionally no way to clear the collapse
   /// through [copyWith], so the nullable field can never be cleared by accident.
-  SplitterState copyWith({SplitterPosition? position}) =>
-      SplitterState(position: position ?? this.position, collapsedPane: collapsedPane);
+  SplitterState copyWith({SplitterPosition? position}) => SplitterState(
+    position: position ?? this.position,
+    collapsedPane: collapsedPane,
+  );
 
   /// Returns a state with [pane] collapsed, keeping the position. Returns this
   /// same instance when [pane] is already the collapsed one, so a redundant

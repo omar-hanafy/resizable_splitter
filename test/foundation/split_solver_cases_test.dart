@@ -109,7 +109,7 @@ void main() {
         start: SplitterPaneConstraints(),
         end: SplitterPaneConstraints(),
         devicePixelRatio: 1.5,
-        snapToDevicePixels: true,
+        snapToPhysicalPixels: true,
       );
       final sol = solver.solve(const SplitterPosition.fraction(0.3337));
       final physical = sol.startExtent * 1.5;
@@ -167,34 +167,40 @@ void main() {
   });
 
   group('pixel limits beat fractional caps (review C#2)', () {
-    test('a feasible pixel minimum wins over a conflicting maxStartFraction', () {
-      // maxStartFraction 0.5 would cap the start at 200, below its 300px
-      // minimum. The hard pixel minimum must win.
-      const solver = SplitterSolver(
-        available: 400,
-        start: SplitterPaneConstraints(minExtent: 300),
-        end: SplitterPaneConstraints(),
-        maxStartFraction: 0.5,
-        policy: SplitterConstraintPolicy.favorEnd,
-      );
-      final sol = solver.solve(const SplitterPosition.fraction(0.5));
-      expect(sol.startExtent, closeTo(300, 1e-9));
-      expect(sol.resolution, SplitterResolution.fractionConflict);
-    });
+    test(
+      'a feasible pixel minimum wins over a conflicting maxStartFraction',
+      () {
+        // maxStartFraction 0.5 would cap the start at 200, below its 300px
+        // minimum. The hard pixel minimum must win.
+        const solver = SplitterSolver(
+          available: 400,
+          start: SplitterPaneConstraints(minExtent: 300),
+          end: SplitterPaneConstraints(),
+          maxStartFraction: 0.5,
+          policy: SplitterConstraintPolicy.favorEnd,
+        );
+        final sol = solver.solve(const SplitterPosition.fraction(0.5));
+        expect(sol.startExtent, closeTo(300, 1e-9));
+        expect(sol.resolution, SplitterResolution.fractionConflict);
+      },
+    );
 
-    test('a feasible pixel maximum wins over a conflicting minStartFraction', () {
-      // minStartFraction 0.5 would force the start to 200, above its 100px
-      // maximum. The hard pixel maximum must win.
-      const solver = SplitterSolver(
-        available: 400,
-        start: SplitterPaneConstraints(maxExtent: 100),
-        end: SplitterPaneConstraints(),
-        minStartFraction: 0.5,
-      );
-      final sol = solver.solve(const SplitterPosition.fraction(0.5));
-      expect(sol.startExtent, closeTo(100, 1e-9));
-      expect(sol.resolution, SplitterResolution.fractionConflict);
-    });
+    test(
+      'a feasible pixel maximum wins over a conflicting minStartFraction',
+      () {
+        // minStartFraction 0.5 would force the start to 200, above its 100px
+        // maximum. The hard pixel maximum must win.
+        const solver = SplitterSolver(
+          available: 400,
+          start: SplitterPaneConstraints(maxExtent: 100),
+          end: SplitterPaneConstraints(),
+          minStartFraction: 0.5,
+        );
+        final sol = solver.solve(const SplitterPosition.fraction(0.5));
+        expect(sol.startExtent, closeTo(100, 1e-9));
+        expect(sol.resolution, SplitterResolution.fractionConflict);
+      },
+    );
   });
 
   group('degenerate inputs never throw', () {

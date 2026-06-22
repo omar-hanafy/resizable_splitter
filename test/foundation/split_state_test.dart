@@ -116,10 +116,13 @@ void main() {
       expect(expanded.position, const SplitterPosition.startPixels(280));
     });
 
-    test('expand on an already-expanded state returns the identical instance', () {
-      const state = SplitterState(position: SplitterPosition.fraction(0.3));
-      expect(identical(state.expand(), state), isTrue);
-    });
+    test(
+      'expand on an already-expanded state returns the identical instance',
+      () {
+        const state = SplitterState(position: SplitterPosition.fraction(0.3));
+        expect(identical(state.expand(), state), isTrue);
+      },
+    );
 
     test('toString carries the position and collapse', () {
       const state = SplitterState(

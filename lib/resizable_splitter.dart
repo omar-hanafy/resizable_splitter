@@ -19,4 +19,4 @@ export 'src/split_position.dart';
 export 'src/split_semantics_labels.dart';
 export 'src/split_snap_behavior.dart';
 export 'src/split_state.dart';
-export 'src/split_view_value.dart';
+export 'src/split_change_details.dart';

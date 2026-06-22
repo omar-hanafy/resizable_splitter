@@ -11,10 +11,10 @@ const Object _noUpdate = Object();
 /// How the splitter should behave when the main-axis constraints are unbounded.
 enum UnboundedBehavior {
   /// Expand panels using Flex widgets when constraints are unbounded.
-  flexExpand,
+  shrinkToChildren,
 
   /// Constrain the layout using a [LimitedBox] when constraints are unbounded.
-  limitedBox,
+  useFallbackExtent,
 }
 
 /// Shared styling and behavior for [ResizableSplitter] widgets.
@@ -25,7 +25,7 @@ enum UnboundedBehavior {
 /// app-wide `ThemeData` extension, a local [ResizableSplitterTheme], then the
 /// explicit constructor argument on the widget. Because nothing here carries a
 /// default, layering a partial override (for example a local theme that sets
-/// only [blockerColor]) can never clobber a value a broader scope supplied.
+/// only [dragBarrierColor]) can never clobber a value a broader scope supplied.
 ///
 /// Use it in two interchangeable ways:
 ///  * app-wide, via `ThemeData(extensions: [ResizableSplitterThemeData(...)])`;
@@ -36,15 +36,15 @@ class ResizableSplitterThemeData
   /// Creates theme data. Every field defaults to null, meaning "defer".
   const ResizableSplitterThemeData({
     this.divider,
-    this.blockerColor,
-    this.overlayEnabled,
+    this.dragBarrierColor,
+    this.shieldPlatformViews,
     this.enableKeyboard,
     this.enableHaptics,
     this.keyboardStep,
     this.pageStep,
     this.unboundedBehavior,
-    this.fallbackMainAxisExtent,
-    this.antiAliasingWorkaround,
+    this.fallbackExtent,
+    this.snapToPhysicalPixels,
     this.semantics,
   }) : assert(
          keyboardStep == null || keyboardStep >= 0,
@@ -55,18 +55,18 @@ class ResizableSplitterThemeData
          'pageStep must be non-negative',
        ),
        assert(
-         fallbackMainAxisExtent == null || fallbackMainAxisExtent > 0,
-         'fallbackMainAxisExtent must be greater than zero',
+         fallbackExtent == null || fallbackExtent > 0,
+         'fallbackExtent must be greater than zero',
        );
 
   /// Divider appearance and grab configuration.
   final SplitterDividerStyle? divider;
 
   /// Optional overlay tint while dragging.
-  final Color? blockerColor;
+  final Color? dragBarrierColor;
 
   /// Whether the overlay shield is inserted during drags.
-  final bool? overlayEnabled;
+  final bool? shieldPlatformViews;
 
   /// Whether keyboard interaction is enabled.
   final bool? enableKeyboard;
@@ -83,11 +83,11 @@ class ResizableSplitterThemeData
   /// Strategy when encountering unbounded main-axis constraints.
   final UnboundedBehavior? unboundedBehavior;
 
-  /// Fallback extent used when opting into [UnboundedBehavior.limitedBox].
-  final double? fallbackMainAxisExtent;
+  /// Fallback extent used when opting into [UnboundedBehavior.useFallbackExtent].
+  final double? fallbackExtent;
 
   /// Whether to snap the leading panel size to whole physical pixels.
-  final bool? antiAliasingWorkaround;
+  final bool? snapToPhysicalPixels;
 
   /// Localizable semantics strings and value formatting for descendant
   /// splitters. Null defers to the built-in English defaults.
@@ -100,27 +100,27 @@ class ResizableSplitterThemeData
   @override
   ResizableSplitterThemeData copyWith({
     Object? divider = _noUpdate,
-    Object? blockerColor = _noUpdate,
-    Object? overlayEnabled = _noUpdate,
+    Object? dragBarrierColor = _noUpdate,
+    Object? shieldPlatformViews = _noUpdate,
     Object? enableKeyboard = _noUpdate,
     Object? enableHaptics = _noUpdate,
     Object? keyboardStep = _noUpdate,
     Object? pageStep = _noUpdate,
     Object? unboundedBehavior = _noUpdate,
-    Object? fallbackMainAxisExtent = _noUpdate,
-    Object? antiAliasingWorkaround = _noUpdate,
+    Object? fallbackExtent = _noUpdate,
+    Object? snapToPhysicalPixels = _noUpdate,
     Object? semantics = _noUpdate,
   }) {
     return ResizableSplitterThemeData(
       divider: identical(divider, _noUpdate)
           ? this.divider
           : divider as SplitterDividerStyle?,
-      blockerColor: identical(blockerColor, _noUpdate)
-          ? this.blockerColor
-          : blockerColor as Color?,
-      overlayEnabled: identical(overlayEnabled, _noUpdate)
-          ? this.overlayEnabled
-          : overlayEnabled as bool?,
+      dragBarrierColor: identical(dragBarrierColor, _noUpdate)
+          ? this.dragBarrierColor
+          : dragBarrierColor as Color?,
+      shieldPlatformViews: identical(shieldPlatformViews, _noUpdate)
+          ? this.shieldPlatformViews
+          : shieldPlatformViews as bool?,
       enableKeyboard: identical(enableKeyboard, _noUpdate)
           ? this.enableKeyboard
           : enableKeyboard as bool?,
@@ -136,12 +136,12 @@ class ResizableSplitterThemeData
       unboundedBehavior: identical(unboundedBehavior, _noUpdate)
           ? this.unboundedBehavior
           : unboundedBehavior as UnboundedBehavior?,
-      fallbackMainAxisExtent: identical(fallbackMainAxisExtent, _noUpdate)
-          ? this.fallbackMainAxisExtent
-          : (fallbackMainAxisExtent as num?)?.toDouble(),
-      antiAliasingWorkaround: identical(antiAliasingWorkaround, _noUpdate)
-          ? this.antiAliasingWorkaround
-          : antiAliasingWorkaround as bool?,
+      fallbackExtent: identical(fallbackExtent, _noUpdate)
+          ? this.fallbackExtent
+          : (fallbackExtent as num?)?.toDouble(),
+      snapToPhysicalPixels: identical(snapToPhysicalPixels, _noUpdate)
+          ? this.snapToPhysicalPixels
+          : snapToPhysicalPixels as bool?,
       semantics: identical(semantics, _noUpdate)
           ? this.semantics
           : semantics as SplitterSemanticsLabels?,
@@ -156,17 +156,15 @@ class ResizableSplitterThemeData
     if (other == null) return this;
     return ResizableSplitterThemeData(
       divider: divider == null ? other.divider : divider!.merge(other.divider),
-      blockerColor: other.blockerColor ?? blockerColor,
-      overlayEnabled: other.overlayEnabled ?? overlayEnabled,
+      dragBarrierColor: other.dragBarrierColor ?? dragBarrierColor,
+      shieldPlatformViews: other.shieldPlatformViews ?? shieldPlatformViews,
       enableKeyboard: other.enableKeyboard ?? enableKeyboard,
       enableHaptics: other.enableHaptics ?? enableHaptics,
       keyboardStep: other.keyboardStep ?? keyboardStep,
       pageStep: other.pageStep ?? pageStep,
       unboundedBehavior: other.unboundedBehavior ?? unboundedBehavior,
-      fallbackMainAxisExtent:
-          other.fallbackMainAxisExtent ?? fallbackMainAxisExtent,
-      antiAliasingWorkaround:
-          other.antiAliasingWorkaround ?? antiAliasingWorkaround,
+      fallbackExtent: other.fallbackExtent ?? fallbackExtent,
+      snapToPhysicalPixels: other.snapToPhysicalPixels ?? snapToPhysicalPixels,
       semantics: other.semantics ?? semantics,
     );
   }
@@ -180,21 +178,19 @@ class ResizableSplitterThemeData
     if (other == null) return this;
     return ResizableSplitterThemeData(
       divider: SplitterDividerStyle.lerp(divider, other.divider, t),
-      blockerColor: Color.lerp(blockerColor, other.blockerColor, t),
-      overlayEnabled: t < 0.5 ? overlayEnabled : other.overlayEnabled,
+      dragBarrierColor: Color.lerp(dragBarrierColor, other.dragBarrierColor, t),
+      shieldPlatformViews: t < 0.5
+          ? shieldPlatformViews
+          : other.shieldPlatformViews,
       enableKeyboard: t < 0.5 ? enableKeyboard : other.enableKeyboard,
       enableHaptics: t < 0.5 ? enableHaptics : other.enableHaptics,
       keyboardStep: lerpDouble(keyboardStep, other.keyboardStep, t),
       pageStep: lerpDouble(pageStep, other.pageStep, t),
       unboundedBehavior: t < 0.5 ? unboundedBehavior : other.unboundedBehavior,
-      fallbackMainAxisExtent: lerpDouble(
-        fallbackMainAxisExtent,
-        other.fallbackMainAxisExtent,
-        t,
-      ),
-      antiAliasingWorkaround: t < 0.5
-          ? antiAliasingWorkaround
-          : other.antiAliasingWorkaround,
+      fallbackExtent: lerpDouble(fallbackExtent, other.fallbackExtent, t),
+      snapToPhysicalPixels: t < 0.5
+          ? snapToPhysicalPixels
+          : other.snapToPhysicalPixels,
       // Labels are discrete strings/callbacks, not interpolable; swap at the
       // midpoint like the other non-numeric fields.
       semantics: t < 0.5 ? semantics : other.semantics,
@@ -206,41 +202,41 @@ class ResizableSplitterThemeData
       identical(this, other) ||
       other is ResizableSplitterThemeData &&
           other.divider == divider &&
-          other.blockerColor == blockerColor &&
-          other.overlayEnabled == overlayEnabled &&
+          other.dragBarrierColor == dragBarrierColor &&
+          other.shieldPlatformViews == shieldPlatformViews &&
           other.enableKeyboard == enableKeyboard &&
           other.enableHaptics == enableHaptics &&
           other.keyboardStep == keyboardStep &&
           other.pageStep == pageStep &&
           other.unboundedBehavior == unboundedBehavior &&
-          other.fallbackMainAxisExtent == fallbackMainAxisExtent &&
-          other.antiAliasingWorkaround == antiAliasingWorkaround &&
+          other.fallbackExtent == fallbackExtent &&
+          other.snapToPhysicalPixels == snapToPhysicalPixels &&
           other.semantics == semantics;
 
   @override
   int get hashCode => Object.hash(
     divider,
-    blockerColor,
-    overlayEnabled,
+    dragBarrierColor,
+    shieldPlatformViews,
     enableKeyboard,
     enableHaptics,
     keyboardStep,
     pageStep,
     unboundedBehavior,
-    fallbackMainAxisExtent,
-    antiAliasingWorkaround,
+    fallbackExtent,
+    snapToPhysicalPixels,
     semantics,
   );
 
   @override
   String toString() =>
       'ResizableSplitterThemeData(divider: $divider, '
-      'blockerColor: $blockerColor, overlayEnabled: $overlayEnabled, '
+      'dragBarrierColor: $dragBarrierColor, shieldPlatformViews: $shieldPlatformViews, '
       'enableKeyboard: $enableKeyboard, enableHaptics: $enableHaptics, '
       'keyboardStep: $keyboardStep, pageStep: $pageStep, '
       'unboundedBehavior: $unboundedBehavior, '
-      'fallbackMainAxisExtent: $fallbackMainAxisExtent, '
-      'antiAliasingWorkaround: $antiAliasingWorkaround, '
+      'fallbackExtent: $fallbackExtent, '
+      'snapToPhysicalPixels: $snapToPhysicalPixels, '
       'semantics: $semantics)';
 }
 

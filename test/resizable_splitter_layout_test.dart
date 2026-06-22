@@ -218,7 +218,7 @@ void main() {
   });
 
   testWidgets(
-    'antiAliasingWorkaround snaps the leading panel to a physical pixel',
+    'snapToPhysicalPixels snaps the leading panel to a physical pixel',
     (tester) async {
       const dividerThickness = 3.0;
       const totalWidth = 303.0;
@@ -234,7 +234,7 @@ void main() {
             divider: const SplitterDividerStyle(thickness: dividerThickness),
             startConstraints: const SplitterPaneConstraints(),
             endConstraints: const SplitterPaneConstraints(),
-            antiAliasingWorkaround: true,
+            snapToPhysicalPixels: true,
             semanticsLabel: 'handle',
             start: Container(key: const Key('start')),
             end: Container(key: const Key('end')),
@@ -264,8 +264,8 @@ void main() {
       MaterialApp(
         home: ResizableSplitterTheme(
           data: const ResizableSplitterThemeData(
-            unboundedBehavior: UnboundedBehavior.limitedBox,
-            fallbackMainAxisExtent: 420,
+            unboundedBehavior: UnboundedBehavior.useFallbackExtent,
+            fallbackExtent: 420,
           ),
           child: Scaffold(
             body: Align(
@@ -305,14 +305,14 @@ void main() {
   });
 
   testWidgets(
-    'widget override keeps flexExpand even when theme uses LimitedBox',
+    'widget override keeps shrinkToChildren even when theme uses LimitedBox',
     (tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: ResizableSplitterTheme(
             data: const ResizableSplitterThemeData(
-              unboundedBehavior: UnboundedBehavior.limitedBox,
-              fallbackMainAxisExtent: 420,
+              unboundedBehavior: UnboundedBehavior.useFallbackExtent,
+              fallbackExtent: 420,
             ),
             child: Scaffold(
               body: Align(
@@ -322,7 +322,7 @@ void main() {
                   child: SizedBox(
                     height: 200,
                     child: ResizableSplitter(
-                      unboundedBehavior: UnboundedBehavior.flexExpand,
+                      unboundedBehavior: UnboundedBehavior.shrinkToChildren,
                       semanticsLabel: 'handle',
                       start: Container(key: const Key('start')),
                       end: Container(key: const Key('end')),
@@ -360,9 +360,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: ResizableSplitterTheme(
-            data: const ResizableSplitterThemeData(
-              antiAliasingWorkaround: true,
-            ),
+            data: const ResizableSplitterThemeData(snapToPhysicalPixels: true),
             child: Scaffold(
               body: Center(
                 child: SizedBox(
@@ -374,7 +372,7 @@ void main() {
                     ),
                     startConstraints: const SplitterPaneConstraints(),
                     endConstraints: const SplitterPaneConstraints(),
-                    antiAliasingWorkaround: false,
+                    snapToPhysicalPixels: false,
                     semanticsLabel: 'handle',
                     start: Container(key: const Key('start')),
                     end: Container(key: const Key('end')),
