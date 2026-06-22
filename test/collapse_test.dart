@@ -58,6 +58,22 @@ void main() {
     expect(controller.isCollapsed, isTrue);
   });
 
+  testWidgets('a controller mounted already collapsed fires no phantom collapse '
+      'event on first layout (review A#8)', (tester) async {
+    final controller = SplitterController()..collapse(SplitterPane.start);
+    final sources = <SplitterChangeSource>[];
+
+    await tester.pumpWidget(
+      host(controller: controller, onChanged: (d) => sources.add(d.source)),
+    );
+    await tester.pumpAndSettle();
+
+    // No transition happened while this widget was mounted, so the pre-existing
+    // collapsed state must not be reported as a collapse event.
+    expect(controller.isCollapsed, isTrue);
+    expect(sources, isEmpty);
+  });
+
   testWidgets('collapse(end) shrinks the end pane to its collapsedExtent', (
     tester,
   ) async {

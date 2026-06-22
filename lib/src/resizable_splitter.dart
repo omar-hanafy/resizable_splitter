@@ -718,6 +718,12 @@ class _ResizableSplitterState extends State<ResizableSplitter>
   // reported exactly once (not on every rebuild while it stays collapsed).
   SplitterPane? _reportedCollapsePane;
 
+  // False until the first resolved layout seeds [_reportedCollapsePane] without
+  // emitting. This stops a controller mounted already collapsed (or a freshly
+  // swapped-in one) from firing a phantom collapse/restore for a state it never
+  // transitioned into while attached here.
+  bool _hasReportedInitialCollapse = false;
+
   // The preview fraction shown during a deferred drag (null when not
   // previewing). The panes stay at the committed position; only this line moves.
   double? _previewFraction;
@@ -751,13 +757,17 @@ class _ResizableSplitterState extends State<ResizableSplitter>
   void restoreState(RestorationBucket? oldBucket, bool initialRestore) {
     registerForRestoration(_restorablePosition, 'position');
     _restorationReady = true;
-    // Re-apply the (restored or default) position. initialRestore is true on
-    // every fresh State, including after a restart, so it cannot be used to gate
-    // this; instead the restorable defaults to the controller's current value,
-    // making a no-saved-state run a no-op while a real restore overrides it.
-    (_attachedController ?? _effectiveController).jumpTo(
-      _restorablePosition.value,
-    );
+    // Re-apply the restored position, but only when it actually differs from the
+    // controller's current request. The restorable defaults to the current
+    // position, so with no saved state this would otherwise jumpTo an equal
+    // position - and jumpTo clears collapse, which would silently expand a
+    // controller mounted already collapsed. Skipping the equal write keeps it
+    // collapsed (review A#6). (restoreState runs even without a restorationId.)
+    final controller = _attachedController ?? _effectiveController;
+    final restored = _restorablePosition.value;
+    if (restored != controller.value.position) {
+      controller.jumpTo(restored);
+    }
   }
 
   // Updates the deferred-drag preview line (the panes stay put until release).
@@ -846,9 +856,11 @@ class _ResizableSplitterState extends State<ResizableSplitter>
         .._attachAnimator(this)
         ..addListener(_handlePositionChanged);
       _attachedController = newController;
-      // Sync to the incoming controller so a swap does not fire a phantom
-      // collapse/restore for state that was never this controller's.
-      _reportedCollapsePane = newController.value.collapsedPane;
+      // Re-seed the incoming controller's collapse (without emitting) on its
+      // first resolved layout, so a swap fires no phantom collapse/restore for
+      // state that was never this controller's - and seeds from the *resolved*
+      // collapse, not the request, so a non-collapsible pane is handled too.
+      _hasReportedInitialCollapse = false;
     }
   }
 
@@ -955,6 +967,14 @@ class _ResizableSplitterState extends State<ResizableSplitter>
         : solution.endCollapsed
         ? SplitterPane.end
         : null;
+    // The first resolved layout seeds the baseline without emitting: a
+    // controller mounted already collapsed has not transitioned while attached
+    // here, so it must not fire a phantom collapse/restore.
+    if (!_hasReportedInitialCollapse) {
+      _hasReportedInitialCollapse = true;
+      _reportedCollapsePane = pane;
+      return;
+    }
     if (pane == _reportedCollapsePane) return;
     final source = pane != null
         ? SplitterChangeSource.collapse
