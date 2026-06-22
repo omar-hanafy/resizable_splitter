@@ -24,7 +24,8 @@ Try it in the browser: [resizable-splitter demo](https://omar-hanafy.github.io/r
   `constraintPolicy` for cramped layouts.
 - Collapse / expand with automatic restore, opt-in state restoration, and a
   deferred-resize mode for expensive panes.
-- Keyboard (Arrow / Page / Home / End), slider semantics, RTL, and haptics.
+- Accessible by default: a 48px touch target, a keyboard focus ring, slider
+  semantics with bounds-aware actions, localizable labels, RTL, and haptics.
 - Shields embedded platform views (WebView, Maps, video) during a drag, with a
   customizable barrier.
 - Theme once via `ResizableSplitterTheme` or a `ThemeExtension`; every field is
@@ -306,6 +307,46 @@ ThemeData.light().copyWith(
 Precedence (highest first): widget arguments -> `ResizableSplitterTheme` ->
 `ThemeData.extension<ResizableSplitterThemeData>()` -> built-in defaults. Because
 every field is nullable, a more specific scope only overrides the fields it sets.
+
+## Accessibility
+
+The divider is a first-class control out of the box:
+
+- **Touch target.** The grab region defaults to a 48px `interactiveExtent` (the
+  Material minimum), independent of the thin visible `thickness`. The extra width
+  overlays the panes from on top, so it never changes their layout, and a
+  non-resizable divider collapses the target to its thickness so it can't steal
+  pane hits.
+- **Keyboard + focus.** Tab to the divider and use the arrow keys (Page keys for
+  larger steps, Home/End to jump to the bounds). A focused divider shows a focus
+  ring; a custom `WidgetStateProperty` colour can also resolve `WidgetState.focused`,
+  and a custom grip `builder` receives `details.isFocused`.
+- **Screen readers.** The divider is exposed as a slider with a spoken value.
+  Increase/decrease actions are offered only in the direction the divider can
+  actually move - a pane pinned at a hard bound drops the unavailable action.
+- **Localization.** Override the spoken strings and value format with
+  `SplitterSemanticsLabels`, per widget (`semantics:`) or app-wide via the theme.
+  `semanticsLabel` remains a quick single-string label override.
+
+```dart
+MaterialApp(
+  theme: ThemeData.light().copyWith(
+    extensions: const [
+      ResizableSplitterThemeData(
+        semantics: SplitterSemanticsLabels(
+          resizeHorizontal: 'Redimensionner les panneaux',
+          // formatValue defaults to a whole percentage.
+        ),
+      ),
+    ],
+  ),
+  // ...
+);
+```
+
+`onChangeStart` / `onChangeEnd` are balanced (every start gets exactly one end),
+and the end's `SplitterChangeDetails.end` distinguishes a committed release from a
+cancel - see [Change details](#change-details).
 
 ## Unbounded constraints
 
