@@ -135,6 +135,7 @@ class _SplitterDemoPageState extends State<SplitterDemoPage> {
         controller: _controller,
         divider: SplitterDividerStyle(
           thickness: 10,
+          interactiveExtent: 10,
           color: _railColors(
             idle: colorScheme.primary.withAlpha(60),
             hover: colorScheme.primary.withAlpha(90),
@@ -433,6 +434,7 @@ class _VerticalWorkspacePreview extends StatelessWidget {
         maxStartFraction: 0.8,
         divider: SplitterDividerStyle(
           thickness: 8,
+          interactiveExtent: 8,
           color: _railColors(
             idle: colorScheme.primary.withAlpha(70),
             hover: colorScheme.primary.withAlpha(100),
@@ -675,6 +677,7 @@ class _OverviewExampleState extends State<_OverviewExample> {
               controller: _controller,
               divider: SplitterDividerStyle(
                 thickness: 8,
+                interactiveExtent: 8,
                 color: _railColors(
                   idle: colorScheme.secondary.withAlpha(70),
                   hover: colorScheme.secondary.withAlpha(100),
@@ -741,6 +744,7 @@ class _StylingExampleState extends State<_StylingExample> {
         controller: _controller,
         divider: SplitterDividerStyle(
           thickness: 14,
+          interactiveExtent: 14,
           color: _railColors(
             idle: colorScheme.tertiaryContainer,
             hover: colorScheme.tertiary,
