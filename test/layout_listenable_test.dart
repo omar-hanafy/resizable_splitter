@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:resizable_splitter/resizable_splitter.dart';
 
@@ -111,6 +112,103 @@ void main() {
       layouts.length,
       greaterThan(countBefore),
       reason: 'layoutListenable must fire when the resize shifts the fraction',
+    );
+  });
+
+  // The ordering contract the future 2.1 RenderObject publish must preserve: a
+  // resolved change notifies exactly once, after the frame that produced it
+  // (never during build), and a no-op re-solve does not notify. These assert the
+  // ordering, never a frame count, so the publish can move into performLayout.
+  testWidgets('a resolved change notifies once, deferred past the build', (
+    tester,
+  ) async {
+    final controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.3),
+    );
+    var count = 0;
+    SchedulerPhase? phaseAtNotify;
+    controller.layoutListenable.addListener(() {
+      count++;
+      phaseAtNotify = SchedulerBinding.instance.schedulerPhase;
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 600,
+              height: 300,
+              child: ResizableSplitter(
+                controller: controller,
+                start: const SizedBox(),
+                end: const SizedBox(),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final baseline = count;
+
+    controller.jumpTo(const SplitterPosition.fraction(0.6));
+    // The layout notification is deferred: writing the request does not fire it
+    // synchronously (the controller's own request notifier does that).
+    expect(
+      count,
+      baseline,
+      reason: 'the layout notify is deferred, not synchronous with the request',
+    );
+
+    await tester.pump();
+    // Exactly one notification for the one resolved change.
+    expect(count, baseline + 1);
+    // It fired in the post-frame phase, never during build/layout/paint.
+    expect(phaseAtNotify, SchedulerPhase.postFrameCallbacks);
+  });
+
+  testWidgets('a request change resolving to the same layout does not notify', (
+    tester,
+  ) async {
+    // A 200px start minimum: both requests below it clamp to the same extent, so
+    // the resolved layout is identical and the no-op re-solve must not notify.
+    final controller = SplitterController(
+      initialPosition: const SplitterPosition.fraction(0.0),
+    );
+    var count = 0;
+    controller.layoutListenable.addListener(() => count++);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 400,
+              height: 300,
+              child: ResizableSplitter(
+                controller: controller,
+                startConstraints: const SplitterPaneConstraints(minExtent: 200),
+                start: const SizedBox(),
+                end: const SizedBox(),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final baseline = count;
+
+    // A different request that still clamps to the 200px minimum: the request
+    // notifier fires and the widget rebuilds, but the geometry is unchanged.
+    controller.jumpTo(const SplitterPosition.fraction(0.1));
+    await tester.pumpAndSettle();
+
+    expect(
+      count,
+      baseline,
+      reason: 'an unchanged resolved layout coalesces to no notification',
     );
   });
 

@@ -139,6 +139,14 @@ class SplitterController extends ValueNotifier<SplitterState> {
   /// Notifies whenever the resolved [layout] changes. This is a separate
   /// observable from the request notifier ([value]); listen here to track the
   /// on-screen geometry rather than the intent.
+  ///
+  /// Contract: it notifies once per resolved change, after the frame that
+  /// produced it (never during build), so a listener may freely read [layout] or
+  /// call `setState`. A re-solve that yields the same geometry coalesces to no
+  /// notification. The notification is scheduled, not synchronous with the
+  /// request write - do not assume a particular number of frames, only this
+  /// ordering. (This contract is what lets the layout publish move into a
+  /// render object's layout pass in a future release without consumers noticing.)
   ValueListenable<SplitterLayout?> get layoutListenable => _layout;
   final _layout = _SplitterLayoutNotifier();
 
