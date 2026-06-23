@@ -4,8 +4,12 @@
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 <p align="center">
-  <img src="https://github.com/omar-hanafy/resizable_splitter/blob/main/screenshots/1.gif?raw=true" alt="Resizable Splitter demo" width="90%">
+  <a href="https://omar-hanafy.github.io/resizable-splitter/">
+    <img src="https://github.com/omar-hanafy/resizable_splitter/blob/main/screenshots/workspace.png?raw=true" alt="The resizable_splitter showcase - an editor workspace built entirely out of the package" width="100%">
+  </a>
 </p>
+
+<p align="center"><em>The interactive showcase, built entirely out of the package.</em></p>
 
 A two-pane, drag-to-resize split view for Flutter that stays correct under the
 hard cases: cramped and tiny layouts, right-to-left, `Transform`, pixel-pinned

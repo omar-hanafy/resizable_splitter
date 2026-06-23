@@ -1,8 +1,8 @@
 name: resizable_splitter_example
-description: "A new Flutter project."
-publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+description: "Interactive showcase for the resizable_splitter package - a constraint-solver split view for Flutter."
+publish_to: 'none'
 
-version: 1.0.0+1
+version: 2.0.0+1
 
 environment:
   sdk: ^3.9.2
@@ -12,10 +12,9 @@ dependencies:
     sdk: flutter
   resizable_splitter:
     path: ../
-  webview_flutter: ^4.13.0
-  macos_ui: ^2.2.2
-  # Provides the CupertinoIcons font used by the native macOS demo's toolbar
-  # and sidebar icons; without it those glyphs do not render.
+  url_launcher: ^6.3.0
+  # Ensures adaptive Cupertino glyphs (e.g. the text-selection toolbar on Apple
+  # platforms) have a font to render with.
   cupertino_icons: ^1.0.8
 
 dev_dependencies:
@@ -26,5 +25,15 @@ dev_dependencies:
 flutter:
   uses-material-design: true
 
-
-
+  fonts:
+    # Bundled variable fonts (one file per family covers every weight). Bundling
+    # keeps the GitHub Pages build self-contained: no runtime font fetch, no FOUT.
+    - family: Bricolage Grotesque
+      fonts:
+        - asset: assets/fonts/BricolageGrotesque.ttf
+    - family: Hanken Grotesk
+      fonts:
+        - asset: assets/fonts/HankenGrotesk.ttf
+    - family: JetBrains Mono
+      fonts:
+        - asset: assets/fonts/JetBrainsMono.ttf

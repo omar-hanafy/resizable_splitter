@@ -7,8 +7,8 @@
 build/
 .dart_tool/
 
-# Dev-only docs. The README embeds the demo gif via an absolute GitHub URL,
-# so the 18 MB screenshots/ folder does not need to ship.
+# Dev-only docs. The README embeds the demo gif and the cover image via
+# absolute GitHub URLs, so the screenshots/ folder does not need to ship.
 AGENTS.md
 screenshots/
 

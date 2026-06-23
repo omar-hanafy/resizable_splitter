@@ -3,6 +3,48 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 2.1.0
+
+Adds two magnetic-snap shaping controls and a large internal reorganization.
+The public API is unchanged apart from the two additive `MagneticSnap` options
+below (both default to the previous behavior), so existing code keeps working.
+
+### Added
+
+- `MagneticSnap.falloff` (and the `SplitterSnapBehavior.magnetic(falloff:)`
+  parameter): a `Curve` that shapes the magnetic pull across the influence zone.
+  The linear nearness (`1` at the point, `0` at the tolerance edge) is passed
+  through the curve before being scaled by `strength`, so an ease-in curve such
+  as `Curves.easeInCubic` lets the divider track the pointer freely until it is
+  close, then catch harder near the point for a snappier feel. Defaults to
+  `Curves.linear`, which reproduces the previous behavior exactly - so this is a
+  backward-compatible addition.
+- `MagneticSnap.settleFactor` (and the
+  `SplitterSnapBehavior.magnetic(settleFactor:)` parameter): a `[0, 1]` fraction
+  of the tolerance defining a small core around each point where the divider
+  settles exactly onto it, giving the pull a crisp finish (it stays pushable -
+  moving the pointer past the core resumes the pull). Defaults to `0`, which
+  keeps the never-quite-lands pull - a backward-compatible addition.
+
+### Changed
+
+- Adopted `equatable` for the equality of the value and configuration types
+  (`SplitterPosition`, `SplitterState`, `SplitterLayout`,
+  `SplitterPaneConstraints`, `SplitterChangeDetails`, the snap behaviors, and
+  the theme/style types). The hand-written `==` / `hashCode` were replaced by
+  `EquatableMixin` `props` over the same fields, so equality, hash codes,
+  `toString`, `copyWith`, and `lerp` are unchanged - this is purely an internal
+  simplification, not a behavior change.
+- Added `equatable` and `meta` dependencies. `meta` backs the `@immutable` /
+  `@internal` annotations applied across the source.
+- Reorganized `lib/src` into `model/`, `solver/`, `theme/`, and `widget/`
+  folders and split the large widget files into focused parts. This is internal
+  only: the package barrel still exports the same public types, so
+  `import 'package:resizable_splitter/resizable_splitter.dart'` is unaffected.
+- Rebuilt the example into an interactive showcase - snapping, constraints,
+  collapse, pixel pinning, an IDE-style layout, and accessibility - replacing
+  the previous minimal demo.
+
 ## 2.0.0
 
 A ground-up rebuild around a pure constraint solver. Every interaction (drag,

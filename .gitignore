@@ -106,6 +106,9 @@ coverage/
 # Submodules
 !pubspec.lock
 packages/**/pubspec.lock
+# The example is an app, not a published package; its lockfile is dev-only
+# state. Re-ignore it after the !pubspec.lock negation above un-ignored it.
+example/pubspec.lock
 
 # Web related
 lib/generated_plugin_registrant.dart
