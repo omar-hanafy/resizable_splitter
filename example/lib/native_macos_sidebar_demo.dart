@@ -58,7 +58,8 @@ class _NativeMacosSplitterDemoState extends State<NativeMacosSplitterDemo> {
   void initState() {
     super.initState();
     _ownsController = widget.controller == null;
-    _controller = widget.controller ??
+    _controller =
+        widget.controller ??
         SplitterController(
           initialPosition: const SplitterPosition.startPixels(280),
         );
@@ -84,8 +85,9 @@ class _NativeMacosSplitterDemoState extends State<NativeMacosSplitterDemo> {
 
   void _toggleBrightness() {
     setState(() {
-      _brightness =
-          _brightness == Brightness.dark ? Brightness.light : Brightness.dark;
+      _brightness = _brightness == Brightness.dark
+          ? Brightness.light
+          : Brightness.dark;
     });
   }
 
@@ -120,7 +122,9 @@ class _NativeMacosSplitterDemoState extends State<NativeMacosSplitterDemo> {
         ),
         ToolBarIconButton(
           label: 'Toggle appearance',
-          icon: MacosIcon(isDark ? CupertinoIcons.sun_max : CupertinoIcons.moon),
+          icon: MacosIcon(
+            isDark ? CupertinoIcons.sun_max : CupertinoIcons.moon,
+          ),
           showLabel: false,
           tooltipMessage: 'Toggle appearance',
           onPressed: _toggleBrightness,
@@ -213,7 +217,10 @@ class _NativeMacosSplitterDemoState extends State<NativeMacosSplitterDemo> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              Text('ResizableSplitter, macOS dressed', style: typography.title1),
+              Text(
+                'ResizableSplitter, macOS dressed',
+                style: typography.title1,
+              ),
               const SizedBox(height: 8),
               Text(
                 'Drag the divider to feel the sticky pixel detents, or toggle '

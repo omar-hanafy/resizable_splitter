@@ -21,8 +21,9 @@ void main() {
     expect(find.byType(ToolBar), findsOneWidget);
   });
 
-  testWidgets('toolbar toggle collapses and expands the sidebar',
-      (tester) async {
+  testWidgets('toolbar toggle collapses and expands the sidebar', (
+    tester,
+  ) async {
     final controller = SplitterController(
       initialPosition: const SplitterPosition.startPixels(280),
     );
@@ -51,10 +52,11 @@ void main() {
   });
 
   test('detent fractions convert pixel targets and clamp to [0,1]', () {
-    expect(
-      macosSidebarDetentFractions(1000),
-      <Matcher>[closeTo(0.22, 1e-9), closeTo(0.28, 1e-9), closeTo(0.34, 1e-9)],
-    );
+    expect(macosSidebarDetentFractions(1000), <Matcher>[
+      closeTo(0.22, 1e-9),
+      closeTo(0.28, 1e-9),
+      closeTo(0.34, 1e-9),
+    ]);
     // Tiny container: every pixel target exceeds it, so all clamp to 1.0.
     expect(
       macosSidebarDetentFractions(100).every((f) => f >= 0 && f <= 1),
@@ -67,8 +69,9 @@ void main() {
     );
   });
 
-  testWidgets('gallery lists Native macOS entry and launches the screen',
-      (tester) async {
+  testWidgets('gallery lists Native macOS entry and launches the screen', (
+    tester,
+  ) async {
     // Desktop-sized surface so all gallery nav entries are built (the lazy
     // ListView would not build the off-screen "Native macOS" entry at 800x600).
     tester.view.physicalSize = const Size(1600, 1200);
@@ -84,8 +87,10 @@ void main() {
     await tester.tap(navEntry);
     await tester.pumpAndSettle();
 
-    final launchButton =
-        find.widgetWithText(FilledButton, 'Open full-screen demo');
+    final launchButton = find.widgetWithText(
+      FilledButton,
+      'Open full-screen demo',
+    );
     expect(launchButton, findsOneWidget);
 
     await tester.tap(launchButton);
