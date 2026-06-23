@@ -1,1196 +1,690 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:resizable_splitter/resizable_splitter.dart';
-import 'package:resizable_splitter_example/native_macos_sidebar_demo.dart';
-import 'package:webview_flutter/webview_flutter.dart';
+import 'package:flutter/services.dart';
+
+import 'stations/a11y.dart';
+import 'stations/collapse.dart';
+import 'stations/constraints.dart';
+import 'stations/ide.dart';
+import 'stations/pixel_pin.dart';
+import 'stations/snapping.dart';
+import 'theme/app_theme.dart';
+import 'theme/tokens.dart';
+import 'widgets/code_block.dart';
+import 'widgets/hero_solver.dart';
+import 'widgets/instrument.dart';
+import 'widgets/top_bar.dart';
 
 void main() {
-  runApp(const ResizableSplitterExampleApp());
+  runApp(const SplitterShowcaseApp());
 }
 
-/// Builds a state-dependent divider color from idle/hover/active colors, the
-/// idiomatic way to brand the rail across its [WidgetState]s.
-WidgetStateProperty<Color?> _railColors({
-  required Color idle,
-  required Color hover,
-  required Color active,
-}) {
-  return WidgetStateProperty.resolveWith<Color?>((states) {
-    if (states.contains(WidgetState.dragged)) return active;
-    if (states.contains(WidgetState.hovered)) return hover;
-    return idle;
-  });
+/// Root: owns the theme mode and feeds both light and dark [ThemeData] in so the
+/// toggle lerps the whole palette.
+class SplitterShowcaseApp extends StatefulWidget {
+  const SplitterShowcaseApp({super.key});
+
+  @override
+  State<SplitterShowcaseApp> createState() => _SplitterShowcaseAppState();
 }
 
-Widget _stableDividerGrip(BuildContext context, SplitterHandleDetails details) {
-  return Center(
-    child: Container(
-      width: details.axis == Axis.horizontal ? 2 : 24,
-      height: details.axis == Axis.horizontal ? 24 : 2,
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.onSurface.withAlpha(77),
-        borderRadius: BorderRadius.circular(1),
-      ),
-    ),
+class _SplitterShowcaseAppState extends State<SplitterShowcaseApp> {
+  ThemeMode _mode = ThemeMode.dark;
+
+  void _toggle() => setState(
+    () => _mode = _mode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark,
   );
-}
-
-class ResizableSplitterExampleApp extends StatelessWidget {
-  const ResizableSplitterExampleApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Resizable Splitter Example',
-      theme: ThemeData(
-        colorSchemeSeed: const Color(0xFF6750A4),
-        brightness: Brightness.light,
-        useMaterial3: true,
+      title: 'resizable_splitter',
+      debugShowCheckedModeBanner: false,
+      themeMode: _mode,
+      theme: buildAppTheme(Brightness.light),
+      darkTheme: buildAppTheme(Brightness.dark),
+      scrollBehavior: const _DesktopScrollBehavior(),
+      home: ShowcasePage(
+        isDark: _mode == ThemeMode.dark,
+        onToggleTheme: _toggle,
       ),
-      darkTheme: ThemeData(
-        colorSchemeSeed: const Color(0xFF6750A4),
-        brightness: Brightness.dark,
-        useMaterial3: true,
-      ),
-      home: const SplitterDemoPage(),
     );
   }
 }
 
-class SplitterDemoPage extends StatefulWidget {
-  const SplitterDemoPage({super.key});
+/// Enables drag-to-scroll with mouse/trackpad on web and desktop.
+class _DesktopScrollBehavior extends MaterialScrollBehavior {
+  const _DesktopScrollBehavior();
 
   @override
-  State<SplitterDemoPage> createState() => _SplitterDemoPageState();
+  Set<PointerDeviceKind> get dragDevices => {
+    PointerDeviceKind.touch,
+    PointerDeviceKind.mouse,
+    PointerDeviceKind.trackpad,
+    PointerDeviceKind.stylus,
+  };
 }
 
-class _SplitterDemoPageState extends State<SplitterDemoPage> {
-  late final SplitterController _controller;
-  late final List<_Demo> _demos;
-  int _selectedDemo = 0;
-  int? _webViewDemoIndex;
-
-  static final List<_Demo> _baseDemos = <_Demo>[
-    _Demo(
-      title: 'Overview',
-      subtitle: 'Tour the basics and see live metrics',
-      builder: (context) => const _OverviewDemo(),
-    ),
-    _Demo(
-      title: 'Custom handle & theming',
-      subtitle: 'Style the divider and supply your own grip',
-      builder: (context) => const _StylingDemo(),
-    ),
-    _Demo(
-      title: 'Keyboard & snapping',
-      subtitle: 'Arrow/Page keys + snap points in action',
-      builder: (context) => const _KeyboardDemo(),
-    ),
-    _Demo(
-      title: 'Vertical layouts',
-      subtitle: 'Axis.vertical with asymmetric min sizes',
-      builder: (context) => const _VerticalDemo(),
-    ),
-    _Demo(
-      title: 'Native macOS',
-      subtitle: 'macos_ui chrome with our splitter + StickySnap',
-      builder: (context) => const _NativeMacosLauncher(),
-    ),
-  ];
+class ShowcasePage extends StatefulWidget {
+  const ShowcasePage({
+    super.key,
+    required this.isDark,
+    required this.onToggleTheme,
+  });
+  final bool isDark;
+  final VoidCallback onToggleTheme;
 
   @override
-  void initState() {
-    super.initState();
-    _controller = SplitterController(
-      initialPosition: const SplitterPosition.fraction(0.32),
-    );
-    _demos = List<_Demo>.of(_baseDemos);
-    if (_supportsPlatformViewDemo) {
-      _webViewDemoIndex = _demos.length;
-      _demos.add(
-        _Demo(
-          title: 'Platform WebView',
-          subtitle: 'Embed a Flutter WebView inside the splitter',
-          builder: (context) => const _WebViewDemo(),
-        ),
-      );
-    }
-  }
+  State<ShowcasePage> createState() => _ShowcasePageState();
+}
+
+class _ShowcasePageState extends State<ShowcasePage> {
+  final ScrollController _scroll = ScrollController();
 
   @override
   void dispose() {
-    _controller.dispose();
+    _scroll.dispose();
     super.dispose();
   }
 
-  void _selectDemo(int index) {
-    if (_selectedDemo == index) return;
-    setState(() => _selectedDemo = index);
-  }
-
-  bool get _supportsPlatformViewDemo {
-    if (kIsWeb) return false;
-    switch (defaultTargetPlatform) {
-      case TargetPlatform.android:
-      case TargetPlatform.iOS:
-      case TargetPlatform.macOS:
-        return true;
-      default:
-        return false;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final demo = _demos[_selectedDemo];
-    final useOverlay =
-        _webViewDemoIndex != null && _selectedDemo == _webViewDemoIndex;
+    final t = context.tokens;
+    const sections = <Widget>[
+      PixelPinStation(),
+      ConstraintsStation(),
+      SnappingStation(),
+      CollapseStation(),
+      IdeStation(),
+      A11yStation(),
+    ];
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Resizable Splitter demo')),
-      body: ResizableSplitter(
-        axis: Axis.horizontal,
-        controller: _controller,
-        divider: SplitterDividerStyle(
-          thickness: 10,
-          interactiveExtent: 10,
-          color: _railColors(
-            idle: colorScheme.primary.withAlpha(60),
-            hover: colorScheme.primary.withAlpha(90),
-            active: colorScheme.primary.withAlpha(130),
-          ),
-          builder: _stableDividerGrip,
-        ),
-        enableKeyboard: true,
-        shieldPlatformViews: useOverlay,
-        startConstraints: SplitterPaneConstraints(minExtent: 220),
-        // Sticky, calm: only within 2% of 50% does the divider click onto it,
-        // holding until you pull ~3% past, then it pops free. The small radius
-        // means it engages only when you are close, with a small snap in and out.
-        snap: SplitterSnapBehavior.sticky(
-          points: <double>[0.5],
-          tolerance: 0.02,
-        ),
-        start: _NavigationPane(
-          demos: _demos,
-          selectedIndex: _selectedDemo,
-          onSelect: _selectDemo,
-        ),
-        end: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 240),
-          switchInCurve: Curves.easeOut,
-          switchOutCurve: Curves.easeIn,
-          child: Builder(
-            key: ValueKey<int>(_selectedDemo),
-            builder: demo.builder,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _Demo {
-  const _Demo({
-    required this.title,
-    required this.subtitle,
-    required this.builder,
-  });
-
-  final String title;
-  final String subtitle;
-  final WidgetBuilder builder;
-}
-
-class _NavigationPane extends StatelessWidget {
-  const _NavigationPane({
-    required this.demos,
-    required this.selectedIndex,
-    required this.onSelect,
-  });
-
-  final List<_Demo> demos;
-  final int selectedIndex;
-  final ValueChanged<int> onSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Material(
-      color: theme.colorScheme.surfaceContainerHighest,
-      child: SafeArea(
-        child: ListView.separated(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          itemBuilder: (context, index) {
-            final demo = demos[index];
-            return ListTile(
-              leading: CircleAvatar(
-                backgroundColor: theme.colorScheme.primary.withAlpha(40),
-                child: Text('${index + 1}'),
-              ),
-              title: Text(demo.title),
-              subtitle: Text(demo.subtitle),
-              selected: index == selectedIndex,
-              selectedTileColor: theme.colorScheme.primary.withAlpha(30),
-              onTap: () => onSelect(index),
-            );
-          },
-          separatorBuilder: (context, index) => const Divider(height: 0),
-          itemCount: demos.length,
-        ),
-      ),
-    );
-  }
-}
-
-/// Launcher shown in the gallery pane for the "Native macOS" demo. Tapping the
-/// button pushes the full-screen [NativeMacosSplitterDemo] on the root
-/// navigator so the macos_ui chrome owns the whole window.
-class _NativeMacosLauncher extends StatelessWidget {
-  const _NativeMacosLauncher();
-
-  @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Text('Native macOS demo', style: textTheme.headlineSmall),
-            const SizedBox(height: 12),
-            Text(
-              'Opens a full-screen macos_ui window where ResizableSplitter '
-              'drives the sidebar with sticky pixel detents and a collapsible '
-              'pane.',
-              textAlign: TextAlign.center,
-              style: textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 20),
-            FilledButton(
-              onPressed: () => Navigator.of(context, rootNavigator: true).push(
-                MaterialPageRoute<void>(
-                  fullscreenDialog: true,
-                  builder: (_) => const NativeMacosSplitterDemo(),
+      backgroundColor: t.ink,
+      body: Stack(
+        children: [
+          // Faint global drafting grid.
+          Positioned.fill(
+            child: IgnorePointer(
+              child: CustomPaint(
+                painter: GridPainter(
+                  color: t.textFaint.withValues(alpha: 0.05),
+                  step: 32,
                 ),
               ),
-              child: const Text('Open full-screen demo'),
             ),
-          ],
-        ),
+          ),
+          Positioned.fill(
+            child: Scrollbar(
+              controller: _scroll,
+              child: SingleChildScrollView(
+                controller: _scroll,
+                child: Column(
+                  children: [
+                    const SizedBox(height: 60),
+                    const HeroSection(),
+                    for (var i = 0; i < sections.length; i++)
+                      _SectionFrame(scroll: _scroll, child: sections[i]),
+                    _SectionFrame(
+                      scroll: _scroll,
+                      child: const QuickStartSection(),
+                    ),
+                    const FooterSection(),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: TopBar(
+              isDark: widget.isDark,
+              onToggleTheme: widget.onToggleTheme,
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-class _Panel extends StatelessWidget {
-  const _Panel({required this.title, required this.color, required this.child});
-
-  final String title;
-  final Color color;
+/// Wraps each section in a centered max-width frame and a scroll-reveal.
+class _SectionFrame extends StatelessWidget {
+  const _SectionFrame({required this.scroll, required this.child});
+  final ScrollController scroll;
   final Widget child;
 
   @override
   Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-    return Material(
-      color: color,
-      child: SafeArea(
-        top: false,
-        bottom: false,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              child: Text(title, style: textTheme.titleMedium),
+    return Padding(
+      padding: const EdgeInsets.only(top: Insets.section),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: Insets.maxContent),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: Insets.xl),
+            child: Reveal(scroll: scroll, child: child),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The thesis hero: the package's idea in a sentence, then the live solver.
+class HeroSection extends StatelessWidget {
+  const HeroSection({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    return Stack(
+      children: [
+        // Soft amber glow behind the hero.
+        Positioned(
+          top: -120,
+          left: 0,
+          right: 0,
+          height: 460,
+          child: IgnorePointer(
+            child: Center(
+              child: Container(
+                width: 720,
+                decoration: BoxDecoration(
+                  gradient: RadialGradient(
+                    colors: [
+                      t.signal.withValues(alpha: t.isDark ? 0.10 : 0.14),
+                      Colors.transparent,
+                    ],
+                  ),
+                ),
+              ),
             ),
-            const Divider(height: 1),
-            Expanded(child: child),
+          ),
+        ),
+        Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: Insets.maxContent),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(Insets.xl, 64, Insets.xl, 0),
+              child: LayoutBuilder(
+                builder: (context, c) {
+                  final headSize = c.maxWidth < 560
+                      ? 40.0
+                      : c.maxWidth < 820
+                      ? 54.0
+                      : 68.0;
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _RevealOnLoad(
+                        order: 0,
+                        child: Row(
+                          children: [
+                            SignalDot(color: t.signal, live: true, size: 7),
+                            const SizedBox(width: 4),
+                            Flexible(
+                              child: Text(
+                                'ONE SOLVER BEHIND DRAG · KEYS · SNAP · A11Y',
+                                style: context.text.eyebrow.copyWith(
+                                  color: t.textLo,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: Insets.lg),
+                      _RevealOnLoad(
+                        order: 1,
+                        child: RichText(
+                          text: TextSpan(
+                            style: context.text.hero(headSize),
+                            children: [
+                              const TextSpan(text: 'Store the '),
+                              TextSpan(
+                                text: 'intent',
+                                style: TextStyle(color: t.request),
+                              ),
+                              const TextSpan(text: '.\nResolve '),
+                              TextSpan(
+                                text: 'every frame',
+                                style: TextStyle(color: t.signal),
+                              ),
+                              const TextSpan(text: '.'),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: Insets.xl),
+                      _RevealOnLoad(
+                        order: 2,
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 640),
+                          child: Text(
+                            'A two-pane splitter built on one pure constraint solver. You store a '
+                            'request - a fraction or a pixel pin. It resolves the on-screen geometry '
+                            'every layout pass, so the position you keep can never disagree with the '
+                            'pixels you see.',
+                            style: context.text.body(
+                              16.5,
+                              color: t.textLo,
+                              h: 1.65,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: Insets.xl),
+                      _RevealOnLoad(order: 3, child: const _InstallRow()),
+                      const SizedBox(height: Insets.xxl),
+                      _RevealOnLoad(order: 4, child: const HeroSolver()),
+                      const SizedBox(height: Insets.xl),
+                      _RevealOnLoad(order: 5, child: const _ClaimsStrip()),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _InstallRow extends StatelessWidget {
+  const _InstallRow();
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _InstallChip(),
+        const SizedBox(height: Insets.md),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'drag the divider below',
+              style: context.text.mono(12, color: t.textFaint),
+            ),
+            const SizedBox(width: 6),
+            Icon(Icons.south_rounded, size: 13, color: t.textFaint),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _OverviewDemo extends StatelessWidget {
-  const _OverviewDemo();
-
-  @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-    return ListView(
-      padding: const EdgeInsets.all(24),
-      physics: const NeverScrollableScrollPhysics(),
-      children: <Widget>[
-        Text('Meet ResizableSplitter', style: textTheme.headlineMedium),
-        const SizedBox(height: 12),
-        Text(
-          'Drag the divider, use the arrow keys when it has focus, or press PageUp/PageDown '
-          'for larger jumps. The overlay prevents embedded platform views from stealing '
-          'pointer events mid-drag.',
-          style: textTheme.bodyLarge,
-        ),
-        const SizedBox(height: 24),
-        const _ExampleCard(child: _OverviewExample()),
-        const SizedBox(height: 24),
-        Text('Highlights', style: textTheme.titleMedium),
-        const SizedBox(height: 8),
-        const _Bullet('Pointer, keyboard, and accessibility out of the box'),
-        const _Bullet('Snap points keep layouts tidy at key ratios'),
-        const _Bullet('Controller API for programmatic updates and animations'),
-        const _Bullet('Robust overlay shields embedded platform views'),
       ],
     );
   }
 }
 
-class _StylingDemo extends StatelessWidget {
-  const _StylingDemo();
-
+class _InstallChip extends StatefulWidget {
   @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-    return ListView(
-      padding: const EdgeInsets.all(24),
-      children: <Widget>[
-        Text('Custom handle & theming', style: textTheme.headlineMedium),
-        const SizedBox(height: 12),
-        Text(
-          'Use the styling hooks to blend into any design system. Supply custom colors or a '
-          'SplitterDividerStyle.builder to render your own grip UI. Hover and drag states are easy to brand.',
-          style: textTheme.bodyLarge,
-        ),
-        const SizedBox(height: 24),
-        const _ExampleCard(child: _StylingExample()),
-        const SizedBox(height: 24),
-        const _Bullet('Divider color states control the rail colors'),
-        const _Bullet(
-          'The divider builder receives hover, drag, and axis info',
-        ),
-        const _Bullet(
-          'Try long-pressing or focusing the handle to inspect semantics',
-        ),
-      ],
-    );
-  }
+  State<_InstallChip> createState() => _InstallChipState();
 }
 
-class _KeyboardDemo extends StatelessWidget {
-  const _KeyboardDemo();
+class _InstallChipState extends State<_InstallChip> {
+  bool _copied = false;
 
-  @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-    return ListView(
-      padding: const EdgeInsets.all(24),
-      children: <Widget>[
-        Text('Keyboard & snapping', style: textTheme.headlineMedium),
-        const SizedBox(height: 12),
-        Text(
-          'Focus the divider (Tab or click) and use arrow keys for 5% nudges, PageUp/PageDown '
-          'for bigger jumps, or Home/End to snap to the bounds. Snapping keeps the layout '
-          'aligned with preferred ratios.',
-          style: textTheme.bodyLarge,
-        ),
-        const SizedBox(height: 24),
-        const _ExampleCard(child: _KeyboardExample()),
-        const SizedBox(height: 24),
-        const _Bullet('keyboardStep and pageStep tune the control feel'),
-        const _Bullet(
-          'Magnetic snapping eases the divider toward preferred '
-          'ratios as you drag, and can be pushed through',
-        ),
-      ],
+  Future<void> _copy() async {
+    await Clipboard.setData(
+      const ClipboardData(text: 'flutter pub add resizable_splitter'),
     );
-  }
-}
-
-class _VerticalDemo extends StatefulWidget {
-  const _VerticalDemo();
-
-  @override
-  State<_VerticalDemo> createState() => _VerticalDemoState();
-}
-
-class _VerticalDemoState extends State<_VerticalDemo> {
-  late final SplitterController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = SplitterController(
-      initialPosition: const SplitterPosition.fraction(0.48),
-    );
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
+    if (!mounted) return;
+    setState(() => _copied = true);
+    await Future<void>.delayed(const Duration(milliseconds: 1400));
+    if (mounted) setState(() => _copied = false);
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final textTheme = theme.textTheme;
-
-    return ListView(
-      padding: const EdgeInsets.all(24),
-      children: <Widget>[
-        Text('Vertical layouts', style: textTheme.headlineMedium),
-        const SizedBox(height: 12),
-        Text(
-          'Stack content top-to-bottom when toolbars and notes need to share the same column. '
-          'Define minimum heights and let each panel scroll on its own.',
-          style: textTheme.bodyLarge,
-        ),
-        const SizedBox(height: 24),
-        _ExampleCard(
-          height: 420,
-          child: _VerticalWorkspacePreview(controller: _controller),
-        ),
-        const SizedBox(height: 16),
-        ValueListenableBuilder<SplitterState>(
-          valueListenable: _controller,
-          builder: (context, _, _) {
-            final topPercent = (_controller.effectiveFraction * 100).round();
-            final bottomPercent = 100 - topPercent;
-            return Text(
-              'Top panel $topPercent% · Bottom panel $bottomPercent%',
-              style: textTheme.labelLarge,
-            );
-          },
-        ),
-        const SizedBox(height: 24),
-        Text('Why it works', style: textTheme.titleMedium),
-        const SizedBox(height: 8),
-        const _Bullet(
-          'startConstraints and endConstraints keep headers pinned while dragging.',
-        ),
-        const _Bullet(
-          'Each panel hosts its own ListView to show independent scrolling.',
-        ),
-        const _Bullet(
-          'Ratio bounds steady the layout on ultra-short or tall screens.',
-        ),
-      ],
-    );
-  }
-}
-
-class _VerticalWorkspacePreview extends StatelessWidget {
-  const _VerticalWorkspacePreview({required this.controller});
-
-  final SplitterController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: ResizableSplitter(
-        axis: Axis.vertical,
-        controller: controller,
-        startConstraints: SplitterPaneConstraints(minExtent: 120),
-        endConstraints: SplitterPaneConstraints(minExtent: 160),
-        minStartFraction: 0.2,
-        maxStartFraction: 0.8,
-        divider: SplitterDividerStyle(
-          thickness: 8,
-          interactiveExtent: 8,
-          color: _railColors(
-            idle: colorScheme.primary.withAlpha(70),
-            hover: colorScheme.primary.withAlpha(100),
-            active: colorScheme.primary.withAlpha(140),
-          ),
-        ),
-        start: _Panel(
-          title: 'Today\'s schedule',
-          color: colorScheme.surfaceContainerHighest,
-          child: const _ScheduleList(),
-        ),
-        end: _Panel(
-          title: 'Team notes',
-          color: colorScheme.surface,
-          child: const _NotesList(),
-        ),
-      ),
-    );
-  }
-}
-
-class _ScheduleList extends StatelessWidget {
-  const _ScheduleList();
-
-  static const List<_ScheduleEntry> _entries = <_ScheduleEntry>[
-    _ScheduleEntry(
-      title: 'Design sync',
-      subtitle: '9:30 AM · Room Atlas',
-      trailing: '45 min',
-      icon: Icons.palette_outlined,
-    ),
-    _ScheduleEntry(
-      title: 'Sprint planning',
-      subtitle: '11:00 AM · Video call',
-      trailing: '30 min',
-      icon: Icons.view_week_outlined,
-    ),
-    _ScheduleEntry(
-      title: 'Client feedback',
-      subtitle: '1:30 PM · Horizon Studio',
-      trailing: '60 min',
-      icon: Icons.headset_mic_outlined,
-    ),
-    _ScheduleEntry(
-      title: 'Bug triage',
-      subtitle: '3:00 PM · #proj-splitter',
-      trailing: '25 min',
-      icon: Icons.rule_folder_outlined,
-    ),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    return ListView.separated(
-      padding: const EdgeInsets.all(16),
-      physics: const BouncingScrollPhysics(),
-      itemCount: _entries.length,
-      separatorBuilder: (context, _) => const SizedBox(height: 12),
-      itemBuilder: (context, index) {
-        final entry = _entries[index];
-        return Material(
-          color: colorScheme.surface,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-            side: BorderSide(color: colorScheme.outline.withValues(alpha: 0.2)),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: ListTile(
-            leading: CircleAvatar(
-              backgroundColor: colorScheme.primary.withAlpha(32),
-              foregroundColor: colorScheme.primary,
-              child: Icon(entry.icon),
+    final t = context.tokens;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: _copy,
+        behavior: HitTestBehavior.opaque,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 460),
+          child: Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Insets.md,
+              vertical: 10,
             ),
-            title: Text(entry.title, style: theme.textTheme.bodyLarge),
-            subtitle: Text(entry.subtitle, style: theme.textTheme.bodyMedium),
-            trailing: Text(entry.trailing, style: theme.textTheme.labelMedium),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 12,
+            decoration: BoxDecoration(
+              color: t.surface,
+              borderRadius: BorderRadius.circular(Corner.sm),
+              border: Border.all(color: t.lineStrong),
             ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _NotesList extends StatelessWidget {
-  const _NotesList();
-
-  static const List<_NoteEntry> _notes = <_NoteEntry>[
-    _NoteEntry(
-      title: 'Polish the grip hover state',
-      body:
-          'Align the hover color with the new secondary tone so it matches the keyboard focus outline.',
-      tag: 'Design',
-    ),
-    _NoteEntry(
-      title: 'Collect QA findings',
-      body:
-          'The Android team hit a few overscroll edge cases when the bottom panel is very small.',
-      tag: 'QA',
-    ),
-    _NoteEntry(
-      title: 'Prep release notes',
-      body:
-          'Call out keyboard shortcuts, overlay support, and the divider builder hook.',
-      tag: 'Docs',
-    ),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    return ListView.separated(
-      padding: const EdgeInsets.all(16),
-      physics: const BouncingScrollPhysics(),
-      itemCount: _notes.length,
-      separatorBuilder: (context, _) => const SizedBox(height: 12),
-      itemBuilder: (context, index) {
-        final note = _notes[index];
-        return Card(
-          elevation: 0,
-          margin: EdgeInsets.zero,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-            side: BorderSide(
-              color: colorScheme.outline.withValues(alpha: 0.15),
-            ),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(note.title, style: theme.textTheme.titleSmall),
-                const SizedBox(height: 8),
-                Text(note.body, style: theme.textTheme.bodyMedium),
-                const SizedBox(height: 12),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Chip(
-                    label: Text(note.tag),
-                    visualDensity: VisualDensity.compact,
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    backgroundColor: colorScheme.secondary.withAlpha(28),
-                    labelStyle: theme.textTheme.labelSmall?.copyWith(
-                      color: colorScheme.secondary,
-                    ),
+            child: Row(
+              children: [
+                Text(
+                  '\$',
+                  style: context.text.mono(
+                    13,
+                    color: t.signalText,
+                    w: FontWeight.w700,
                   ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'flutter pub add resizable_splitter',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: context.text.mono(13, color: t.textHi),
+                  ),
+                ),
+                const SizedBox(width: Insets.md),
+                Icon(
+                  _copied ? Icons.check_rounded : Icons.content_copy_rounded,
+                  size: 13,
+                  color: _copied ? t.good : t.textLo,
                 ),
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ClaimsStrip extends StatelessWidget {
+  const _ClaimsStrip();
+
+  static const _claims = [
+    (
+      Icons.straighten_rounded,
+      'Pixel-pinned sidebars',
+      'survive container resizes',
+    ),
+    (
+      Icons.account_tree_outlined,
+      'RenderObject-backed',
+      'intrinsic sizing, dry layout',
+    ),
+    (
+      Icons.unfold_less_rounded,
+      "Collapse that can't desync",
+      'part of the atomic state',
+    ),
+    (
+      Icons.accessibility_new_rounded,
+      'Accessible by default',
+      'keys, semantics, RTL, haptics',
+    ),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    return LayoutBuilder(
+      builder: (context, c) {
+        final cols = c.maxWidth < 560 ? 1 : (c.maxWidth < 900 ? 2 : 4);
+        return Wrap(
+          spacing: Insets.md,
+          runSpacing: Insets.md,
+          children: [
+            for (final claim in _claims)
+              SizedBox(
+                width: (c.maxWidth - (cols - 1) * Insets.md) / cols,
+                child: Container(
+                  padding: const EdgeInsets.all(Insets.md),
+                  decoration: BoxDecoration(
+                    border: Border(
+                      top: BorderSide(color: t.lineStrong, width: 1.5),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(claim.$1, size: 18, color: t.signalText),
+                      const SizedBox(height: Insets.sm),
+                      Text(
+                        claim.$2,
+                        style: context.text.body(14, w: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        claim.$3,
+                        style: context.text.mono(11, color: t.textFaint),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
         );
       },
     );
   }
 }
 
-class _ScheduleEntry {
-  const _ScheduleEntry({
-    required this.title,
-    required this.subtitle,
-    required this.trailing,
-    required this.icon,
-  });
+/// Closing get-started: install, the minimum usage, and what was on show.
+class QuickStartSection extends StatelessWidget {
+  const QuickStartSection({super.key});
 
-  final String title;
-  final String subtitle;
-  final String trailing;
-  final IconData icon;
-}
+  static const _yaml = '''dependencies:
+  resizable_splitter: ^2.0.0''';
 
-class _NoteEntry {
-  const _NoteEntry({
-    required this.title,
-    required this.body,
-    required this.tag,
-  });
-
-  final String title;
-  final String body;
-  final String tag;
-}
-
-class _ExampleCard extends StatelessWidget {
-  const _ExampleCard({required this.child, this.height = 260});
-
-  final Widget child;
-  final double height;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      child: SizedBox(height: height, child: child),
-    );
-  }
-}
-
-class _OverviewExample extends StatefulWidget {
-  const _OverviewExample();
-
-  @override
-  State<_OverviewExample> createState() => _OverviewExampleState();
-}
-
-class _OverviewExampleState extends State<_OverviewExample> {
-  late final SplitterController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = SplitterController(
-      initialPosition: const SplitterPosition.fraction(0.58),
-    );
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        children: <Widget>[
-          Expanded(
-            child: ResizableSplitter(
-              controller: _controller,
-              divider: SplitterDividerStyle(
-                thickness: 8,
-                interactiveExtent: 8,
-                color: _railColors(
-                  idle: colorScheme.secondary.withAlpha(70),
-                  hover: colorScheme.secondary.withAlpha(100),
-                  active: colorScheme.secondary.withAlpha(150),
-                ),
-              ),
-              start: const _Panel(
-                title: 'Navigation',
-                color: Colors.transparent,
-                child: _NavigationListPreview(itemCount: 5),
-              ),
-              end: const _Panel(
-                title: 'Document preview',
-                color: Colors.transparent,
-                child: _DocumentPreview(),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          ValueListenableBuilder<SplitterState>(
-            valueListenable: _controller,
-            builder: (context, _, _) => Text(
-              'Current ratio: ${(_controller.effectiveFraction * 100).round()}%',
-              style: Theme.of(context).textTheme.labelLarge,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _StylingExample extends StatefulWidget {
-  const _StylingExample();
-
-  @override
-  State<_StylingExample> createState() => _StylingExampleState();
-}
-
-class _StylingExampleState extends State<_StylingExample> {
-  late final SplitterController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = SplitterController(
-      initialPosition: const SplitterPosition.fraction(0.5),
-    );
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: ResizableSplitter(
-        controller: _controller,
-        divider: SplitterDividerStyle(
-          thickness: 14,
-          interactiveExtent: 14,
-          color: _railColors(
-            idle: colorScheme.tertiaryContainer,
-            hover: colorScheme.tertiary,
-            active: colorScheme.error,
-          ),
-          builder: (context, details) {
-            final accent = details.isDragging
-                ? colorScheme.onTertiary
-                : colorScheme.onTertiaryContainer;
-            final gripColor = Theme.of(context).colorScheme.onPrimaryContainer;
-            return Center(
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 120),
-                padding: const EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  color: accent.withAlpha(details.isDragging ? 80 : 40),
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: accent.withAlpha(120), width: 1),
-                ),
-                child: _HandleGripDots(axis: details.axis, color: gripColor),
-              ),
-            );
-          },
-        ),
-        start: _GradientPanel(
-          title: 'Theme preview',
-          colors: [colorScheme.tertiaryContainer, colorScheme.primaryContainer],
-          child: const _Bullet('Drop in a divider builder to match any brand'),
-        ),
-        end: _GradientPanel(
-          title: 'Palette',
-          colors: [colorScheme.surfaceContainerHighest, colorScheme.surface],
-          child: Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            children: <Widget>[
-              _ColorSwatchChip(
-                label: 'Idle',
-                color: colorScheme.tertiaryContainer,
-              ),
-              _ColorSwatchChip(label: 'Hover', color: colorScheme.tertiary),
-              _ColorSwatchChip(label: 'Active', color: colorScheme.error),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _KeyboardExample extends StatefulWidget {
-  const _KeyboardExample();
-
-  @override
-  State<_KeyboardExample> createState() => _KeyboardExampleState();
-}
-
-class _KeyboardExampleState extends State<_KeyboardExample> {
-  late final SplitterController _controller;
-  double _lastSnap = 0.0;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = SplitterController(
-      initialPosition: const SplitterPosition.fraction(0.4),
-    );
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        children: <Widget>[
-          Expanded(
-            child: ResizableSplitter(
-              controller: _controller,
-              keyboardStep: 0.05,
-              pageStep: 0.2,
-              snap: SplitterSnapBehavior.magnetic(
-                points: <double>[0.25, 0.5, 0.75],
-                tolerance: 0.06,
-              ),
-              startConstraints: SplitterPaneConstraints(minExtent: 120),
-              endConstraints: SplitterPaneConstraints(minExtent: 160),
-              start: const _Panel(
-                title: 'Notes',
-                color: Colors.transparent,
-                child: _NavigationListPreview(itemCount: 6),
-              ),
-              end: const _Panel(
-                title: 'Canvas',
-                color: Colors.transparent,
-                child: _TimelinePreview(),
-              ),
-              onChanged: (details) =>
-                  setState(() => _lastSnap = details.effectiveFraction),
-            ),
-          ),
-          const SizedBox(height: 12),
-          ValueListenableBuilder<SplitterState>(
-            valueListenable: _controller,
-            builder: (context, _, _) => Text(
-              'Arrow/Page keys adjust ratio · Current '
-              '${(_controller.effectiveFraction * 100).round()}%',
-              style: theme.textTheme.labelLarge,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Last change emitted ${(_lastSnap * 100).round()}%',
-            style: theme.textTheme.labelMedium,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _GradientPanel extends StatelessWidget {
-  const _GradientPanel({
-    required this.title,
-    required this.colors,
-    required this.child,
-  });
-
-  final String title;
-  final List<Color> colors;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-    return Container(
-      decoration: BoxDecoration(gradient: LinearGradient(colors: colors)),
-      child: SafeArea(
-        top: false,
-        bottom: false,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Text(title, style: textTheme.titleMedium),
-              const SizedBox(height: 12),
-              Expanded(child: child),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ColorSwatchChip extends StatelessWidget {
-  const _ColorSwatchChip({required this.label, required this.color});
-
-  final String label;
-  final Color color;
+  static const _dart = '''ResizableSplitter(
+  start: const Center(child: Text('Navigation')),
+  end: const Center(child: Text('Content')),
+  onChanged: (d) =>
+      debugPrint('ratio: \${d.effectiveFraction}'),
+);''';
 
   @override
   Widget build(BuildContext context) {
     return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        Container(
-          width: 42,
-          height: 42,
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: Theme.of(context).colorScheme.onSurface.withAlpha(40),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SectionHeader(
+          index: '07',
+          eyebrow: 'GET STARTED',
+          title: 'Two panes and a callback',
+          blurb:
+              'That is the whole minimum. The divider starts centered, is keyboard '
+              'focusable, exposes slider semantics, and shields platform views '
+              'during a drag - with no extra configuration.',
+        ),
+        const SizedBox(height: Insets.xl),
+        LayoutBuilder(
+          builder: (context, c) {
+            final stacked = c.maxWidth < 820;
+            final yaml = CodeBlock(code: _yaml, label: 'pubspec.yaml');
+            final dart = CodeBlock(code: _dart, label: 'main.dart');
+            if (stacked) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  yaml,
+                  const SizedBox(height: Insets.md),
+                  dart,
+                ],
+              );
+            }
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(flex: 2, child: yaml),
+                const SizedBox(width: Insets.lg),
+                Expanded(flex: 3, child: dart),
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class FooterSection extends StatelessWidget {
+  const FooterSection({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    return Padding(
+      padding: const EdgeInsets.only(top: Insets.section),
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border(top: BorderSide(color: t.line)),
+        ),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: Insets.maxContent),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: Insets.xl,
+                vertical: Insets.xl,
+              ),
+              child: Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                alignment: WrapAlignment.spaceBetween,
+                runSpacing: Insets.md,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const BrandMark(size: 22),
+                      const SizedBox(width: Insets.md),
+                      Text(
+                        'resizable_splitter',
+                        style: context.text.mono(
+                          13,
+                          color: t.textHi,
+                          w: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(width: Insets.md),
+                      Text(
+                        'MIT licensed',
+                        style: context.text.mono(11.5, color: t.textFaint),
+                      ),
+                    ],
+                  ),
+                  Text(
+                    'Every divider on this page is the package itself.',
+                    style: context.text.mono(11, color: t.textFaint),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
-        const SizedBox(height: 6),
-        Text(label, style: Theme.of(context).textTheme.labelMedium),
-      ],
-    );
-  }
-}
-
-class _HandleGripDots extends StatelessWidget {
-  const _HandleGripDots({required this.axis, required this.color});
-
-  final Axis axis;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    const double dotSize = 3;
-    const double spacing = 2;
-
-    Widget buildDot() => Container(
-      width: dotSize,
-      height: dotSize,
-      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-    );
-
-    if (axis == Axis.horizontal) {
-      return SizedBox(
-        width: dotSize,
-        height: dotSize * 3 + spacing * 2,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            buildDot(),
-            const SizedBox(height: spacing),
-            buildDot(),
-            const SizedBox(height: spacing),
-            buildDot(),
-          ],
-        ),
-      );
-    }
-
-    return SizedBox(
-      width: dotSize * 3 + spacing * 2,
-      height: dotSize,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: <Widget>[
-          buildDot(),
-          const SizedBox(width: spacing),
-          buildDot(),
-          const SizedBox(width: spacing),
-          buildDot(),
-        ],
       ),
     );
   }
 }
 
-class _NavigationListPreview extends StatelessWidget {
-  const _NavigationListPreview({this.itemCount = 4});
+// ===========================================================================
+// Reveal animations - respect reduced motion, never hide content permanently.
+// ===========================================================================
 
-  final int itemCount;
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView.builder(
-      padding: const EdgeInsets.all(8),
-      itemCount: itemCount,
-      itemBuilder: (context, index) {
-        return LayoutBuilder(
-          builder: (context, constraints) {
-            final isCompact = constraints.maxWidth < 96;
-            return Card(
-              elevation: 0,
-              child: ListTile(
-                dense: true,
-                minLeadingWidth: isCompact ? 0 : null,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                leading: isCompact
-                    ? null
-                    : SizedBox.square(
-                        dimension: 32,
-                        child: CircleAvatar(child: Text('${index + 1}')),
-                      ),
-                title: Text(
-                  'Item ${index + 1}',
-                  overflow: TextOverflow.ellipsis,
-                ),
-                subtitle: isCompact ? null : const Text('Preview', maxLines: 1),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-}
-
-class _DocumentPreview extends StatelessWidget {
-  const _DocumentPreview();
+/// A page-load reveal that fades and lifts its child, staggered by [order].
+class _RevealOnLoad extends StatefulWidget {
+  const _RevealOnLoad({required this.order, required this.child});
+  final int order;
+  final Widget child;
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context).textTheme;
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      shrinkWrap: true,
-      children: <Widget>[
-        Text('Keep your content adaptive', style: theme.titleLarge),
-        const SizedBox(height: 12),
-        Text(
-          'ResizableSplitter lets you build productivity UIs, dashboards, and creative '
-          'tools that scale to every screen size.',
-          style: theme.bodyMedium,
-        ),
-        const SizedBox(height: 20),
-        Text('Features', style: theme.titleMedium),
-        const SizedBox(height: 8),
-        const _Bullet('Smooth dragging with an overlay shield'),
-        const _Bullet('Keyboard navigation and snapping'),
-        const _Bullet('Custom divider builder and color hooks'),
-      ],
-    );
-  }
+  State<_RevealOnLoad> createState() => _RevealOnLoadState();
 }
 
-class _TimelinePreview extends StatelessWidget {
-  const _TimelinePreview();
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: 6,
-      itemBuilder: (context, index) {
-        return ListTile(
-          leading: const Icon(Icons.check_circle_outline),
-          title: Text('Milestone ${index + 1}'),
-          subtitle: const Text('Use PageUp/PageDown to jump 20%'),
-        );
-      },
-    );
-  }
-}
-
-class _Bullet extends StatelessWidget {
-  const _Bullet(this.text);
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text('• ', style: Theme.of(context).textTheme.bodyMedium),
-          Expanded(
-            child: Text(text, style: Theme.of(context).textTheme.bodyMedium),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _WebViewDemo extends StatefulWidget {
-  const _WebViewDemo();
-
-  @override
-  State<_WebViewDemo> createState() => _WebViewDemoState();
-}
-
-class _WebViewDemoState extends State<_WebViewDemo> {
-  late final WebViewController _controller;
+class _RevealOnLoadState extends State<_RevealOnLoad> {
+  bool _shown = false;
 
   @override
   void initState() {
     super.initState();
-    _controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..loadRequest(Uri.parse('https://flutter.dev'));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future<void>.delayed(Duration(milliseconds: 70 * widget.order), () {
+        if (mounted) setState(() => _shown = true);
+      });
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox.expand(
-      child: ClipRRect(
-        borderRadius: const BorderRadius.all(Radius.circular(12)),
-        child: WebViewWidget(controller: _controller),
+    if (MediaQuery.of(context).disableAnimations) return widget.child;
+    return AnimatedSlide(
+      offset: _shown ? Offset.zero : const Offset(0, 0.06),
+      duration: Motion.slow,
+      curve: Motion.enter,
+      child: AnimatedOpacity(
+        opacity: _shown ? 1 : 0,
+        duration: Motion.slow,
+        curve: Motion.enter,
+        child: widget.child,
+      ),
+    );
+  }
+}
+
+/// Reveals its child the first time it scrolls within viewport. Defaults to
+/// visible if motion is disabled or the geometry can't be measured.
+class Reveal extends StatefulWidget {
+  const Reveal({super.key, required this.scroll, required this.child});
+  final ScrollController scroll;
+  final Widget child;
+
+  @override
+  State<Reveal> createState() => _RevealState();
+}
+
+class _RevealState extends State<Reveal> {
+  final GlobalKey _key = GlobalKey();
+  bool _shown = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.scroll.addListener(_check);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _check());
+  }
+
+  @override
+  void dispose() {
+    widget.scroll.removeListener(_check);
+    super.dispose();
+  }
+
+  void _check() {
+    if (_shown || !mounted) return;
+    final ctx = _key.currentContext;
+    if (ctx == null) return;
+    final box = ctx.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return;
+    final pos = box.localToGlobal(Offset.zero).dy;
+    final viewport = MediaQuery.of(context).size.height;
+    if (pos < viewport - 80) {
+      setState(() => _shown = true);
+      widget.scroll.removeListener(_check);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (MediaQuery.of(context).disableAnimations) {
+      return KeyedSubtree(key: _key, child: widget.child);
+    }
+    return KeyedSubtree(
+      key: _key,
+      child: AnimatedSlide(
+        offset: _shown ? Offset.zero : const Offset(0, 0.04),
+        duration: Motion.slow,
+        curve: Motion.enter,
+        child: AnimatedOpacity(
+          opacity: _shown ? 1 : 0,
+          duration: Motion.slow,
+          curve: Motion.enter,
+          child: widget.child,
+        ),
       ),
     );
   }

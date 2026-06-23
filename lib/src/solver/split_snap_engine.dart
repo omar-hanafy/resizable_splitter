@@ -1,3 +1,4 @@
+import 'package:flutter/animation.dart';
 import 'package:meta/meta.dart';
 import 'package:resizable_splitter/src/model/split_change_details.dart';
 import 'package:resizable_splitter/src/model/split_position.dart';
@@ -130,11 +131,23 @@ class SnapResolver {
 /// pointer's side, so the pull reaches zero at the midpoint between two points
 /// before the nearest-point identity flips - keeping the transform continuous
 /// when influence zones overlap. The pointer always wins as it moves away.
+///
+/// The linear nearness `1 - distance / effectiveRadius` is passed through
+/// [curve] before scaling, so an ease-in curve keeps the pull faint across most
+/// of the zone and concentrates the catch near the point for a snappier feel.
+/// [Curves.linear] (the default) leaves the original linear taper unchanged.
+///
+/// When the pointer is within `settleFactor * effectiveRadius` of the point the
+/// divider settles exactly onto it - the pull's crisp finish - rather than being
+/// drawn merely close; it stays pushable, since moving past the core resumes the
+/// pull. `settleFactor == 0` (the default) disables settling.
 @internal
 double magneticPull({
   required double pointer,
   required SnapResolver resolver,
   required double strength,
+  Curve curve = Curves.linear,
+  double settleFactor = 0,
 }) {
   final sorted = resolver.resolveSortedDistinct(pointer);
   if (sorted.isEmpty) return pointer;
@@ -163,7 +176,12 @@ double magneticPull({
   final distance = point.distance;
   if (effectiveRadius <= 0 || distance >= effectiveRadius) return pointer;
 
-  final t = (1 - distance / effectiveRadius).clamp(0.0, 1.0).toDouble();
+  if (distance <= settleFactor * effectiveRadius) {
+    return point.effectiveFraction;
+  }
+
+  final nearness = (1 - distance / effectiveRadius).clamp(0.0, 1.0).toDouble();
+  final t = curve.transform(nearness);
   return pointer + (point.effectiveFraction - pointer) * strength * t;
 }
 

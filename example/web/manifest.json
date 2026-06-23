@@ -1,12 +1,12 @@
 {
-    "name": "resizable_splitter_example",
-    "short_name": "resizable_splitter_example",
+    "name": "resizable_splitter",
+    "short_name": "resizable_splitter",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
-    "orientation": "portrait-primary",
+    "background_color": "#0C0E12",
+    "theme_color": "#0C0E12",
+    "description": "Interactive showcase for resizable_splitter - a constraint-solver, drag-to-resize split view for Flutter.",
+    "orientation": "any",
     "prefer_related_applications": false,
     "icons": [
         {

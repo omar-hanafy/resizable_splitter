@@ -3,6 +3,25 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Added
+
+- `MagneticSnap.falloff` (and the `SplitterSnapBehavior.magnetic(falloff:)`
+  parameter): a `Curve` that shapes the magnetic pull across the influence zone.
+  The linear nearness (`1` at the point, `0` at the tolerance edge) is passed
+  through the curve before being scaled by `strength`, so an ease-in curve such
+  as `Curves.easeInCubic` lets the divider track the pointer freely until it is
+  close, then catch harder near the point for a snappier feel. Defaults to
+  `Curves.linear`, which reproduces the previous behavior exactly - so this is a
+  backward-compatible addition.
+- `MagneticSnap.settleFactor` (and the
+  `SplitterSnapBehavior.magnetic(settleFactor:)` parameter): a `[0, 1]` fraction
+  of the tolerance defining a small core around each point where the divider
+  settles exactly onto it, giving the pull a crisp finish (it stays pushable -
+  moving the pointer past the core resumes the pull). Defaults to `0`, which
+  keeps the never-quite-lands pull - a backward-compatible addition.
+
 ## 2.0.0
 
 A ground-up rebuild around a pure constraint solver. Every interaction (drag,

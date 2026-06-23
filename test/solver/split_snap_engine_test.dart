@@ -1,3 +1,4 @@
+import 'package:flutter/animation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:resizable_splitter/src/model/split_change_details.dart';
 import 'package:resizable_splitter/src/model/split_pane_constraints.dart';
@@ -155,6 +156,88 @@ void main() {
         magneticPull(pointer: 0.6, resolver: mag(const []), strength: 0.5),
         0.6,
       );
+    });
+
+    test('defaults to a linear falloff', () {
+      final r = mag(const [0.5]);
+      final byDefault = magneticPull(pointer: 0.6, resolver: r, strength: 0.5);
+      final asLinear = magneticPull(
+        pointer: 0.6,
+        resolver: r,
+        strength: 0.5,
+        curve: Curves.linear,
+      );
+      expect(byDefault, asLinear);
+      expect(byDefault, closeTo(0.575, 1e-9)); // unchanged legacy behavior
+    });
+
+    test('an ease-in falloff softens the pull away from the point', () {
+      // At pointer 0.6 the nearness is 0.5 (d=0.1, radius 0.2). An ease-in curve
+      // maps 0.5 below the diagonal, so the pull is weaker than linear - the
+      // divider stays closer to the pointer out here and only catches near 0.5.
+      final r = mag(const [0.5]);
+      final linear = magneticPull(
+        pointer: 0.6,
+        resolver: r,
+        strength: 0.5,
+        curve: Curves.linear,
+      );
+      final easeIn = magneticPull(
+        pointer: 0.6,
+        resolver: r,
+        strength: 0.5,
+        curve: Curves.easeInCubic,
+      );
+      expect(easeIn, greaterThan(linear)); // less pulled (nearer the pointer)
+      expect(easeIn, lessThan(0.6)); // but still drawn toward the point
+    });
+
+    test('an ease-in falloff still catches hard near the point', () {
+      // Up close (pointer 0.51, nearness 0.95) the curve is near 1, so the pull
+      // stays strong - the snappy catch lives right next to the point.
+      final r = mag(const [0.5]);
+      final easeIn = magneticPull(
+        pointer: 0.51,
+        resolver: r,
+        strength: 0.9,
+        curve: Curves.easeInCubic,
+      );
+      expect(easeIn, lessThan(0.505)); // pulled most of the way in
+      expect(easeIn, greaterThanOrEqualTo(0.5));
+    });
+
+    test('settles exactly onto the point inside the settle core', () {
+      // pointer 0.51, point 0.5, radius 0.2 -> distance 0.01; settleFactor 0.1
+      // gives a 0.02 core, so 0.01 lands exactly on 0.5.
+      final pulled = magneticPull(
+        pointer: 0.51,
+        resolver: mag(const [0.5]),
+        strength: 0.8,
+        settleFactor: 0.1,
+      );
+      expect(pulled, closeTo(0.5, 1e-9));
+    });
+
+    test('pulls but does not settle outside the core', () {
+      // distance 0.05 > 0.02 core -> pulled toward 0.5 but not exactly onto it.
+      final pulled = magneticPull(
+        pointer: 0.55,
+        resolver: mag(const [0.5]),
+        strength: 0.8,
+        settleFactor: 0.1,
+      );
+      expect(pulled, greaterThan(0.5));
+      expect(pulled, lessThan(0.55));
+    });
+
+    test('settleFactor 0 never settles (default)', () {
+      // A hair off the point still keeps a residual gap with no settle core.
+      final pulled = magneticPull(
+        pointer: 0.501,
+        resolver: mag(const [0.5]),
+        strength: 0.8,
+      );
+      expect(pulled, isNot(closeTo(0.5, 1e-12)));
     });
   });
 

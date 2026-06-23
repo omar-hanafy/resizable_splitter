@@ -446,6 +446,8 @@ class _DividerHandleState extends State<_DividerHandle> {
           pointer: rawPointer,
           resolver: SnapResolver(snap, geometry.solver),
           strength: snap.strength,
+          curve: snap.falloff,
+          settleFactor: snap.settleFactor,
         );
         return _LiveSnapResult(pulled, SplitterChangeSource.drag, live: true);
       case StickySnap():

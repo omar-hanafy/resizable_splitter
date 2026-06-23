@@ -1,3 +1,4 @@
+import 'package:flutter/animation.dart';
 import 'package:meta/meta.dart';
 
 /// Internal default values for the resizable splitter and its configuration
@@ -29,6 +30,15 @@ abstract final class SplitterDefaults {
 
   /// Magnetic-snap pull strength, in the range `(0, 1]`.
   static const double magneticStrength = 0.5;
+
+  /// Magnetic-snap distance falloff curve. Shapes how the pull ramps from the
+  /// tolerance edge (input 0) to the point (input 1): linear keeps the legacy
+  /// behavior, while an ease-in curve concentrates the catch near the point.
+  static const Curve magneticFalloff = Curves.linear;
+
+  /// Magnetic-snap exact-settle core size, as a fraction of the tolerance, in
+  /// `[0, 1]`. `0` disables settling (the pull never quite lands on a point).
+  static const double magneticSettleFactor = 0;
 
   /// Sticky-snap escape factor: the escape radius as a multiple of the capture
   /// radius (always greater than 1).

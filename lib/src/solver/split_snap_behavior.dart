@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:flutter/animation.dart';
 import 'package:flutter/foundation.dart';
 import 'package:resizable_splitter/src/constants.dart';
 
@@ -73,11 +74,15 @@ sealed class SplitterSnapBehavior {
     double tolerance = SplitterDefaults.snapTolerance,
     double? pixelTolerance,
     double strength = SplitterDefaults.magneticStrength,
+    Curve falloff = SplitterDefaults.magneticFalloff,
+    double settleFactor = SplitterDefaults.magneticSettleFactor,
   }) => MagneticSnap(
     points: points,
     tolerance: tolerance,
     pixelTolerance: pixelTolerance,
     strength: strength,
+    falloff: falloff,
+    settleFactor: settleFactor,
   );
 
   /// Builds [StickySnap] with the given [escapeFactor] (`> 1`); the escape
@@ -153,21 +158,46 @@ final class ReleaseSnap extends SplitterSnapBehavior with EquatableMixin {
 
 /// Snapping that continuously pulls the divider toward the nearest point during
 /// the drag. The pull fades to zero at the tolerance edge, so the pointer can
-/// always push through, and the released position is committed as shown.
+/// always push through, and the released position is committed as shown. A
+/// non-zero [settleFactor] adds a small core around each point where the divider
+/// settles exactly onto it, giving the pull a crisp finish.
 /// {@category Snapping}
 final class MagneticSnap extends SplitterSnapBehavior with EquatableMixin {
-  /// Creates magnetic snapping with the given pull [strength].
+  /// Creates magnetic snapping with the given pull [strength], [falloff], and
+  /// [settleFactor].
   MagneticSnap({
     required super.points,
     super.tolerance,
     super.pixelTolerance,
     this.strength = SplitterDefaults.magneticStrength,
+    this.falloff = SplitterDefaults.magneticFalloff,
+    this.settleFactor = SplitterDefaults.magneticSettleFactor,
   }) : assert(strength > 0 && strength <= 1, 'strength must be in (0, 1]'),
+       assert(
+         settleFactor >= 0 && settleFactor <= 1,
+         'settleFactor must be in [0, 1]',
+       ),
        super._();
 
   /// How strongly the divider is pulled toward a point, in `(0, 1]`. Higher is
   /// clingier; it never fully captures, so the pointer always wins.
   final double strength;
+
+  /// Shapes how the pull ramps across the influence zone. The linear nearness
+  /// `t` (0 at the tolerance edge, 1 at the point) is passed through this curve
+  /// before being scaled by [strength]. The default [Curves.linear] reproduces
+  /// the original behavior; an ease-in curve (e.g. [Curves.easeInCubic]) lets
+  /// the divider track the pointer freely until it is close, then catch harder
+  /// near the point for a snappier feel.
+  final Curve falloff;
+
+  /// Size of the exact-settle core around each point, as a fraction of the
+  /// tolerance, in `[0, 1]`. When the pointer is within `settleFactor *`
+  /// tolerance of a point, the divider settles exactly onto it - the pull's
+  /// crisp finish - instead of being drawn merely close. It stays pushable:
+  /// moving the pointer past the core resumes the pull. `0` (the default)
+  /// disables settling, preserving the never-quite-lands pull.
+  final double settleFactor;
 
   @override
   MagneticSnap copyWith({
@@ -175,20 +205,32 @@ final class MagneticSnap extends SplitterSnapBehavior with EquatableMixin {
     double? tolerance,
     Object? pixelTolerance = _noUpdate,
     double? strength,
+    Curve? falloff,
+    double? settleFactor,
   }) => MagneticSnap(
     points: points ?? this.points,
     tolerance: tolerance ?? this.tolerance,
     pixelTolerance: _resolvePixelTolerance(pixelTolerance, this.pixelTolerance),
     strength: strength ?? this.strength,
+    falloff: falloff ?? this.falloff,
+    settleFactor: settleFactor ?? this.settleFactor,
   );
 
   @override
-  List<Object?> get props => [points, tolerance, pixelTolerance, strength];
+  List<Object?> get props => [
+    points,
+    tolerance,
+    pixelTolerance,
+    strength,
+    falloff,
+    settleFactor,
+  ];
 
   @override
   String toString() =>
       'MagneticSnap(points: $points, tolerance: $tolerance, '
-      'pixelTolerance: $pixelTolerance, strength: $strength)';
+      'pixelTolerance: $pixelTolerance, strength: $strength, '
+      'falloff: $falloff, settleFactor: $settleFactor)';
 }
 
 /// Snapping that captures the divider onto a point during the drag and holds it
