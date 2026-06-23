@@ -27,7 +27,8 @@ abstract final class PackageMeta {
   static const String installCommand = 'flutter pub add resizable_splitter';
 
   /// Source repository URL.
-  static const String repositoryUrl = 'https://github.com/omar-hanafy/resizable_splitter';
+  static const String repositoryUrl =
+      'https://github.com/omar-hanafy/resizable_splitter';
 
   /// pub.dev package page.
   static const String pubDevUrl = 'https://pub.dev/packages/resizable_splitter';

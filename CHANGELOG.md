@@ -3,7 +3,11 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 2.1.0
+
+Adds two magnetic-snap shaping controls and a large internal reorganization.
+The public API is unchanged apart from the two additive `MagneticSnap` options
+below (both default to the previous behavior), so existing code keeps working.
 
 ### Added
 
@@ -21,6 +25,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   settles exactly onto it, giving the pull a crisp finish (it stays pushable -
   moving the pointer past the core resumes the pull). Defaults to `0`, which
   keeps the never-quite-lands pull - a backward-compatible addition.
+
+### Changed
+
+- Adopted `equatable` for the equality of the value and configuration types
+  (`SplitterPosition`, `SplitterState`, `SplitterLayout`,
+  `SplitterPaneConstraints`, `SplitterChangeDetails`, the snap behaviors, and
+  the theme/style types). The hand-written `==` / `hashCode` were replaced by
+  `EquatableMixin` `props` over the same fields, so equality, hash codes,
+  `toString`, `copyWith`, and `lerp` are unchanged - this is purely an internal
+  simplification, not a behavior change.
+- Added `equatable` and `meta` dependencies. `meta` backs the `@immutable` /
+  `@internal` annotations applied across the source.
+- Reorganized `lib/src` into `model/`, `solver/`, `theme/`, and `widget/`
+  folders and split the large widget files into focused parts. This is internal
+  only: the package barrel still exports the same public types, so
+  `import 'package:resizable_splitter/resizable_splitter.dart'` is unaffected.
+- Rebuilt the example into an interactive showcase - snapping, constraints,
+  collapse, pixel pinning, an IDE-style layout, and accessibility - replacing
+  the previous minimal demo.
 
 ## 2.0.0
 
