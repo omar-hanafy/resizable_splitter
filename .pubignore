@@ -7,10 +7,12 @@
 build/
 .dart_tool/
 
-# Dev-only docs. The README embeds the demo gif via an absolute GitHub URL,
-# so the 18 MB screenshots/ folder does not need to ship.
+# Dev-only docs. The README embeds the demo gif and the cover image via
+# absolute GitHub URLs, so neither the 18 MB screenshots/ folder nor the root
+# assets/ cover needs to ship. (Rooted so example/assets/ fonts still ship.)
 AGENTS.md
 screenshots/
+/assets/
 
 # Internal planning artifacts (2.0 rebuild specs/plans). Kept in git for project
 # history, but not part of the published package (also avoids Pub's docs -> doc
