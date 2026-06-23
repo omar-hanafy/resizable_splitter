@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:macos_ui/macos_ui.dart';
 import 'package:resizable_splitter/resizable_splitter.dart';
+import 'package:resizable_splitter_example/main.dart';
 import 'package:resizable_splitter_example/native_macos_sidebar_demo.dart';
 
 /// Finds a [MacosIcon] by its [IconData] - macos_ui uses [MacosTooltip] (not
@@ -64,5 +65,32 @@ void main() {
       macosSidebarDetentFractions(0).every((f) => f >= 0 && f <= 1),
       isTrue,
     );
+  });
+
+  testWidgets('gallery lists Native macOS entry and launches the screen',
+      (tester) async {
+    // Desktop-sized surface so all gallery nav entries are built (the lazy
+    // ListView would not build the off-screen "Native macOS" entry at 800x600).
+    tester.view.physicalSize = const Size(1600, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(const ResizableSplitterExampleApp());
+    await tester.pumpAndSettle();
+
+    final navEntry = find.text('Native macOS');
+    expect(navEntry, findsOneWidget);
+
+    await tester.tap(navEntry);
+    await tester.pumpAndSettle();
+
+    final launchButton =
+        find.widgetWithText(FilledButton, 'Open full-screen demo');
+    expect(launchButton, findsOneWidget);
+
+    await tester.tap(launchButton);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(NativeMacosSplitterDemo), findsOneWidget);
   });
 }
