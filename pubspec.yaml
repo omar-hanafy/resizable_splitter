@@ -22,8 +22,10 @@ environment:
   flutter: ">=3.35.0"
 
 dependencies:
+  equatable: ^2.0.8
   flutter:
     sdk: flutter
+  meta: ^1.18.0
 
 dev_dependencies:
   fake_async: ^1.3.3

@@ -1,0 +1,12 @@
+# Configures `dart doc` output (the pub.dev API reference).
+# Categories come from `{@category ...}` tags on each public type; this orders
+# them in the sidebar from the entry points down to the supporting types.
+dartdoc:
+  categoryOrder:
+    - Widget
+    - Controller
+    - Theming
+    - Model
+    - Layout
+    - Snapping
+    - Events
