@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../src/package_meta.dart';
 import '../theme/app_theme.dart';
 import '../theme/tokens.dart';
 import 'instrument.dart';
@@ -48,7 +49,7 @@ class TopBar extends StatelessWidget {
                         if (showWordmark) ...[
                           const SizedBox(width: Insets.md),
                           Text(
-                            'resizable_splitter',
+                            PackageMeta.name,
                             style: context.text.mono(
                               15,
                               color: t.textHi,
@@ -58,24 +59,24 @@ class TopBar extends StatelessWidget {
                         ],
                         if (showTag) ...[
                           const SizedBox(width: Insets.md),
-                          Tag('v2.0.0', color: t.signalText, filled: true),
+                          Tag(
+                            PackageMeta.versionLabel,
+                            color: t.signalText,
+                            filled: true,
+                          ),
                         ],
                         const Spacer(),
                         _BarLink(
                           label: 'pub.dev',
                           icon: Icons.inventory_2_outlined,
                           compact: compactLinks,
-                          onTap: () => _open(
-                            'https://pub.dev/packages/resizable_splitter',
-                          ),
+                          onTap: () => _open(PackageMeta.pubDevUrl),
                         ),
                         _BarLink(
                           label: 'GitHub',
                           icon: Icons.code_rounded,
                           compact: compactLinks,
-                          onTap: () => _open(
-                            'https://github.com/omar-hanafy/resizable_splitter',
-                          ),
+                          onTap: () => _open(PackageMeta.repositoryUrl),
                         ),
                         const SizedBox(width: Insets.sm),
                         _ThemeToggle(isDark: isDark, onTap: onToggleTheme),

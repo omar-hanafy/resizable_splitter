@@ -2,6 +2,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'src/package_meta.dart';
 import 'stations/a11y.dart';
 import 'stations/collapse.dart';
 import 'stations/constraints.dart';
@@ -38,7 +39,7 @@ class _SplitterShowcaseAppState extends State<SplitterShowcaseApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'resizable_splitter',
+      title: PackageMeta.name,
       debugShowCheckedModeBanner: false,
       themeMode: _mode,
       theme: buildAppTheme(Brightness.light),
@@ -331,7 +332,7 @@ class _InstallChipState extends State<_InstallChip> {
 
   Future<void> _copy() async {
     await Clipboard.setData(
-      const ClipboardData(text: 'flutter pub add resizable_splitter'),
+      const ClipboardData(text: PackageMeta.installCommand),
     );
     if (!mounted) return;
     setState(() => _copied = true);
@@ -372,7 +373,7 @@ class _InstallChipState extends State<_InstallChip> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'flutter pub add resizable_splitter',
+                    PackageMeta.installCommand,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: context.text.mono(13, color: t.textHi),
@@ -469,7 +470,7 @@ class QuickStartSection extends StatelessWidget {
   const QuickStartSection({super.key});
 
   static const _yaml = '''dependencies:
-  resizable_splitter: ^2.0.0''';
+  ${PackageMeta.name}: ${PackageMeta.versionConstraint}''';
 
   static const _dart = '''ResizableSplitter(
   start: const Center(child: Text('Navigation')),
@@ -554,7 +555,7 @@ class FooterSection extends StatelessWidget {
                       const BrandMark(size: 22),
                       const SizedBox(width: Insets.md),
                       Text(
-                        'resizable_splitter',
+                        PackageMeta.name,
                         style: context.text.mono(
                           13,
                           color: t.textHi,
@@ -563,7 +564,7 @@ class FooterSection extends StatelessWidget {
                       ),
                       const SizedBox(width: Insets.md),
                       Text(
-                        'MIT licensed',
+                        '${PackageMeta.license} licensed',
                         style: context.text.mono(11.5, color: t.textFaint),
                       ),
                     ],
