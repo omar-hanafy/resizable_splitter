@@ -375,7 +375,12 @@ class _DividerHandleState extends State<_DividerHandle> {
       _scrollHold = Scrollable.maybeOf(context)?.position.hold(() {});
     }
 
-    if (widget.shieldPlatformViews) _insertOverlay();
+    // The shield is already armed on pointer-down (see [_rememberPointer]),
+    // before this recognizer accepts, so a divider that waits for touch slop is
+    // never momentarily unshielded. Now that the drag is live, repaint the
+    // (already-inserted) shield so its visible barrier appears. This runs in the
+    // gesture phase, so marking the overlay dirty here is safe.
+    _dragOverlay?.markNeedsBuild();
 
     _haptic();
     _suppressPointerFocusHighlight();
@@ -573,7 +578,9 @@ class _DividerHandleState extends State<_DividerHandle> {
       .._setDragCallback(null);
     SplitterController._globalRouter.endDrag(controller);
     session.onPreviewChanged?.call(null);
-    _removeOverlay();
+    // Drop the shield unless another pending pointer still needs it (it is also
+    // removed unconditionally in dispose).
+    _removeShieldIfIdle();
     _scrollHold?.cancel();
     _scrollHold = null;
     _lastDragRequestFraction = null;
@@ -626,6 +633,11 @@ class _DividerHandleState extends State<_DividerHandle> {
     final entry = OverlayEntry(
       builder: (context) => _DragOverlay(
         axis: widget.axis,
+        // The shield is opaque from the moment it is inserted (on pointer-down),
+        // but its visible barrier tracks the live drag state so a press that is
+        // not (yet) a drag paints nothing. _onDragStart marks this entry dirty
+        // so the barrier appears the instant the drag is accepted.
+        isDragging: _isDragging,
         dragBarrierColor: widget.dragBarrierColor,
         barrierBuilder: widget.dragBarrierBuilder,
       ),
@@ -645,6 +657,14 @@ class _DividerHandleState extends State<_DividerHandle> {
     overlay
       ..remove()
       ..dispose();
+  }
+
+  // The shield brackets the pointer, not just the accepted drag: it is armed on
+  // pointer-down and must come down once neither a live press nor an active drag
+  // needs it. Calling this on every pointer-up/cancel (and after teardown) keeps
+  // the shield from ever outliving the pointer/session that armed it.
+  void _removeShieldIfIdle() {
+    if (_pendingPointers.isEmpty && !_isDragging) _removeOverlay();
   }
 
   void _rememberPointer(PointerDownEvent event) {
@@ -672,6 +692,16 @@ class _DividerHandleState extends State<_DividerHandle> {
 
     _pendingPointers.removeWhere((pointer) => pointer.id == event.pointer);
     _pendingPointers.add(_PendingPointer(event.pointer, event.position));
+
+    // Arm the platform-view shield from the press itself, not from drag
+    // acceptance. A divider that also handles a tap/double-tap only wins the
+    // drag after touch slop, so arming it in [_onDragStart] would leave a window
+    // in which a neighboring platform view (e.g. a WebView) can capture the OS
+    // pointer and swallow the release - stranding the drag with no end event.
+    // The opaque shield wins every hit from the first event; its visible barrier
+    // still appears only while a drag is actually active (see [_DragOverlay]), so
+    // a press that turns out to be a tap flashes nothing.
+    if (widget.shieldPlatformViews) _insertOverlay();
   }
 
   void _handlePointerMove(PointerMoveEvent event) {
@@ -689,6 +719,10 @@ class _DividerHandleState extends State<_DividerHandle> {
   void _handlePointerUp(PointerEvent event) {
     _updateHoverPosition(event);
     _pendingPointers.removeWhere((pointer) => pointer.id == event.pointer);
+    // The press is over. A drag-end tears the shield down via [_teardown]; a
+    // press that never became a drag (a tap) drops it here, so the shield can
+    // never outlive the pointer that armed it.
+    _removeShieldIfIdle();
   }
 
   void _handlePointerCancel(PointerEvent event) {
@@ -700,6 +734,7 @@ class _DividerHandleState extends State<_DividerHandle> {
     if (session != null && event.pointer == session.pointerId) {
       _activePointerCanceled = true;
     }
+    _removeShieldIfIdle();
   }
 
   int? _takePendingPointer(Offset globalPosition) {
@@ -1034,34 +1069,47 @@ class _PendingPointer {
 class _DragOverlay extends StatelessWidget {
   const _DragOverlay({
     required this.axis,
+    required this.isDragging,
     this.dragBarrierColor,
     this.barrierBuilder,
   });
 
   final Axis axis;
+
+  /// Whether a drag is actually in progress. The opaque shield is active the
+  /// whole time the overlay is inserted (from pointer-down), but the *visible*
+  /// barrier is painted only while [isDragging], so arming the shield early
+  /// never flashes a barrier on a press that turns out to be a tap. The handle
+  /// rebuilds this entry (via [OverlayEntry.markNeedsBuild]) when the drag
+  /// begins, rather than having the overlay subscribe to the controller - a
+  /// subscription would try to rebuild when teardown flips the flag during a
+  /// locked phase (dispose / a mid-drag reconfiguration) and throw.
+  final bool isDragging;
   final Color? dragBarrierColor;
   final Widget Function(BuildContext context)? barrierBuilder;
 
   @override
   Widget build(BuildContext context) {
-    // The Listener below hit-tests opaquely regardless of paint, so the visual
-    // is purely cosmetic - the shield works even with a transparent barrier. A
-    // custom barrierBuilder replaces only that visual, never the shield.
-    final barrier =
-        barrierBuilder?.call(context) ??
-        ColoredBox(color: dragBarrierColor ?? Colors.transparent);
-
     return Positioned.fill(
       child: ExcludeSemantics(
         child: MouseRegion(
           cursor: axis.cursor,
           child: Listener(
             behavior: HitTestBehavior.opaque,
-            // The opaque Listener already wins every hit, so the shield works
-            // even with a transparent barrier. IgnorePointer additionally keeps
-            // a custom barrierBuilder strictly visual: its own recognizers or
-            // buttons can never receive the pointer events (review A#16).
-            child: IgnorePointer(child: barrier),
+            // The opaque Listener wins every hit regardless of paint, so the
+            // shield blocks platform views from the moment of press - before the
+            // drag is even recognized and even with a transparent barrier.
+            // IgnorePointer additionally keeps a custom barrierBuilder strictly
+            // visual: its own recognizers or buttons can never receive the
+            // pointer events (review A#16).
+            child: IgnorePointer(
+              child: isDragging
+                  ? (barrierBuilder?.call(context) ??
+                        ColoredBox(
+                          color: dragBarrierColor ?? Colors.transparent,
+                        ))
+                  : const SizedBox.expand(),
+            ),
           ),
         ),
       ),

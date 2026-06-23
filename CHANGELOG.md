@@ -3,6 +3,21 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 2.1.1
+
+### Fixed
+
+- A divider next to a platform view (for example a `WebView`) could stay stuck
+  in the dragging state when the pointer was released over that view:
+  `controller.isDragging` stayed `true` and the divider kept tracking as if the
+  button were still held. The platform-view shield was armed only once the drag
+  was recognized, so a divider that also handles a tap or double-tap left a brief
+  window - before the drag won the gesture arena - in which the neighboring
+  platform view could capture the pointer and swallow the release. The shield is
+  now armed on pointer-down and its lifetime is bounded by the press, so the
+  release is delivered reliably and the drag always ends. The visible drag
+  barrier still appears only while a drag is in progress.
+
 ## 2.1.0
 
 Adds two magnetic-snap shaping controls and a large internal reorganization.
