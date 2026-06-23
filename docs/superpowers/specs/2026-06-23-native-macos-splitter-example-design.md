@@ -193,6 +193,26 @@ Confirmed by reading `~/.pub-cache/hosted/pub.dev/macos_ui-2.2.2`:
 - `dart analyze` (example scope) clean.
 - Run the example on macOS to confirm the native feel.
 
+## Implementation notes (as built)
+
+Deviations from the design above, decided during implementation and verified by
+`dart analyze`, the widget tests, and a `flutter build macos --debug`:
+
+- Dropped `MacosWindow`; the screen roots at `MacosTheme -> MacosScaffold`
+  directly. `MacosWindow` manages OS-window-level `NSVisualEffectView` wallpaper
+  tinting and its own sidebar - inappropriate for an embedded pushed route. Both
+  `MacosScaffold` and `ToolBar` work standalone (`ToolBar` reads
+  `MacosWindowScope.maybeOf`, which is null-safe).
+- No `debugDefaultTargetPlatformOverride` is needed in tests. The macos_ui
+  widgets used here render under `flutter test` without channel mocks; setting the
+  override actually trips `debugAssertAllFoundationVarsUnset`.
+- The gallery launch test sets a desktop surface (`1600x1200`) so the lazy nav
+  `ListView` builds the off-screen "Native macOS" entry.
+- The launcher button is a Material `FilledButton` (the gallery stays Material);
+  macos_ui's `PushButton` is used only inside the native route.
+- Toolbar items are found in tests by their `MacosIcon` `IconData` (macos_ui uses
+  `MacosTooltip`, so `find.byTooltip` does not match).
+
 ## Contingencies
 
 - If any chosen macos_ui widget turns out to need `MacosLocalizations`, wrap the
