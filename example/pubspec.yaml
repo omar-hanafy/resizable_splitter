@@ -13,6 +13,10 @@ dependencies:
   resizable_splitter:
     path: ../
   webview_flutter: ^4.13.0
+  macos_ui: ^2.2.2
+  # Provides the CupertinoIcons font used by the native macOS demo's toolbar
+  # and sidebar icons; without it those glyphs do not render.
+  cupertino_icons: ^1.0.8
 
 dev_dependencies:
   flutter_test:

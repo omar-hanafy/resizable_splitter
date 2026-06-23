@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:resizable_splitter/resizable_splitter.dart';
+import 'package:resizable_splitter_example/native_macos_sidebar_demo.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 void main() {
@@ -89,6 +90,11 @@ class _SplitterDemoPageState extends State<SplitterDemoPage> {
       title: 'Vertical layouts',
       subtitle: 'Axis.vertical with asymmetric min sizes',
       builder: (context) => const _VerticalDemo(),
+    ),
+    _Demo(
+      title: 'Native macOS',
+      subtitle: 'macos_ui chrome with our splitter + StickySnap',
+      builder: (context) => const _NativeMacosLauncher(),
     ),
   ];
 
@@ -232,6 +238,47 @@ class _NavigationPane extends StatelessWidget {
           },
           separatorBuilder: (context, index) => const Divider(height: 0),
           itemCount: demos.length,
+        ),
+      ),
+    );
+  }
+}
+
+/// Launcher shown in the gallery pane for the "Native macOS" demo. Tapping the
+/// button pushes the full-screen [NativeMacosSplitterDemo] on the root
+/// navigator so the macos_ui chrome owns the whole window.
+class _NativeMacosLauncher extends StatelessWidget {
+  const _NativeMacosLauncher();
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text('Native macOS demo', style: textTheme.headlineSmall),
+            const SizedBox(height: 12),
+            Text(
+              'Opens a full-screen macos_ui window where ResizableSplitter '
+              'drives the sidebar with sticky pixel detents and a collapsible '
+              'pane.',
+              textAlign: TextAlign.center,
+              style: textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 20),
+            FilledButton(
+              onPressed: () => Navigator.of(context, rootNavigator: true).push(
+                MaterialPageRoute<void>(
+                  fullscreenDialog: true,
+                  builder: (_) => const NativeMacosSplitterDemo(),
+                ),
+              ),
+              child: const Text('Open full-screen demo'),
+            ),
+          ],
         ),
       ),
     );
