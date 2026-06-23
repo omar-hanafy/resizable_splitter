@@ -4,7 +4,9 @@
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 <p align="center">
-  <img src="https://github.com/omar-hanafy/resizable_splitter/blob/main/screenshots/workspace.png?raw=true" alt="The resizable_splitter showcase - an editor workspace built entirely out of the package" width="100%">
+  <a href="https://omar-hanafy.github.io/resizable-splitter/">
+    <img src="https://github.com/omar-hanafy/resizable_splitter/blob/main/screenshots/workspace.png?raw=true" alt="The resizable_splitter showcase - an editor workspace built entirely out of the package" width="100%">
+  </a>
 </p>
 
 <p align="center"><em>The interactive showcase, built entirely out of the package.</em></p>
