@@ -119,4 +119,77 @@ void main() {
       expect(controller.isDragging, isFalse);
     },
   );
+
+  testWidgets(
+    'a mouse drag recovers when the physical button is released with no Flutter '
+    'event at all (hardware watchdog)',
+    (tester) async {
+      // Simulate the OS hardware button: a real platform view that captured the
+      // OS mouse delivers no event of any kind to Flutter on release, so the
+      // hover recovery cannot fire - only the hardware probe sees the release.
+      var buttonDown = true;
+      SplitterController.debugPrimaryMouseButtonProbe = () => buttonDown;
+
+      final controller = SplitterController();
+      await tester.pumpWidget(host(controller));
+      final center = tester.getCenter(find.bySemanticsLabel('handle'));
+
+      final pointer = TestPointer(7, PointerDeviceKind.mouse);
+      tester.binding.handlePointerEvent(pointer.down(center));
+      await tester.pump();
+      tester.binding.handlePointerEvent(
+        pointer.move(center + const Offset(30, 0)),
+      );
+      await tester.pump();
+      expect(controller.isDragging, isTrue);
+
+      // Button physically released over the platform view; nothing reaches
+      // Flutter. The watchdog polls the hardware and ends the drag.
+      buttonDown = false;
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(
+        controller.isDragging,
+        isFalse,
+        reason:
+            'the hardware watchdog must end a drag whose release Flutter '
+            'never saw',
+      );
+
+      // A late real up is a safe no-op.
+      tester.binding.handlePointerEvent(pointer.up());
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'a long motionless hold keeps the mouse drag active (the watchdog reads '
+    'live state, it is not a timeout)',
+    (tester) async {
+      var buttonDown = true;
+      SplitterController.debugPrimaryMouseButtonProbe = () => buttonDown;
+
+      final controller = SplitterController();
+      await tester.pumpWidget(host(controller));
+      final center = tester.getCenter(find.bySemanticsLabel('handle'));
+
+      final pointer = TestPointer(7, PointerDeviceKind.mouse);
+      tester.binding.handlePointerEvent(pointer.down(center));
+      await tester.pump();
+      tester.binding.handlePointerEvent(
+        pointer.move(center + const Offset(30, 0)),
+      );
+      await tester.pump();
+      expect(controller.isDragging, isTrue);
+
+      // Hold, motionless, for a long time: the button is still physically down.
+      await tester.pump(const Duration(seconds: 3));
+      expect(controller.isDragging, isTrue);
+
+      // Now release: ended promptly.
+      buttonDown = false;
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(controller.isDragging, isFalse);
+    },
+  );
 }

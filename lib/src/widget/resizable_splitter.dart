@@ -23,6 +23,11 @@ import 'package:resizable_splitter/src/solver/split_snap_engine.dart';
 import 'package:resizable_splitter/src/solver/split_solver.dart';
 import 'package:resizable_splitter/src/model/split_state.dart';
 import 'package:resizable_splitter/src/model/split_change_details.dart';
+// A hardware primary-button probe, used only as a last-resort watchdog when a
+// platform view swallows the pointer-up. Web has no such probe (no dart:io), so
+// the stub is used there and the watchdog stays off.
+import 'package:resizable_splitter/src/io/primary_button_probe.dart'
+    if (dart.library.io) 'package:resizable_splitter/src/io/primary_button_probe_io.dart';
 
 part 'split_controller.dart';
 part 'split_layout_notifier.dart';

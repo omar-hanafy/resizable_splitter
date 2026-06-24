@@ -46,6 +46,17 @@ class _GlobalPointerRouter {
       <(int, int), SplitterController>{};
   bool _initialized = false;
 
+  // Last-resort watchdog: while a mouse drag is active, poll the OS for the
+  // physical primary-button state. If a platform view captured the OS mouse and
+  // swallowed the up so NO event (not even a reconciled hover) reaches Flutter,
+  // this still observes the release and ends the drag. It reads live hardware
+  // state, so a long motionless hold keeps dragging - it is not a timeout.
+  static const Duration _buttonWatchdogInterval = Duration(milliseconds: 32);
+  Timer? _buttonWatchdog;
+
+  // Test-only override for the hardware probe (see SplitterController).
+  bool Function()? _debugProbeOverride;
+
   void _initialize() {
     if (_initialized) return;
     final binding = _maybeBinding();
@@ -76,6 +87,7 @@ class _GlobalPointerRouter {
     if (pointerId >= 0) _activeByPointer[pointerId] = c;
     if (kind == PointerDeviceKind.mouse && device != null && viewId != null) {
       _activeMouseByDevice[(viewId, device)] = c;
+      _ensureButtonWatchdog();
     }
   }
 
@@ -87,6 +99,7 @@ class _GlobalPointerRouter {
     _activeMouseByDevice.removeWhere(
       (_, controller) => identical(controller, c),
     );
+    if (_activeMouseByDevice.isEmpty) _stopButtonWatchdog();
   }
 
   void _handleGlobal(PointerEvent event) {
@@ -119,7 +132,50 @@ class _GlobalPointerRouter {
     controller._endDragFromRouter(reason);
   }
 
+  void _ensureButtonWatchdog() {
+    if (_buttonWatchdog != null) return;
+    final probe =
+        _debugProbeOverride ??
+        (_isTestEnvironment ? null : createPrimaryMouseButtonProbe());
+    if (probe == null) return;
+    _buttonWatchdog = Timer.periodic(_buttonWatchdogInterval, (_) {
+      if (probe()) return; // still physically held: a genuine ongoing drag.
+      _endStrandedMouseDrags();
+    });
+  }
+
+  void _stopButtonWatchdog() {
+    _buttonWatchdog?.cancel();
+    _buttonWatchdog = null;
+  }
+
+  // The physical button is no longer down but mouse drags are still registered:
+  // their releases were swallowed. End them as completed (a real release).
+  void _endStrandedMouseDrags() {
+    if (_activeMouseByDevice.isEmpty) {
+      _stopButtonWatchdog();
+      return;
+    }
+    // Snapshot first - _finish mutates the map (and stops the watchdog) as it
+    // tears each drag down.
+    for (final controller in _activeMouseByDevice.values.toList(
+      growable: false,
+    )) {
+      _finish(controller, _DragEndReason.completed);
+    }
+  }
+
+  // The hardware probe reads a real button. Under the flutter_test binding,
+  // pointer input is simulated and there is nothing to read, so tests inject a
+  // fake probe and the real one is never used. (A library cannot import
+  // flutter_test, hence the binding-type check.)
+  bool get _isTestEnvironment {
+    final binding = _maybeBinding();
+    return binding != null && binding.runtimeType.toString().contains('Test');
+  }
+
   void dispose() {
+    _stopButtonWatchdog();
     _activeByPointer.clear();
     _activeMouseByDevice.clear();
     if (!_initialized) return;

@@ -274,7 +274,17 @@ class SplitterController extends ValueNotifier<SplitterState>
 
   /// Resets the global pointer router. For testing only.
   @visibleForTesting
-  static void resetGlobalRouter() => _globalRouter.dispose();
+  static void resetGlobalRouter() {
+    _globalRouter._debugProbeOverride = null;
+    _globalRouter.dispose();
+  }
+
+  /// Overrides the hardware primary-mouse-button probe that backs the
+  /// stuck-drag watchdog, so tests can simulate the physical button without a
+  /// real device. Cleared by [resetGlobalRouter]. For testing only.
+  @visibleForTesting
+  static set debugPrimaryMouseButtonProbe(bool Function()? probe) =>
+      _globalRouter._debugProbeOverride = probe;
 
   @override
   void debugFillProperties(DiagnosticPropertiesBuilder properties) {
