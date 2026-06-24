@@ -233,14 +233,19 @@ class ResizableSplitter extends StatefulWidget {
   /// app-wide via the theme to localize every splitter at once.
   final SplitterSemanticsLabels? semantics;
 
-  /// The blocked color when dragged. Ignored if [dragBarrierBuilder] is set.
+  /// The drag barrier's fill color while dragging. Ignored if
+  /// [dragBarrierBuilder] is set. Leave it null for the default: the shield
+  /// still paints an imperceptible base layer (so it composites above platform
+  /// views and the OS can't route the release to a native view), just with no
+  /// visible tint.
   final Color? dragBarrierColor;
 
-  /// Builds the visual of the drag barrier - the overlay that shields embedded
-  /// platform views from stealing pointer events while dragging. The framework
-  /// always keeps the opaque hit shield; this only replaces what it looks like
-  /// (the default is a [dragBarrierColor] fill). Only used when the overlay is
-  /// enabled.
+  /// Builds the *visual* of the drag barrier shown while dragging. The shield
+  /// itself is kept regardless - an opaque hit blocker plus an always-painted
+  /// base layer that composites a Flutter surface above platform views so they
+  /// can't swallow the pointer release and strand the drag. This only customizes
+  /// what is drawn on top of that base (the default is a [dragBarrierColor]
+  /// fill, or nothing). Only used when [shieldPlatformViews] is enabled.
   final Widget Function(BuildContext context)? dragBarrierBuilder;
 
   /// Whether the protective overlay is used while dragging. Defaults to true.
