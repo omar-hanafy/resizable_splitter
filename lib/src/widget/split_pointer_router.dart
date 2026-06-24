@@ -32,9 +32,18 @@ class _GlobalPointerRouter {
 
   static final _instance = _GlobalPointerRouter._();
 
-  // Active drags keyed by their real pointer id.
+  // Active drags keyed by their real pointer id (the normal up/cancel path).
   final Map<int, SplitterController> _activeByPointer =
       <int, SplitterController>{};
+  // Active MOUSE drags also keyed by (viewId, device). A platform view can
+  // swallow the pointer-up so the same-pointer up/cancel never reaches the
+  // framework, and an up with no cached hit test is dropped before this route
+  // ever runs. The next hover (or a move whose primary button is no longer
+  // held) for that device is then the only proof the press ended - and a hover
+  // gets a fresh hit test and may carry a different pointer id, so this recovery
+  // must key on the device, not the pointer.
+  final Map<(int viewId, int device), SplitterController> _activeMouseByDevice =
+      <(int, int), SplitterController>{};
   bool _initialized = false;
 
   void _initialize() {
@@ -47,39 +56,72 @@ class _GlobalPointerRouter {
 
   /// Removes every active drag owned by [c] (used when its controller is
   /// disposed).
-  void unregister(SplitterController c) {
-    _activeByPointer.removeWhere((_, controller) => identical(controller, c));
-  }
+  void unregister(SplitterController c) => _forget(c);
 
-  /// Registers [c] as dragging under [pointerId]. A controller drives one drag
-  /// at a time, so any stale pointer it held is dropped first. A real
-  /// (non-negative) pointer id is required for the backup route to match a later
-  /// up; an unknown pointer (-1) simply gets no backup.
-  void beginDrag(SplitterController c, int pointerId) {
+  /// Registers [c] as dragging under [pointerId], and (for a mouse) also under
+  /// its `(viewId, device)` so a swallowed up can still be recovered from a
+  /// later hover. A controller drives one drag at a time, so any stale
+  /// registration it held is dropped first. A real (non-negative) pointer id is
+  /// required for the exact up/cancel backup; an unknown pointer (-1) simply
+  /// gets no exact backup (the device recovery still applies for a mouse).
+  void beginDrag(
+    SplitterController c,
+    int pointerId, {
+    int? device,
+    int? viewId,
+    PointerDeviceKind? kind,
+  }) {
     _initialize();
-    _activeByPointer.removeWhere((_, controller) => identical(controller, c));
+    _forget(c);
     if (pointerId >= 0) _activeByPointer[pointerId] = c;
+    if (kind == PointerDeviceKind.mouse && device != null && viewId != null) {
+      _activeMouseByDevice[(viewId, device)] = c;
+    }
   }
 
   /// Ends every active drag owned by [c] (its drag finished normally).
-  void endDrag(SplitterController c) {
+  void endDrag(SplitterController c) => _forget(c);
+
+  void _forget(SplitterController c) {
     _activeByPointer.removeWhere((_, controller) => identical(controller, c));
+    _activeMouseByDevice.removeWhere(
+      (_, controller) => identical(controller, c),
+    );
   }
 
   void _handleGlobal(PointerEvent event) {
     if (event is PointerUpEvent) {
-      _activeByPointer
-          .remove(event.pointer)
-          ?._endDragFromRouter(_DragEndReason.completed);
-    } else if (event is PointerCancelEvent) {
-      _activeByPointer
-          .remove(event.pointer)
-          ?._endDragFromRouter(_DragEndReason.canceled);
+      _finish(_activeByPointer[event.pointer], _DragEndReason.completed);
+      return;
     }
+    if (event is PointerCancelEvent) {
+      _finish(_activeByPointer[event.pointer], _DragEndReason.canceled);
+      return;
+    }
+    // Recovery for a swallowed mouse release. Only relevant while a mouse drag
+    // is active; the fast path keeps this off the hot hover/move stream.
+    if (_activeMouseByDevice.isEmpty) return;
+    if (event.kind != PointerDeviceKind.mouse) return;
+    if (event is! PointerHoverEvent && event is! PointerMoveEvent) return;
+    // The primary button still being held means a genuine drag is in progress
+    // (during a real drag the framework emits moves with the button bit set and
+    // never a hover), so only a primary-released event is proof the press ended.
+    if (event.buttons & kPrimaryButton != 0) return;
+    _finish(
+      _activeMouseByDevice[(event.viewId, event.device)],
+      _DragEndReason.completed,
+    );
+  }
+
+  void _finish(SplitterController? controller, _DragEndReason reason) {
+    if (controller == null) return;
+    _forget(controller);
+    controller._endDragFromRouter(reason);
   }
 
   void dispose() {
     _activeByPointer.clear();
+    _activeMouseByDevice.clear();
     if (!_initialized) return;
     final binding = _maybeBinding();
     if (binding != null) {

@@ -341,7 +341,8 @@ class _DividerHandleState extends State<_DividerHandle> {
     if (geometry == null) return;
 
     final controller = widget.controller;
-    final pointerId = _takePendingPointer(details.globalPosition) ?? -1;
+    final pending = _takePendingPointer(details.globalPosition);
+    final pointerId = pending?.id ?? -1;
     final isRtl =
         widget.axis.isH && Directionality.maybeOf(context) == TextDirection.rtl;
     final session = _DragSession(
@@ -368,7 +369,16 @@ class _DividerHandleState extends State<_DividerHandle> {
       .._cancelAnimation()
       .._setDragging(true)
       .._setDragCallback(_endDrag);
-    SplitterController._globalRouter.beginDrag(controller, pointerId);
+    // Register both the exact pointer (for a normal up/cancel) and, for a mouse,
+    // its device - so a release the platform view swallows can still be
+    // recovered from the next no-button hover (see [_GlobalPointerRouter]).
+    SplitterController._globalRouter.beginDrag(
+      controller,
+      pointerId,
+      device: pending?.device,
+      viewId: pending?.viewId,
+      kind: pending?.kind,
+    );
 
     if (widget.holdScrollWhileDragging) {
       _scrollHold?.cancel();
@@ -691,7 +701,7 @@ class _DividerHandleState extends State<_DividerHandle> {
     }
 
     _pendingPointers.removeWhere((pointer) => pointer.id == event.pointer);
-    _pendingPointers.add(_PendingPointer(event.pointer, event.position));
+    _pendingPointers.add(_PendingPointer(event));
 
     // Arm the platform-view shield from the press itself, not from drag
     // acceptance. A divider that also handles a tap/double-tap only wins the
@@ -706,21 +716,22 @@ class _DividerHandleState extends State<_DividerHandle> {
 
   void _handlePointerMove(PointerMoveEvent event) {
     _updateHoverPosition(event);
-    if (_isDragging) return;
-
-    for (final pointer in _pendingPointers) {
-      if (pointer.id == event.pointer) {
-        pointer.position = event.position;
-        break;
-      }
-    }
   }
 
   void _handlePointerUp(PointerEvent event) {
     _updateHoverPosition(event);
     _pendingPointers.removeWhere((pointer) => pointer.id == event.pointer);
-    // The press is over. A drag-end tears the shield down via [_teardown]; a
-    // press that never became a drag (a tap) drops it here, so the shield can
+    // The divider's own Listener sits in the in-flight pointer's captured
+    // hit-test path, so its up fires for the real release whenever that release
+    // reaches the framework. Make it an authoritative terminal rather than mere
+    // cleanup: the recognizer's onEnd and the global route become redundant
+    // (idempotent) backups, and teardown no longer depends on either firing.
+    final session = _session;
+    if (session != null && event.pointer == session.pointerId) {
+      _endDrag(_DragEndReason.completed);
+      return;
+    }
+    // A press that never became a drag (a tap) drops the shield here, so it can
     // never outlive the pointer that armed it.
     _removeShieldIfIdle();
   }
@@ -728,16 +739,19 @@ class _DividerHandleState extends State<_DividerHandle> {
   void _handlePointerCancel(PointerEvent event) {
     if (event.kind == PointerDeviceKind.mouse) _clearHoverPosition();
     _pendingPointers.removeWhere((pointer) => pointer.id == event.pointer);
-    // The recognizer's onEnd (which Flutter fires next, for both a release and
-    // a cancel) reads this to settle a cancel as a cancel, not a completion.
     final session = _session;
     if (session != null && event.pointer == session.pointerId) {
+      // The raw cancel is authoritative; settle nothing, fire a balanced
+      // canceled end. (The flag also keeps a later recognizer onEnd, if one
+      // still arrives, from misclassifying this as a completion.)
       _activePointerCanceled = true;
+      _endDrag(_DragEndReason.canceled);
+      return;
     }
     _removeShieldIfIdle();
   }
 
-  int? _takePendingPointer(Offset globalPosition) {
+  _PendingPointer? _takePendingPointer(Offset globalPosition) {
     if (_pendingPointers.isEmpty) return null;
 
     const double toleranceSquared = 16.0;
@@ -746,7 +760,7 @@ class _DividerHandleState extends State<_DividerHandle> {
 
     for (var i = _pendingPointers.length - 1; i >= 0; i--) {
       final candidate = _pendingPointers[i];
-      final diff = candidate.position - globalPosition;
+      final diff = candidate.downPosition - globalPosition;
       if (diff.distanceSquared <= toleranceSquared) {
         match = candidate;
         matchIndex = i;
@@ -757,7 +771,7 @@ class _DividerHandleState extends State<_DividerHandle> {
     match ??= _pendingPointers.first;
     matchIndex = matchIndex >= 0 ? matchIndex : 0;
     _pendingPointers.removeAt(matchIndex);
-    return match.id;
+    return match;
   }
 
   bool _isSupportedPointerKind(PointerDeviceKind? kind) {
@@ -1058,10 +1072,23 @@ class _DividerHandleState extends State<_DividerHandle> {
 }
 
 class _PendingPointer {
-  _PendingPointer(this.id, this.position);
+  _PendingPointer(PointerDownEvent event)
+    : id = event.pointer,
+      device = event.device,
+      viewId = event.viewId,
+      kind = event.kind,
+      downPosition = event.position;
 
   final int id;
-  Offset position;
+  final int device;
+  final int viewId;
+  final PointerDeviceKind kind;
+
+  /// The global (window) position at down. With `dragStartBehavior.down` the
+  /// drag start reports this same down position, so the pending pointer is
+  /// matched on it - never on a mutable latest-move position that intervening
+  /// moves would have shifted out of tolerance.
+  final Offset downPosition;
 }
 
 /// An invisible overlay that acts as a shield to block pointer events
