@@ -3,6 +3,23 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 2.1.2
+
+### Fixed
+
+- The divider could still stay stuck in the dragging state when the pointer was
+  released over a platform view (for example a `WebView`) on macOS - the case
+  2.1.1 targeted but did not fully resolve. Arming the shield earlier was not
+  enough: the shield's barrier defaulted to a fully transparent fill, which
+  paints nothing, so no Flutter layer was composited above the platform view.
+  With nothing painted there the native view stayed the topmost surface, and the
+  OS delivered the pointer release to it instead of to Flutter, so the drag never
+  ended. The shield now always paints an imperceptible layer above platform views
+  while dragging (independent of `dragBarrierColor` / `dragBarrierBuilder`), so
+  the release reaches Flutter and the drag ends reliably. Known limitation: iOS
+  and web platform views may still need an app-supplied pointer interceptor, as a
+  painted Flutter layer is not an input target on those platforms.
+
 ## 2.1.1
 
 ### Fixed

@@ -4,8 +4,8 @@ part of 'resizable_splitter.dart';
 /// treats a cancel, a mid-drag reconfiguration, or a disposal as a successful
 /// completion.
 enum _DragEndReason {
-  /// The pointer lifted normally - a gesture end, or a pointer-up a platform
-  /// view swallowed that the global router still saw. Settles, snaps, and fires
+  /// The pointer lifted normally - a gesture end, or an up the gesture
+  /// recognizer missed but the global route still saw. Settles, snaps, and fires
   /// onChangeEnd.
   completed,
 
@@ -18,11 +18,14 @@ enum _DragEndReason {
   interrupted,
 }
 
-/// Singleton global pointer router providing a stuck-drag backup: if a platform
-/// view swallows the pointer-up that would normally end a drag, this global
-/// route still sees it and ends the matching session. Active drags are keyed by
-/// their real pointer id, so several splitters can be dragged at once and each
-/// is cleaned up independently (the old single-slot design tracked only one).
+/// Singleton global pointer router providing a stuck-drag backup. It only ends a
+/// drag from an up/cancel that actually reaches Flutter; it cannot see an event
+/// a platform view swallowed before the engine (the painted drag shield is what
+/// keeps the platform view from swallowing it - see `_DragOverlay`). Given the
+/// event does reach Flutter, this route ends the matching session even if the
+/// gesture recognizer's own end never fires. Active drags are keyed by their
+/// real pointer id, so several splitters can be dragged at once and each is
+/// cleaned up independently (the old single-slot design tracked only one).
 class _GlobalPointerRouter {
   factory _GlobalPointerRouter() => _instance;
 

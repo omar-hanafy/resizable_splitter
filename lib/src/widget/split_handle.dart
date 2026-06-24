@@ -1064,8 +1064,44 @@ class _PendingPointer {
   Offset position;
 }
 
-/// An invisible overlay that acts as a shield to block pointer events
-/// from reaching platform views during a drag operation.
+/// Key on the shield's always-painted base layer. A plain value [Key], so tests
+/// match it by equality without the package exposing a debug symbol.
+const Key _shieldBaseBarrierKey = Key('resizable_splitter.shield_base_barrier');
+
+/// The shield always paints at least this near-invisible layer while dragging,
+/// so a Flutter surface composites above platform views. On macOS the compositor
+/// gives the platform-view wrapper a hit-test-ignore region everywhere a *later*
+/// Flutter layer actually paints, so the OS lets the pointer (including the
+/// release) fall through to Flutter there; with no real paint there is no such
+/// region and the native view keeps the release. Alpha 1/255 is the smallest
+/// value that still paints - a fully transparent fill has no effect and so
+/// contributes no paint region. (Do not swap this for `Opacity(0.001)`: that
+/// quantizes to alpha 0, `(0.001 * 255).round() == 0`, and paints nothing.)
+/// See [_DragOverlay].
+const Color _shieldBaseColor = Color(0x01000000);
+
+/// A full-screen shield, mounted in the root overlay while a divider is pressed
+/// or dragged, that stops a divider next to a platform view (e.g. a WebView)
+/// from being stranded as "dragging". It does two distinct jobs:
+///
+///  1. An opaque [Listener] blocks any *new* pointer from reaching a platform
+///     view through Flutter's hit testing.
+///  2. While dragging it PAINTS a full-screen layer (see [_buildBarrier]). Only
+///     this makes the in-flight drag safe: the captured pointer's hit-test path
+///     was fixed at pointer-down, so the shield cannot intercept that pointer in
+///     Flutter - instead the paint makes the platform view decline the OS hit
+///     test (see [_shieldBaseColor]), so the release reaches Flutter and runs
+///     down the original divider path.
+///
+/// Job 2 is the load-bearing half and easy to lose, so the shield always paints
+/// at least the imperceptible [_shieldBaseColor] base regardless of the cosmetic
+/// [dragBarrierColor] / [barrierBuilder].
+///
+/// This makes the macOS case reliable and is harmless elsewhere. Known limit: on
+/// iOS and web a painted Flutter layer is not itself an OS/DOM input target (the
+/// iOS overlay view is non-interactive; web events stay inside the iframe), so a
+/// divider released over a platform view there may still strand - closing that
+/// needs a native/DOM interceptor (e.g. `pointer_interceptor`), not yet wired in.
 class _DragOverlay extends StatelessWidget {
   const _DragOverlay({
     required this.axis,
@@ -1096,23 +1132,44 @@ class _DragOverlay extends StatelessWidget {
           cursor: axis.cursor,
           child: Listener(
             behavior: HitTestBehavior.opaque,
-            // The opaque Listener wins every hit regardless of paint, so the
-            // shield blocks platform views from the moment of press - before the
-            // drag is even recognized and even with a transparent barrier.
-            // IgnorePointer additionally keeps a custom barrierBuilder strictly
-            // visual: its own recognizers or buttons can never receive the
-            // pointer events (review A#16).
+            // The opaque Listener only blocks *new* Flutter-routed pointers; it
+            // does NOT keep the in-flight drag's pointer out of a platform view
+            // (that pointer's hit-test path was captured at pointer-down, before
+            // the shield existed). Covering the platform view for the active drag
+            // is a compositing job - done by painting in [_buildBarrier].
+            // IgnorePointer keeps a custom barrierBuilder strictly visual: its
+            // own recognizers or buttons can never receive pointer events
+            // (review A#16).
             child: IgnorePointer(
               child: isDragging
-                  ? (barrierBuilder?.call(context) ??
-                        ColoredBox(
-                          color: dragBarrierColor ?? Colors.transparent,
-                        ))
+                  ? _buildBarrier(context)
                   : const SizedBox.expand(),
             ),
           ),
         ),
       ),
     );
+  }
+
+  /// The painted shield layer for an active drag. Always paints at least the
+  /// near-invisible [_shieldBaseColor] so a Flutter surface composites above any
+  /// platform view - keeping the OS pointer stream, including the release, in
+  /// Flutter. The cosmetic [dragBarrierColor] / [barrierBuilder] layer on top; a
+  /// visible fill already composites on its own, so it needs no base beneath it.
+  Widget _buildBarrier(BuildContext context) {
+    const base = ColoredBox(
+      key: _shieldBaseBarrierKey,
+      color: _shieldBaseColor,
+    );
+    final builder = barrierBuilder;
+    if (builder != null) {
+      return Stack(
+        fit: StackFit.expand,
+        children: <Widget>[base, builder(context)],
+      );
+    }
+    final color = dragBarrierColor;
+    if (color != null && color.a > 0) return ColoredBox(color: color);
+    return base;
   }
 }

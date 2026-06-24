@@ -246,4 +246,78 @@ void main() {
       findsNothing,
     );
   });
+
+  testWidgets(
+    'the drag shield always paints a compositing surface (alpha > 0) while '
+    'dragging - even with no dragBarrierColor - so it composites above platform '
+    'views and the OS keeps delivering the release to Flutter',
+    (tester) async {
+      // The real failure is at the OS / compositor boundary: a native platform
+      // view (e.g. a WebView) that stays the topmost surface swallows the
+      // pointer-up, so the drag never ends. That swallow cannot be reproduced
+      // in flutter_test - there is no native view and synthetic pointers always
+      // reach Flutter - so this locks the invariant that makes the swallow
+      // impossible: the shield must PAINT something above the platform view to
+      // composite a Flutter surface over it. A fully transparent fill paints
+      // nothing (ColoredBox skips alpha == 0), which was the regression: the
+      // default barrier was Colors.transparent, so the default (most common)
+      // configuration shielded nothing at the compositor level.
+      final controller = SplitterController();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 400,
+                height: 240,
+                child: ResizableSplitter(
+                  controller: controller,
+                  // Default visuals: no dragBarrierColor, no dragBarrierBuilder -
+                  // exactly the path the regression lived on.
+                  divider: const SplitterDividerStyle(thickness: 8),
+                  startConstraints: const SplitterPaneConstraints(),
+                  endConstraints: const SplitterPaneConstraints(),
+                  semanticsLabel: 'handle',
+                  start: const SizedBox.expand(),
+                  end: const SizedBox.expand(),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.bySemanticsLabel('handle')),
+        kind: PointerDeviceKind.mouse,
+      );
+      // Cross touch slop so the drag is accepted and the shield paints.
+      await gesture.moveBy(const Offset(30, 0));
+      await tester.pump();
+      expect(controller.isDragging, isTrue);
+
+      // Must match the package-internal `_shieldBaseBarrierKey`. Value keys
+      // compare by equality, so the test reaches the base layer without the
+      // package exposing a debug symbol.
+      const shieldBaseKey = Key('resizable_splitter.shield_base_barrier');
+      final barrier = tester.widget<ColoredBox>(find.byKey(shieldBaseKey));
+      expect(
+        barrier.color.a,
+        greaterThan(0),
+        reason:
+            'a fully transparent shield paints nothing above platform views, so '
+            'the native view stays topmost and swallows the release',
+      );
+
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(controller.isDragging, isFalse);
+      expect(
+        find.byKey(shieldBaseKey),
+        findsNothing,
+        reason: 'the shield must not outlive the drag',
+      );
+    },
+  );
 }
