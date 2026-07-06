@@ -906,6 +906,15 @@ class _DividerHandleState extends State<_DividerHandle> {
         color: _shieldBaseColor,
         child: handle,
       );
+      // On web the paint is not a DOM hit target, so a slop that overhangs an
+      // iframe platform view additionally needs a DOM element to receive the
+      // press. Mounted only when there IS a slop overhanging the panes: a
+      // zero-slop catcher never overlaps a platform view, and the
+      // interceptor's DOM element is a per-splitter cost that configs without
+      // slop shouldn't pay. A pass-through off web.
+      if (widget.interactiveSlop > 0) {
+        handle = WebPlatformViewInterceptor(child: handle);
+      }
     }
 
     Widget divider = GestureDetector(
@@ -1167,23 +1176,30 @@ class _DragOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Positioned.fill(
-      child: ExcludeSemantics(
-        child: MouseRegion(
-          cursor: axis.cursor,
-          child: Listener(
-            behavior: HitTestBehavior.opaque,
-            // The opaque Listener only blocks *new* Flutter-routed pointers; it
-            // does NOT keep the in-flight drag's pointer out of a platform view
-            // (that pointer's hit-test path was captured at pointer-down, before
-            // the shield existed). Covering the platform view for the active drag
-            // is a compositing job - done by painting in [_buildBarrier].
-            // IgnorePointer keeps a custom barrierBuilder strictly visual: its
-            // own recognizers or buttons can never receive pointer events
-            // (review A#16).
-            child: IgnorePointer(
-              child: isDragging
-                  ? _buildBarrier(context)
-                  : const SizedBox.expand(),
+      // On web the painted barrier cannot keep the in-flight drag's events out
+      // of an iframe platform view (a canvas paint is not a DOM hit target),
+      // so the shield additionally mounts a DOM interceptor element for the
+      // press's lifetime. A pass-through everywhere else.
+      child: WebPlatformViewInterceptor(
+        child: ExcludeSemantics(
+          child: MouseRegion(
+            cursor: axis.cursor,
+            child: Listener(
+              behavior: HitTestBehavior.opaque,
+              // The opaque Listener only blocks *new* Flutter-routed pointers;
+              // it does NOT keep the in-flight drag's pointer out of a platform
+              // view (that pointer's hit-test path was captured at
+              // pointer-down, before the shield existed). Covering the platform
+              // view for the active drag is a compositing job - done by
+              // painting in [_buildBarrier] (and by the DOM interceptor above
+              // on web). IgnorePointer keeps a custom barrierBuilder strictly
+              // visual: its own recognizers or buttons can never receive
+              // pointer events (review A#16).
+              child: IgnorePointer(
+                child: isDragging
+                    ? _buildBarrier(context)
+                    : const SizedBox.expand(),
+              ),
             ),
           ),
         ),
