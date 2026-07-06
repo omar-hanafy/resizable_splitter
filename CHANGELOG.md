@@ -3,6 +3,32 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 2.1.3
+
+### Fixed
+
+- Hovering (or dragging) the divider could make it *less* visible instead of
+  highlighting it, which read as a broken/flickering hover state when sweeping
+  across the divider. The default hovered/dragged colors replaced the opaque
+  resting color (`outlineVariant`) with a bare low-alpha `onSurface` tint; over
+  a dark surface that composites to a color darker than the resting bar (and to
+  a washed-out one on light surfaces). The default state colors are now the
+  resting color with the emphasis tint composited on top, so hover and drag can
+  only ever add emphasis. Explicit `SplitterDividerStyle.color` /
+  `dividerColor` values are unaffected.
+- The grab slop (`interactiveExtent > thickness`) did not work where it
+  overhangs a platform view (for example a `WebView` pane) on macOS: hover
+  still tracked, but presses in that slop were swallowed by the native view, so
+  grabbing the divider from that side silently did nothing. The slop was
+  transparent padding, and the macOS compositor only routes pointer input above
+  a platform view to Flutter where a later Flutter layer actually paints. The
+  divider's interactive area now paints an imperceptible base layer (alpha
+  1/255) across its full extent - the same technique the 2.1.2 drag shield uses
+  - so presses in the slop reach Flutter and the divider can be grabbed from
+  either side. Opting out of `shieldPlatformViews` also opts out of this paint.
+  The same iOS/web limitation as 2.1.2 applies: a painted Flutter layer is not
+  an input target on those platforms.
+
 ## 2.1.2
 
 ### Fixed

@@ -248,6 +248,121 @@ void main() {
   });
 
   testWidgets(
+    'the divider catcher always paints (alpha > 0) across its FULL interactive '
+    'extent - including the transparent grab slop that overlaps the panes - so '
+    'the OS compositor carves the catcher out of a neighboring platform view '
+    'and a press in the slop reaches Flutter at all',
+    (tester) async {
+      // The failure this locks out (observed on macOS with a WKWebView pane):
+      // the grab slop (interactiveExtent > thickness) overlaps the platform
+      // view, but painted NOTHING there. The macOS compositor only adds a
+      // hit-test-ignore region to a platform view where a later Flutter layer
+      // actually PAINTS (FlutterMutatorView.hitTest / FlutterCompositor's
+      // paint_region intersection), so the un-painted slop belonged to the
+      // native view: hover still reached Flutter via the engine's tracking
+      // area, but mouse-DOWNs went to the WebView. The divider advertised a
+      // grab zone it could not actually grab with. Painting an imperceptible
+      // base (alpha 1/255) across the whole catcher is what makes the slop's
+      // pixels Flutter-owned at the OS level. That swallow itself cannot be
+      // reproduced in flutter_test (no native views), so - exactly like the
+      // drag-shield test above - this locks the paint invariant that makes it
+      // impossible.
+      final controller = SplitterController();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 400,
+                height: 240,
+                child: ResizableSplitter(
+                  controller: controller,
+                  // The report's shape: a visible 6px bar with a 4px grab slop
+                  // overhanging each pane.
+                  divider: const SplitterDividerStyle(
+                    thickness: 6,
+                    interactiveExtent: 14,
+                  ),
+                  startConstraints: const SplitterPaneConstraints(),
+                  endConstraints: const SplitterPaneConstraints(),
+                  semanticsLabel: 'handle',
+                  start: const SizedBox.expand(),
+                  end: const SizedBox.expand(),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      // Must match the package-internal `_catcherBasePaintKey` (a value key,
+      // compared by equality - same pattern as the shield base above).
+      const catcherBaseKey = Key('resizable_splitter.catcher_base_paint');
+      final base = tester.widget<ColoredBox>(find.byKey(catcherBaseKey));
+      expect(
+        base.color.a,
+        greaterThan(0),
+        reason:
+            'an un-painted catcher does not carve platform views out of the '
+            'OS hit test, so presses in the grab slop never reach Flutter',
+      );
+
+      final catcherSize = tester.getSize(find.byKey(catcherBaseKey));
+      expect(
+        catcherSize.width,
+        14,
+        reason:
+            'the paint must cover the FULL interactive extent (bar + both '
+            'slops), not just the visible bar',
+      );
+
+      // The paint is part of the idle divider - present before any press or
+      // drag, because the press itself is what needs to reach Flutter.
+      expect(controller.isDragging, isFalse);
+    },
+  );
+
+  testWidgets(
+    'shieldPlatformViews: false opts the catcher out of the base paint',
+    (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 400,
+                height: 240,
+                child: ResizableSplitter(
+                  shieldPlatformViews: false,
+                  divider: SplitterDividerStyle(
+                    thickness: 6,
+                    interactiveExtent: 14,
+                  ),
+                  startConstraints: SplitterPaneConstraints(),
+                  endConstraints: SplitterPaneConstraints(),
+                  semanticsLabel: 'handle',
+                  start: SizedBox.expand(),
+                  end: SizedBox.expand(),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      const catcherBaseKey = Key('resizable_splitter.catcher_base_paint');
+      expect(
+        find.byKey(catcherBaseKey),
+        findsNothing,
+        reason:
+            'opting out of platform-view accommodations must also drop the '
+            'catcher base paint',
+      );
+    },
+  );
+
+  testWidgets(
     'the drag shield always paints a compositing surface (alpha > 0) while '
     'dragging - even with no dragBarrierColor - so it composites above platform '
     'views and the OS keeps delivering the release to Flutter',
