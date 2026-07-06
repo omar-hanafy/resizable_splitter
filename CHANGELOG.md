@@ -3,6 +3,29 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 2.1.4
+
+### Fixed
+
+- On web, the splitter did not work against an iframe-backed platform view
+  (for example a web-view pane): moving a drag over the iframe pane lost the
+  drag as soon as the cursor crossed onto the iframe - sometimes leaving the
+  divider stranded as "dragging" - and the grab slop
+  (`interactiveExtent > thickness`) could not grab where it overhangs the
+  iframe. The paint-based shielding that covers this on desktop (2.1.2/2.1.3)
+  cannot work on web: a canvas paint is not a DOM hit target, and events
+  inside an iframe never reach the surrounding document. The grab slop and
+  the drag shield now additionally mount an invisible DOM element on web, so
+  presses in the slop and the in-flight drag's moves and release reach
+  Flutter instead of the iframe. `shieldPlatformViews: false` opts out of
+  this too. Of the iOS/web limitation noted in 2.1.2/2.1.3, only the iOS half
+  now remains.
+
+### Changed
+
+- New dependency on `web ^1.1.1` (used only in the web-specific code path; it
+  declares no platform restrictions).
+
 ## 2.1.3
 
 ### Changed
