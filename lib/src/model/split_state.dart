@@ -17,7 +17,7 @@ import 'package:resizable_splitter/src/model/split_position.dart';
 /// `SplitterLayout`; this type is purely the intent.
 /// {@category Model}
 @immutable
-class SplitterState with EquatableMixin {
+class SplitterState with Equatable {
   /// Creates a split state at [position], optionally with [collapsedPane]
   /// collapsed.
   const SplitterState({required this.position, this.collapsedPane});

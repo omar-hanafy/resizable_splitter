@@ -13,7 +13,7 @@ import 'package:resizable_splitter/src/model/split_layout.dart';
 /// clamped into; interaction code uses it to convert and clamp pointer motion.
 @immutable
 @internal
-class SplitterSolution with EquatableMixin {
+class SplitterSolution with Equatable {
   /// Creates a solution. Callers normally obtain one from [SplitterSolver.solve]
   /// rather than constructing it directly.
   const SplitterSolution({

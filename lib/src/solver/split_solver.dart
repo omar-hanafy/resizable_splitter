@@ -21,7 +21,7 @@ export 'package:resizable_splitter/src/solver/split_solution.dart';
 /// isolates a future render-object layout from how the inputs are gathered.
 @immutable
 @internal
-class SplitterSolverConfig with EquatableMixin {
+class SplitterSolverConfig with Equatable {
   /// Creates a solver configuration. Mirrors [SplitterSolver]'s inputs minus the
   /// per-frame [SplitterSolver.available] and the per-state collapse flags.
   const SplitterSolverConfig({

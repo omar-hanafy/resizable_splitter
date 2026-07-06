@@ -44,7 +44,7 @@ double _clampUnit(double value) {
 /// A [SplitterPosition] expressed as a start-panel fraction.
 /// {@category Model}
 @immutable
-class FractionSplitterPosition extends SplitterPosition with EquatableMixin {
+class FractionSplitterPosition extends SplitterPosition with Equatable {
   /// Creates a fractional position with the given [value].
   const FractionSplitterPosition(this.value);
 
@@ -64,7 +64,7 @@ class FractionSplitterPosition extends SplitterPosition with EquatableMixin {
 /// A [SplitterPosition] that fixes the start panel to a pixel [extent].
 /// {@category Model}
 @immutable
-class StartPixelsSplitterPosition extends SplitterPosition with EquatableMixin {
+class StartPixelsSplitterPosition extends SplitterPosition with Equatable {
   /// Creates a fixed start-pixel position.
   const StartPixelsSplitterPosition(this.extent);
 
@@ -87,7 +87,7 @@ class StartPixelsSplitterPosition extends SplitterPosition with EquatableMixin {
 /// A [SplitterPosition] that fixes the end panel to a pixel [extent].
 /// {@category Model}
 @immutable
-class EndPixelsSplitterPosition extends SplitterPosition with EquatableMixin {
+class EndPixelsSplitterPosition extends SplitterPosition with Equatable {
   /// Creates a fixed end-pixel position.
   const EndPixelsSplitterPosition(this.extent);
 

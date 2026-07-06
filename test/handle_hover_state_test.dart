@@ -191,6 +191,140 @@ void main() {
     expect(barDecoration(tester).color, focused);
   });
 
+  group('default state colors compose onto the resting color', () {
+    // Regression: the old defaults REPLACED the opaque resting color
+    // (outlineVariant) with a bare onSurface tint (alpha 20/31) for
+    // hovered/dragged. Over a dark surface that tint is DARKER than the
+    // resting color, so hovering visually dimmed the bar - users read the
+    // hover state as "hover broken / flickering" when sweeping across the
+    // divider. The contract locked here: the default hovered/dragged colors
+    // are the resting color WITH the emphasis tint composited on top, so a
+    // state change can never make the divider less visible than at rest.
+    Future<({Color resting, Color hovered, Color dragged})> stateColors(
+      WidgetTester tester,
+      ThemeData theme,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: theme,
+          home: const Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 400,
+                height: 240,
+                child: ResizableSplitter(
+                  // No divider color anywhere: exercise the package defaults.
+                  startConstraints: SplitterPaneConstraints(),
+                  endConstraints: SplitterPaneConstraints(),
+                  semanticsLabel: 'handle',
+                  start: SizedBox(),
+                  end: SizedBox(),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final resting = barDecoration(tester).color!;
+
+      final center = tester.getCenter(find.bySemanticsLabel('handle'));
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      addTearDown(mouse.removePointer);
+      await mouse.addPointer(location: center);
+      await tester.pump();
+      final hovered = barDecoration(tester).color!;
+
+      await mouse.down(center);
+      await tester.pump();
+      final dragged = barDecoration(tester).color!;
+      await mouse.up();
+      await tester.pumpAndSettle();
+
+      return (resting: resting, hovered: hovered, dragged: dragged);
+    }
+
+    testWidgets('dark theme: hover/drag brighten the bar, never dim it', (
+      tester,
+    ) async {
+      // The palette from the report: resting outlineVariant 0xFF2A3139 is
+      // clearly visible, while the old bare onSurface-alpha-20 hover paint
+      // composited to ~0xFF1F2228 over the surface - darker than resting.
+      final theme = ThemeData(
+        colorScheme:
+            ColorScheme.fromSeed(
+              seedColor: Colors.blue,
+              brightness: Brightness.dark,
+            ).copyWith(
+              surface: const Color(0xFF0E1217),
+              outlineVariant: const Color(0xFF2A3139),
+            ),
+      );
+      final cs = theme.colorScheme;
+
+      final colors = await stateColors(tester, theme);
+
+      expect(colors.resting, cs.outlineVariant);
+      expect(
+        colors.hovered,
+        Color.alphaBlend(cs.onSurface.withAlpha(20), cs.outlineVariant),
+      );
+      expect(
+        colors.dragged,
+        Color.alphaBlend(cs.onSurface.withAlpha(31), cs.outlineVariant),
+      );
+      // The perceptual invariant the regression violated: in a dark theme the
+      // emphasis tint (onSurface = near-white) must move the bar TOWARD
+      // onSurface, i.e. brighter than resting - never darker.
+      expect(
+        colors.hovered.computeLuminance(),
+        greaterThan(colors.resting.computeLuminance()),
+        reason: 'hovering dimmed the divider instead of highlighting it',
+      );
+      expect(
+        colors.dragged.computeLuminance(),
+        greaterThan(colors.hovered.computeLuminance()),
+        reason: 'dragging must be the strongest emphasis',
+      );
+    });
+
+    testWidgets('light theme: hover/drag darken the bar, never wash it out', (
+      tester,
+    ) async {
+      final theme = ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue).copyWith(
+          surface: const Color(0xFFF7F7F8),
+          outlineVariant: const Color(0xFFE1E3E6),
+        ),
+      );
+      final cs = theme.colorScheme;
+
+      final colors = await stateColors(tester, theme);
+
+      expect(colors.resting, cs.outlineVariant);
+      expect(
+        colors.hovered,
+        Color.alphaBlend(cs.onSurface.withAlpha(20), cs.outlineVariant),
+      );
+      expect(
+        colors.dragged,
+        Color.alphaBlend(cs.onSurface.withAlpha(31), cs.outlineVariant),
+      );
+      // Mirror of the dark case: in a light theme onSurface is near-black, so
+      // emphasis must make the bar darker than resting.
+      expect(
+        colors.hovered.computeLuminance(),
+        lessThan(colors.resting.computeLuminance()),
+        reason: 'hovering washed the divider out instead of highlighting it',
+      );
+      expect(
+        colors.dragged.computeLuminance(),
+        lessThan(colors.hovered.computeLuminance()),
+        reason: 'dragging must be the strongest emphasis',
+      );
+    });
+  });
+
   testWidgets('non-resizable divider does not create a hover state', (
     tester,
   ) async {

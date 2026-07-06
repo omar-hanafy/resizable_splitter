@@ -69,7 +69,7 @@ enum SplitterChangeEnd {
 /// number.
 /// {@category Events}
 @immutable
-class SplitterChangeDetails with EquatableMixin {
+class SplitterChangeDetails with Equatable {
   /// Creates change details for a split update.
   const SplitterChangeDetails({
     required this.requestedPosition,

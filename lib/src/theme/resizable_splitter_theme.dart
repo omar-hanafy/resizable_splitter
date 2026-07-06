@@ -36,7 +36,7 @@ enum UnboundedBehavior {
 @immutable
 class ResizableSplitterThemeData
     extends ThemeExtension<ResizableSplitterThemeData>
-    with EquatableMixin {
+    with Equatable {
   /// Creates theme data. Every field defaults to null, meaning "defer".
   const ResizableSplitterThemeData({
     this.divider,

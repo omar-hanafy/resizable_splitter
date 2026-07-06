@@ -314,22 +314,32 @@ class _DividerHandleState extends State<_DividerHandle> {
     super.dispose();
   }
 
-  /// Resolves the divider color for the active [states], falling back to a tint
-  /// derived from the ambient [ColorScheme] when the style leaves it unset. The
-  /// merge of widget-over-theme already happened upstream, so [dividerColor] is
-  /// the single resolved property here.
+  /// Resolves the divider color for the active [states], falling back to a
+  /// default derived from the ambient [ColorScheme] when the style leaves it
+  /// unset. The merge of widget-over-theme already happened upstream, so
+  /// [dividerColor] is the single resolved property here.
+  ///
+  /// The default hovered/dragged colors are the resting color (outlineVariant)
+  /// with an onSurface emphasis tint composited ON TOP - not the bare tint.
+  /// A bare `onSurface.withAlpha(20)` composites to a color that is *darker*
+  /// than the opaque resting outlineVariant on dark surfaces (and washed-out
+  /// on light ones), so hovering visibly DIMMED the bar - which reads as
+  /// "hover is broken" while sweeping across the divider. Composing onto the
+  /// resting color makes it structural that a state change can only add
+  /// emphasis, never remove it.
   Color _resolveDividerColor(Set<WidgetState> states) {
     final resolved = widget.dividerColor?.resolve(states);
     if (resolved != null) return resolved;
     final cs = Theme.of(context).colorScheme;
+    final resting = cs.outlineVariant;
     if (states.contains(WidgetState.dragged)) {
-      return cs.onSurface.withAlpha(31);
+      return Color.alphaBlend(cs.onSurface.withAlpha(31), resting);
     }
     if (states.contains(WidgetState.hovered) ||
         states.contains(WidgetState.focused)) {
-      return cs.onSurface.withAlpha(20);
+      return Color.alphaBlend(cs.onSurface.withAlpha(20), resting);
     }
-    return cs.outlineVariant;
+    return resting;
   }
 
   void _onDragStart(DragStartDetails details) {
@@ -870,14 +880,30 @@ class _DividerHandleState extends State<_DividerHandle> {
     }
 
     // Widen the *grab* area across the divider's thin dimension without moving
-    // the visible bar: the slop is transparent padding that still sits inside
-    // the opaque Listener below, so it hit-tests. The matching extent was
-    // already reserved out of the panels via the divider footprint.
+    // the visible bar: the slop is visually-transparent padding that still sits
+    // inside the opaque Listener below, so it hit-tests in Flutter. The
+    // matching extent was already reserved out of the panels via the divider
+    // footprint.
     if (widget.interactiveSlop > 0) {
       handle = Padding(
         padding: widget.axis.isH
             ? EdgeInsets.symmetric(horizontal: widget.interactiveSlop)
             : EdgeInsets.symmetric(vertical: widget.interactiveSlop),
+        child: handle,
+      );
+    }
+
+    // Flutter hit-testing alone is NOT enough where the slop overhangs a
+    // platform view: the OS routes the press to whichever native surface wins
+    // its own hit test, and on macOS the platform view declines only where a
+    // later Flutter layer actually PAINTS (see [_shieldBaseColor]). So the
+    // catcher paints an imperceptible base across its full interactive extent;
+    // without it the slop's mouse-downs land in the neighboring WebView and a
+    // "grab" next to the divider silently does nothing.
+    if (widget.shieldPlatformViews) {
+      handle = ColoredBox(
+        key: _catcherBasePaintKey,
+        color: _shieldBaseColor,
         child: handle,
       );
     }
@@ -1068,16 +1094,30 @@ class _PendingPointer {
 /// match it by equality without the package exposing a debug symbol.
 const Key _shieldBaseBarrierKey = Key('resizable_splitter.shield_base_barrier');
 
-/// The shield always paints at least this near-invisible layer while dragging,
-/// so a Flutter surface composites above platform views. On macOS the compositor
-/// gives the platform-view wrapper a hit-test-ignore region everywhere a *later*
-/// Flutter layer actually paints, so the OS lets the pointer (including the
-/// release) fall through to Flutter there; with no real paint there is no such
-/// region and the native view keeps the release. Alpha 1/255 is the smallest
-/// value that still paints - a fully transparent fill has no effect and so
-/// contributes no paint region. (Do not swap this for `Opacity(0.001)`: that
-/// quantizes to alpha 0, `(0.001 * 255).round() == 0`, and paints nothing.)
-/// See [_DragOverlay].
+/// Key on the divider catcher's always-painted base layer (see
+/// [_shieldBaseColor] for why it must paint). Also matched by value in tests.
+const Key _catcherBasePaintKey = Key('resizable_splitter.catcher_base_paint');
+
+/// Any surface this splitter needs the OS to route to Flutter *above a
+/// platform view* must PAINT at least this near-invisible layer. On macOS the
+/// compositor gives the platform-view wrapper a hit-test-ignore region only
+/// where a *later* Flutter layer actually paints (FlutterMutatorView.hitTest /
+/// FlutterCompositor's paint-region intersection); with no real paint there is
+/// no such region and the native view keeps the pointer. Alpha 1/255 is the
+/// smallest value that still paints - a fully transparent fill has no effect
+/// and so contributes no paint region. (Do not swap this for `Opacity(0.001)`:
+/// that quantizes to alpha 0, `(0.001 * 255).round() == 0`, and paints
+/// nothing.)
+///
+/// Two spots rely on this:
+///  * the drag shield ([_DragOverlay._buildBarrier]) - so the in-flight drag's
+///    moves and release keep reaching Flutter over a platform view;
+///  * the divider catcher ([_DividerHandleState._buildHandle]) - so the grab
+///    slop (`interactiveExtent > thickness`), which overhangs the panes as
+///    otherwise-transparent padding, actually receives the press when the pane
+///    under it is a platform view. Without it the slop advertises a grab zone
+///    (hover still arrives via the engine's tracking area) whose mouse-downs
+///    the native view swallows.
 const Color _shieldBaseColor = Color(0x01000000);
 
 /// A full-screen shield, mounted in the root overlay while a divider is pressed

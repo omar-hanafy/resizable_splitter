@@ -54,7 +54,7 @@ enum SplitterResolution {
 /// effective fraction.
 /// {@category Layout}
 @immutable
-class SplitterLayout with EquatableMixin {
+class SplitterLayout with Equatable {
   /// Creates a resolved layout. Normally obtained from
   /// `SplitterController.layout` rather than constructed directly.
   const SplitterLayout({
