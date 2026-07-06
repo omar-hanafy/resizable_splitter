@@ -131,7 +131,7 @@ double? _resolvePixelTolerance(Object? update, double? current) =>
 /// Snapping that settles onto the nearest point only when the drag is released
 /// within tolerance. The divider tracks the pointer freely during the drag.
 /// {@category Snapping}
-final class ReleaseSnap extends SplitterSnapBehavior with EquatableMixin {
+final class ReleaseSnap extends SplitterSnapBehavior with Equatable {
   /// Creates release snapping.
   ReleaseSnap({required super.points, super.tolerance, super.pixelTolerance})
     : super._();
@@ -162,7 +162,7 @@ final class ReleaseSnap extends SplitterSnapBehavior with EquatableMixin {
 /// non-zero [settleFactor] adds a small core around each point where the divider
 /// settles exactly onto it, giving the pull a crisp finish.
 /// {@category Snapping}
-final class MagneticSnap extends SplitterSnapBehavior with EquatableMixin {
+final class MagneticSnap extends SplitterSnapBehavior with Equatable {
   /// Creates magnetic snapping with the given pull [strength], [falloff], and
   /// [settleFactor].
   MagneticSnap({
@@ -238,7 +238,7 @@ final class MagneticSnap extends SplitterSnapBehavior with EquatableMixin {
 /// radius exceeding the capture radius is the hysteresis that prevents flicker
 /// at the boundary.
 /// {@category Snapping}
-final class StickySnap extends SplitterSnapBehavior with EquatableMixin {
+final class StickySnap extends SplitterSnapBehavior with Equatable {
   /// Creates sticky snapping with the given [escapeFactor] (`> 1`).
   StickySnap({
     required super.points,

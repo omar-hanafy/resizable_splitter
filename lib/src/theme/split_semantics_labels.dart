@@ -16,7 +16,7 @@ import 'package:flutter/widgets.dart';
 /// resolved here.
 /// {@category Theming}
 @immutable
-class SplitterSemanticsLabels with EquatableMixin {
+class SplitterSemanticsLabels with Equatable {
   /// Creates a set of semantics labels. Every field defaults to English.
   const SplitterSemanticsLabels({
     this.resizeHorizontal = 'Drag to resize left and right panels.',

@@ -52,7 +52,7 @@ class SplitterHandleDetails {
 /// back to a tint derived from the ambient [ColorScheme].
 /// {@category Theming}
 @immutable
-class SplitterDividerStyle with EquatableMixin {
+class SplitterDividerStyle with Equatable {
   /// Creates a divider style. Unset fields fall back to the theme and defaults.
   const SplitterDividerStyle({
     this.thickness,

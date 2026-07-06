@@ -13,7 +13,7 @@ const Object _noUpdate = Object();
 /// the start-fraction interval passed to the solver.
 /// {@category Layout}
 @immutable
-class SplitterPaneConstraints with EquatableMixin {
+class SplitterPaneConstraints with Equatable {
   /// Creates pane constraints.
   ///
   /// [SplitterPaneConstraints.maxExtent] must be `>=` [minExtent]. [collapsedExtent], when set, marks the

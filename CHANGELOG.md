@@ -5,6 +5,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## 2.1.3
 
+### Changed
+
+- Requires `equatable ^2.1.0`: migrated off the now-deprecated
+  `EquatableMixin` to `Equatable` as a mixin.
+
 ### Fixed
 
 - Hovering (or dragging) the divider could make it *less* visible instead of
