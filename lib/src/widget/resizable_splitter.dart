@@ -18,6 +18,12 @@ import 'package:resizable_splitter/src/model/split_layout.dart';
 import 'package:resizable_splitter/src/model/split_pane_constraints.dart';
 import 'package:resizable_splitter/src/model/split_position.dart';
 import 'package:resizable_splitter/src/theme/split_semantics_labels.dart';
+// The platform-view input interceptor: a DOM element on web (where painting
+// above an iframe cannot keep pointer events out of it), a pass-through
+// everywhere else. `dart.library.js_interop` selects the web variant under
+// both dart2js and dart2wasm.
+import 'package:resizable_splitter/src/widget/web_platform_view_interceptor_stub.dart'
+    if (dart.library.js_interop) 'package:resizable_splitter/src/widget/web_platform_view_interceptor_web.dart';
 import 'package:resizable_splitter/src/solver/split_snap_behavior.dart';
 import 'package:resizable_splitter/src/solver/split_snap_engine.dart';
 import 'package:resizable_splitter/src/solver/split_solver.dart';

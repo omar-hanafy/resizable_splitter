@@ -2,6 +2,10 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:resizable_splitter/resizable_splitter.dart';
+// The platform-view input interceptor wrapper. VM tests resolve the library's
+// conditional import to the stub, so this import names the same type the
+// widget tree holds here; on web builds the web variant takes its place.
+import 'package:resizable_splitter/src/widget/web_platform_view_interceptor_stub.dart';
 
 /// Regression: a divider next to a platform view (WebView) must never be left
 /// stranded as "dragging".
@@ -320,6 +324,100 @@ void main() {
       // The paint is part of the idle divider - present before any press or
       // drag, because the press itself is what needs to reach Flutter.
       expect(controller.isDragging, isFalse);
+    },
+  );
+
+  testWidgets(
+    'the catcher and the drag shield mount the web platform-view interceptor '
+    '(a DOM element on web; pass-through elsewhere) - painting alone cannot '
+    'keep pointer events out of an iframe on web',
+    (tester) async {
+      // The web failure this wiring closes: an iframe swallows every DOM
+      // event over it, and a Flutter canvas paint is not a DOM hit target, so
+      // neither the painted catcher slop nor the painted drag shield receive
+      // input over an iframe pane - a drag released there strands, and the
+      // slop cannot grab. The interceptor mounts an invisible DOM element
+      // above the iframe so events bubble to the engine instead. That DOM
+      // routing cannot run in flutter_test; this locks the wiring, and the
+      // behavior itself is verified in a real browser.
+      final controller = SplitterController();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 400,
+                height: 240,
+                child: ResizableSplitter(
+                  controller: controller,
+                  divider: const SplitterDividerStyle(
+                    thickness: 6,
+                    interactiveExtent: 14,
+                  ),
+                  startConstraints: const SplitterPaneConstraints(),
+                  endConstraints: const SplitterPaneConstraints(),
+                  semanticsLabel: 'handle',
+                  start: const SizedBox.expand(),
+                  end: const SizedBox.expand(),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      // Idle: the catcher (slop > 0) is wrapped.
+      expect(find.byType(WebPlatformViewInterceptor), findsOneWidget);
+
+      // Pressing mounts the shield overlay, which is wrapped too.
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.bySemanticsLabel('handle')),
+        kind: PointerDeviceKind.mouse,
+      );
+      await tester.pump();
+      expect(find.byType(WebPlatformViewInterceptor), findsNWidgets(2));
+
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(find.byType(WebPlatformViewInterceptor), findsOneWidget);
+      expect(controller.isDragging, isFalse);
+    },
+  );
+
+  testWidgets(
+    'a zero-slop catcher does not pay for a web interceptor element',
+    (tester) async {
+      // With interactiveExtent == thickness the catcher never overlaps a
+      // pane, so there is nothing for an iframe to swallow at idle - and on
+      // web an interceptor element is a per-splitter DOM cost that zero-slop
+      // configs should not pay. (The drag shield still mounts one during a
+      // press, covering the in-flight drag.)
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 400,
+                height: 240,
+                child: ResizableSplitter(
+                  divider: SplitterDividerStyle(
+                    thickness: 6,
+                    interactiveExtent: 6,
+                  ),
+                  startConstraints: SplitterPaneConstraints(),
+                  endConstraints: SplitterPaneConstraints(),
+                  semanticsLabel: 'handle',
+                  start: SizedBox.expand(),
+                  end: SizedBox.expand(),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(find.byType(WebPlatformViewInterceptor), findsNothing);
     },
   );
 
