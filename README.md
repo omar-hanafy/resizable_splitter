@@ -4,7 +4,7 @@
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 <p align="center">
-  <a href="https://omar-hanafy.github.io/resizable-splitter/">
+  <a href="https://omar-hanafy.github.io/resizable_splitter/">
     <img src="https://github.com/omar-hanafy/resizable_splitter/blob/main/screenshots/workspace.png?raw=true" alt="The resizable_splitter showcase - an editor workspace built entirely out of the package" width="100%">
   </a>
 </p>
@@ -17,7 +17,7 @@ sidebars, and embedded platform views. Drag, keyboard, snapping, and screen
 readers all flow through **one pure constraint solver**, so the position you
 store can never disagree with the pixels that get drawn.
 
-**[Live demo](https://omar-hanafy.github.io/resizable-splitter/)** - try it in
+**[Live demo](https://omar-hanafy.github.io/resizable_splitter/)** - try it in
 your browser.
 
 ## Contents
