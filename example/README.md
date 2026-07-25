@@ -5,7 +5,7 @@ A single-page, instrument-style demo for the
 built **entirely out of the package** - every divider on the page, including the
 chrome, is a live `ResizableSplitter`.
 
-**[Live demo](https://omar-hanafy.github.io/resizable-splitter/)**
+**[Live demo](https://omar-hanafy.github.io/resizable_splitter/)**
 
 ## The idea
 
@@ -42,7 +42,7 @@ header links), so it runs on web, desktop, and mobile from one codebase.
 
 ```bash
 flutter test               # smoke tests across desktop / tablet / mobile widths
-flutter build web --base-href /resizable-splitter/   # production build
+flutter build web --wasm --base-href /resizable_splitter/   # what CI publishes
 ```
 
 ## Code map
