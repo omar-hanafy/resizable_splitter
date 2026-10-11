@@ -123,9 +123,24 @@ Future<void> _rasterizedFrame(WidgetTester tester, Widget child) async {
 
   final binding = tester.binding;
   final elapsed = Stopwatch()..start();
+  const totalTimeout = Duration(seconds: 10);
+  var frameWait = const Duration(milliseconds: 101);
   var latestRasterizedFrame = -1;
   int? targetFrame;
   var rasterized = Completer<void>();
+  Never failCleanup() => fail(
+    'The web engine did not rasterize cleanup frame $targetFrame '
+    'within $totalTimeout; latest observed frame: $latestRasterizedFrame.',
+  );
+
+  Duration remainingBudget() {
+    final remaining = totalTimeout - elapsed.elapsed;
+    if (remaining <= Duration.zero) {
+      failCleanup();
+    }
+    return remaining;
+  }
+
   void reportTimings(List<FrameTiming> timings) {
     for (final timing in timings) {
       if (timing.frameNumber > latestRasterizedFrame) {
@@ -143,6 +158,7 @@ Future<void> _rasterizedFrame(WidgetTester tester, Widget child) async {
   try {
     var firstFrame = true;
     while (true) {
+      final pumpBudget = remainingBudget();
       targetFrame = null;
       rasterized = Completer<void>();
       binding.addPostFrameCallback((_) {
@@ -152,21 +168,25 @@ Future<void> _rasterizedFrame(WidgetTester tester, Widget child) async {
         }
       });
       if (firstFrame) {
-        await tester.pumpWidget(child);
+        await tester
+            .pumpWidget(child)
+            .timeout(pumpBudget, onTimeout: failCleanup);
         firstFrame = false;
       } else {
-        await tester.pump();
+        await tester.pump().timeout(pumpBudget, onTimeout: failCleanup);
       }
       try {
         // The web engine reports timings only when a rendered frame flushes its
-        // 100ms batch. Request another frame if that reporting window expires;
-        // always await the newest frame so queued scenes cannot outlive cleanup.
-        await rasterized.future.timeout(const Duration(milliseconds: 101));
+        // 100ms batch. A fixed 101ms retry can continually supersede the target
+        // before a slow raster completes. Grow the event-driven wait so the
+        // current/next scene queue can drain, still requiring the newest frame.
+        final remaining = remainingBudget();
+        final wait = frameWait < remaining ? frameWait : remaining;
+        await rasterized.future.timeout(wait);
         return;
       } on TimeoutException {
-        if (elapsed.elapsed >= const Duration(seconds: 10)) {
-          fail('The web engine did not rasterize cleanup frame $targetFrame.');
-        }
+        remainingBudget();
+        frameWait *= 2;
       }
     }
   } finally {
