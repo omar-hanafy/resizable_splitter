@@ -203,7 +203,10 @@ void main() {
     addTearDown(semantics.dispose);
     final handle = find.bySemanticsLabel('Demo panel divider');
     final controller = _controller(tester, A11yStation);
-    await _show(tester, handle);
+    // Offscreen controls intentionally have no semantics node. Scroll using
+    // the widget tree before finding the visible accessibility control.
+    await _show(tester, _splitter(A11yStation));
+    expect(handle, findsOneWidget);
     await tester.tap(handle);
     await tester.pump();
     await _key(tester, LogicalKeyboardKey.arrowRight);
@@ -252,7 +255,8 @@ void main() {
     await _finishTransitions(tester);
     expect(controller.layout!.effectiveFraction, closeTo(0.5, 0.001));
     await _tap(tester, A11yStation, 'RTL');
-    await _show(tester, handle);
+    await _show(tester, _splitter(A11yStation));
+    expect(handle, findsOneWidget);
     await tester.tap(handle);
     await tester.pump();
     await _key(tester, LogicalKeyboardKey.arrowRight);
