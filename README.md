@@ -40,6 +40,7 @@ your browser.
 - [Platform views](#platform-views)
 - [Unbounded constraints and intrinsic sizing](#unbounded-constraints-and-intrinsic-sizing)
 - [API cheat sheet](#api-cheat-sheet)
+- [Migrating from 2.x](#migrating-from-2x)
 - [Migrating from 1.x](#migrating-from-1x)
 - [Example app](#example-app)
 - [Testing](#testing)
@@ -91,21 +92,23 @@ interaction reads and writes the *effective* position, so:
 
 ```yaml
 dependencies:
-  resizable_splitter: ^2.0.0
+  material_ui: ^1.6.0
+  resizable_splitter: ^3.0.0
 ```
 
 ```bash
 flutter pub get
 ```
 
-Requires Dart `>=3.9.2` and Flutter `>=3.35.0`.
+Requires Dart `>=3.13.5` and Flutter `>=3.47.7`.
 
-> Upgrading from 1.x? Jump to [Migrating from 1.x](#migrating-from-1x).
+> Upgrading from 2.x? See [Migrating from 2.x](#migrating-from-2x).
+> For older releases, see [Migrating from 1.x](#migrating-from-1x).
 
 ## Quick start
 
 ```dart
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:resizable_splitter/resizable_splitter.dart';
 
 class DemoPage extends StatelessWidget {
@@ -575,6 +578,24 @@ ResizableSplitterTheme(
 `SplitterChangeSource` · `SplitterChangeEnd` ·
 `SplitterAnimationStatus` · `UnboundedBehavior`
 
+## Migrating from 2.x
+
+Version 3 requires Flutter **3.47.7** and Dart **3.13.5** or later and uses the
+standalone Material library. Add `material_ui: ^1.6.0` to your app and replace
+`package:flutter/material.dart` imports with
+`package:material_ui/material_ui.dart` where you configure the splitter or its
+Material theme.
+
+Build your `MaterialApp`, `ThemeData`, and splitter theme extensions with the
+standalone library. `ResizableSplitterThemeData` now extends its
+`ThemeExtension`; an extension from one Material library cannot be registered
+with the other library's `ThemeData`. The splitter's constructors, controller,
+positions, and callbacks retain their 2.x signatures.
+
+For an app that still has dependencies using the old Material library, follow
+Flutter's [Material migration guide](https://docs.flutter.dev/release/breaking-changes/material-ui-and-cupertino-ui)
+for compatibility bridge guidance.
+
 ## Migrating from 1.x
 
 | 1.x | 2.0 |
@@ -594,7 +615,7 @@ ResizableSplitterTheme(
 | `antiAliasingWorkaround` | `snapToPhysicalPixels` |
 | `fallbackMainAxisExtent`, `UnboundedBehavior.flexExpand` / `.limitedBox` | `fallbackExtent`, `UnboundedBehavior.shrinkToChildren` / `.useFallbackExtent` |
 
-The `Axis` re-export was dropped - import it from `package:flutter/material.dart`.
+The `Axis` re-export was dropped - import it from `package:material_ui/material_ui.dart`.
 See the [CHANGELOG](CHANGELOG.md) for the full list of breaking changes.
 
 ## Example app

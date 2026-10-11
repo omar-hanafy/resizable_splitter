@@ -1,7 +1,7 @@
 import 'dart:ui' show lerpDouble;
 
 import 'package:equatable/equatable.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:resizable_splitter/src/theme/split_divider_style.dart';
 import 'package:resizable_splitter/src/theme/split_semantics_labels.dart';
 

@@ -886,9 +886,8 @@ class _RenderResizableSplitter extends RenderBox
       _dividerThickness,
       mainExtent,
     );
-    final solution = _solverFor(
-      math.max(0.0, mainExtent - divider),
-    ).solve(_position);
+    final solution = _solverFor(math.max(0.0, mainExtent - divider))
+        .solve(_position);
     _crossIntrinsicMain = mainExtent;
     _crossIntrinsicSolutionCache = solution;
     return solution;

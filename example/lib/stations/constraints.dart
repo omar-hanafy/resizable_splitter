@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:resizable_splitter/resizable_splitter.dart';
 
 import '../theme/app_theme.dart';

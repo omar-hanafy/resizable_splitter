@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:resizable_splitter/resizable_splitter.dart';
 
 import '../theme/app_theme.dart';
@@ -41,8 +41,7 @@ const _blurbs = {
   _Snap.magnetic:
       'A light pull draws the divider in, then it settles exactly onto the '
       'detent once you are close - keep dragging to pull free.',
-  _Snap.sticky:
-      'The divider captures a detent and holds, with hysteresis so it never flickers.',
+  _Snap.sticky: 'The divider captures a detent and holds, with hysteresis so it never flickers.',
 };
 
 /// Compares the three snap modes against a shared set of detents.

@@ -4,8 +4,8 @@
 // Regenerate with: dart run tool/gen_package_meta.dart
 //
 // Centralizing the showcase's metadata here means a package version bump or a
-// link change needs no edits in the UI - just rerun the generator (the deploy
-// script does this automatically before every build).
+// link change needs no edits in the UI - just rerun the generator (the Pages
+// workflow does this automatically before every web build).
 
 /// Metadata about the package the showcase demonstrates, generated from its
 /// pubspec and license so the displayed version, name, links, and license never
@@ -15,13 +15,13 @@ abstract final class PackageMeta {
   static const String name = 'resizable_splitter';
 
   /// Published version, e.g. `2.0.0`.
-  static const String version = '2.0.0';
+  static const String version = '3.0.0';
 
   /// Caret constraint to drop into a dependent's pubspec, e.g. `^2.0.0`.
-  static const String versionConstraint = '^2.0.0';
+  static const String versionConstraint = '^3.0.0';
 
   /// Version label for badges, e.g. `v2.0.0`.
-  static const String versionLabel = 'v2.0.0';
+  static const String versionLabel = 'v3.0.0';
 
   /// One-line install command, e.g. `flutter pub add resizable_splitter`.
   static const String installCommand = 'flutter pub add resizable_splitter';

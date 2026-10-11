@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:resizable_splitter/resizable_splitter.dart';
 
@@ -171,32 +171,33 @@ void main() {
       );
     });
 
-    testWidgets('leaveGap keeps both maxima and leaves a gap between the panes', (
-      tester,
-    ) async {
-      final controller = SplitterController();
-      await tester.pumpWidget(
-        host(
-          child: splitter(
-            controller: controller,
-            // Both panes cap at 100px; 200 < 394 available, so the rest is a gap.
-            start: const SplitterPaneConstraints(maxExtent: 100),
-            end: const SplitterPaneConstraints(maxExtent: 100),
+    testWidgets(
+      'leaveGap keeps both maxima and leaves a gap between the panes',
+      (tester) async {
+        final controller = SplitterController();
+        await tester.pumpWidget(
+          host(
+            child: splitter(
+              controller: controller,
+              // Both panes cap at 100px; 200 < 394 available, so the rest is a gap.
+              start: const SplitterPaneConstraints(maxExtent: 100),
+              end: const SplitterPaneConstraints(maxExtent: 100),
+            ),
           ),
-        ),
-      );
-      await tester.pumpAndSettle();
+        );
+        await tester.pumpAndSettle();
 
-      expect(
-        mainSize(tester, const Key('start'), Axis.horizontal),
-        closeTo(100, 0.5),
-      );
-      expect(
-        mainSize(tester, const Key('end'), Axis.horizontal),
-        closeTo(100, 0.5),
-      );
-      expect(controller.layout!.resolution, SplitterResolution.maxSurplus);
-    });
+        expect(
+          mainSize(tester, const Key('start'), Axis.horizontal),
+          closeTo(100, 0.5),
+        );
+        expect(
+          mainSize(tester, const Key('end'), Axis.horizontal),
+          closeTo(100, 0.5),
+        );
+        expect(controller.layout!.resolution, SplitterResolution.maxSurplus);
+      },
+    );
   });
 
   group('the interactive hit region', () {
