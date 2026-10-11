@@ -1,3 +1,4 @@
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:resizable_splitter/resizable_splitter.dart';
@@ -20,11 +21,14 @@ void main() {
                 SizedBox(
                   width: 408,
                   child: ResizableSplitter(
-                    start: Text('start'),
+                    start: _BaselineProbe(
+                      key: Key('start baseline'),
+                      child: Text('start'),
+                    ),
                     end: Text('end'),
                   ),
                 ),
-                Text('peer'),
+                _BaselineProbe(key: Key('peer baseline'), child: Text('peer')),
               ],
             ),
           ),
@@ -34,14 +38,18 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
-    final startBox = tester.renderObject<RenderBox>(find.text('start'));
-    final peerBox = tester.renderObject<RenderBox>(find.text('peer'));
+    final startBox = tester.renderObject<_RenderBaselineProbe>(
+      find.byKey(const Key('start baseline')),
+    );
+    final peerBox = tester.renderObject<_RenderBaselineProbe>(
+      find.byKey(const Key('peer baseline')),
+    );
     final startBaseline =
         startBox.localToGlobal(Offset.zero).dy +
-        startBox.getDistanceToBaseline(TextBaseline.alphabetic)!;
+        startBox.actualBaselines[TextBaseline.alphabetic]!;
     final peerBaseline =
         peerBox.localToGlobal(Offset.zero).dy +
-        peerBox.getDistanceToBaseline(TextBaseline.alphabetic)!;
+        peerBox.actualBaselines[TextBaseline.alphabetic]!;
     expect(startBaseline, closeTo(peerBaseline, 1e-9));
   });
 
@@ -52,12 +60,14 @@ void main() {
           : '${boundedAxis.name} axis';
       testWidgets('dry baseline matches ${axis.name} RTL layout with '
           '$boundedDescription bounded', (tester) async {
-        Widget child = ResizableSplitter(
-          axis: axis,
-          startConstraints: const SplitterPaneConstraints(),
-          endConstraints: const SplitterPaneConstraints(),
-          start: const SizedBox(width: 90, height: 60),
-          end: const Text('end baseline'),
+        Widget child = _BaselineProbe(
+          child: ResizableSplitter(
+            axis: axis,
+            startConstraints: const SplitterPaneConstraints(),
+            endConstraints: const SplitterPaneConstraints(),
+            start: const SizedBox(width: 90, height: 60),
+            end: const Text('end baseline'),
+          ),
         );
         if (boundedAxis == null) {
           child = SizedBox(width: 408, height: 240, child: child);
@@ -82,13 +92,14 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        final box = tester.renderObject<RenderBox>(
-          find.byType(ResizableSplitter),
+        final box = tester.renderObject<_RenderBaselineProbe>(
+          find.byType(_BaselineProbe),
         );
         for (final baseline in TextBaseline.values) {
+          expect(box.actualBaselines[baseline], isNotNull);
           expect(
-            box.getDryBaseline(box.constraints, baseline),
-            closeTo(box.getDistanceToBaseline(baseline, onlyReal: true)!, 1e-9),
+            box.dryBaselines[baseline],
+            closeTo(box.actualBaselines[baseline]!, 1e-9),
           );
         }
         expect(tester.takeException(), isNull);
@@ -105,16 +116,84 @@ void main() {
           child: SizedBox(
             width: 408,
             height: 240,
-            child: ResizableSplitter(start: SizedBox(), end: SizedBox()),
+            child: _BaselineProbe(
+              child: ResizableSplitter(start: SizedBox(), end: SizedBox()),
+            ),
           ),
         ),
       ),
     );
     await tester.pumpAndSettle();
-    final box = tester.renderObject<RenderBox>(find.byType(ResizableSplitter));
+    final box = tester.renderObject<_RenderBaselineProbe>(
+      find.byType(_BaselineProbe),
+    );
     for (final baseline in TextBaseline.values) {
-      expect(box.getDryBaseline(box.constraints, baseline), isNull);
-      expect(box.getDistanceToBaseline(baseline, onlyReal: true), isNull);
+      expect(box.dryBaselines[baseline], isNull);
+      expect(box.actualBaselines[baseline], isNull);
     }
+    expect(tester.takeException(), isNull);
   });
+
+  testWidgets('a custom handle can provide the first baseline', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Center(
+          child: SizedBox(
+            width: 408,
+            height: 240,
+            child: _BaselineProbe(
+              child: ResizableSplitter(
+                start: const SizedBox(),
+                end: const SizedBox(),
+                handleBuilder: (_, _) =>
+                    const Text('H', style: TextStyle(fontSize: 8)),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final box = tester.renderObject<_RenderBaselineProbe>(
+      find.byType(_BaselineProbe),
+    );
+    for (final baseline in TextBaseline.values) {
+      expect(box.actualBaselines[baseline], isNotNull);
+      expect(
+        box.dryBaselines[baseline],
+        closeTo(box.actualBaselines[baseline]!, 1e-9),
+      );
+    }
+    expect(tester.takeException(), isNull);
+  });
+}
+
+class _BaselineProbe extends SingleChildRenderObjectWidget {
+  const _BaselineProbe({required super.child, super.key});
+
+  @override
+  _RenderBaselineProbe createRenderObject(BuildContext context) =>
+      _RenderBaselineProbe();
+}
+
+class _RenderBaselineProbe extends RenderProxyBox {
+  final actualBaselines = <TextBaseline, double?>{};
+  final dryBaselines = <TextBaseline, double?>{};
+
+  @override
+  void performLayout() {
+    super.performLayout();
+    final baselineChild = child!;
+    for (final baseline in TextBaseline.values) {
+      // Actual baselines may only be queried by a parent during layout/paint.
+      actualBaselines[baseline] = baselineChild.getDistanceToBaseline(
+        baseline,
+        onlyReal: true,
+      );
+      dryBaselines[baseline] = baselineChild.getDryBaseline(
+        baselineChild.constraints,
+        baseline,
+      );
+    }
+  }
 }

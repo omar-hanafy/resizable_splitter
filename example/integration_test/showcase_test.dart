@@ -1,5 +1,7 @@
-import 'dart:ui' show SemanticsAction;
+import 'dart:async';
+import 'dart:ui' show FrameTiming, SemanticsAction;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -41,7 +43,9 @@ Future<void> _key(WidgetTester tester, LogicalKeyboardKey key) async {
 }
 
 Future<void> _open(WidgetTester tester) async {
-  await tester.pumpWidget(const SplitterShowcaseApp());
+  await tester.pumpWidget(
+    const TickerMode(enabled: true, child: SplitterShowcaseApp()),
+  );
   // The last hero reveal is scheduled at 5 * 70 milliseconds.
   await tester.pump(const Duration(milliseconds: 350));
   await _finishTransitions(tester);
@@ -108,10 +112,98 @@ void _expectRenderedStart(WidgetTester tester, Type station) {
   );
 }
 
+// A framework pump ends before the web engine finishes its asynchronous scene
+// rasterization. Wait for the newest requested frame, including any replacement
+// frame requested to flush the web engine's 100ms timing-report batch.
+Future<void> _rasterizedFrame(WidgetTester tester, Widget child) async {
+  if (!kIsWeb) {
+    await tester.pumpWidget(child);
+    return;
+  }
+
+  final binding = tester.binding;
+  final elapsed = Stopwatch()..start();
+  var latestRasterizedFrame = -1;
+  int? targetFrame;
+  var rasterized = Completer<void>();
+  void reportTimings(List<FrameTiming> timings) {
+    for (final timing in timings) {
+      if (timing.frameNumber > latestRasterizedFrame) {
+        latestRasterizedFrame = timing.frameNumber;
+      }
+    }
+    if (targetFrame != null &&
+        latestRasterizedFrame >= targetFrame! &&
+        !rasterized.isCompleted) {
+      rasterized.complete();
+    }
+  }
+
+  binding.addTimingsCallback(reportTimings);
+  try {
+    var firstFrame = true;
+    while (true) {
+      targetFrame = null;
+      rasterized = Completer<void>();
+      binding.addPostFrameCallback((_) {
+        targetFrame = binding.platformDispatcher.frameData.frameNumber;
+        if (latestRasterizedFrame >= targetFrame! && !rasterized.isCompleted) {
+          rasterized.complete();
+        }
+      });
+      if (firstFrame) {
+        await tester.pumpWidget(child);
+        firstFrame = false;
+      } else {
+        await tester.pump();
+      }
+      try {
+        // The web engine reports timings only when a rendered frame flushes its
+        // 100ms batch. Request another frame if that reporting window expires;
+        // always await the newest frame so queued scenes cannot outlive cleanup.
+        await rasterized.future.timeout(const Duration(milliseconds: 101));
+        return;
+      } on TimeoutException {
+        if (elapsed.elapsed >= const Duration(seconds: 10)) {
+          fail('The web engine did not rasterize cleanup frame $targetFrame.');
+        }
+      }
+    }
+  } finally {
+    binding.removeTimingsCallback(reportTimings);
+  }
+}
+
+void _showcaseTest(
+  String description,
+  Future<void> Function(WidgetTester tester) body,
+) {
+  testWidgets(description, (tester) async {
+    try {
+      await body(tester);
+    } finally {
+      final binding = IntegrationTestWidgetsFlutterBinding.instance;
+      final previousPolicy = binding.framePolicy;
+      binding.framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.onlyPumps;
+      try {
+        // Keep the same app element, but mute its continuous animations before
+        // draining its last scene. No automatic app frame may follow that fence.
+        await _rasterizedFrame(
+          tester,
+          const TickerMode(enabled: false, child: SplitterShowcaseApp()),
+        );
+        await _rasterizedFrame(tester, const SizedBox.shrink());
+      } finally {
+        binding.framePolicy = previousPolicy;
+      }
+    }
+  });
+}
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('pixel pin and fraction survive container resize', (
+  _showcaseTest('pixel pin and fraction survive container resize', (
     tester,
   ) async {
     await _open(tester);
@@ -134,7 +226,9 @@ void main() {
     _expectRenderedStart(tester, PixelPinStation);
   });
 
-  testWidgets('constraints render a gap and shortage policies', (tester) async {
+  _showcaseTest('constraints render a gap and shortage policies', (
+    tester,
+  ) async {
     await _open(tester);
     final controller = _controller(tester, ConstraintsStation);
     final original = controller.layout!;
@@ -154,7 +248,7 @@ void main() {
     _expectRenderedStart(tester, ConstraintsStation);
   });
 
-  testWidgets('all snap modes land on the selected detent', (tester) async {
+  _showcaseTest('all snap modes land on the selected detent', (tester) async {
     await _open(tester);
     for (final mode in ['Release', 'Magnetic', 'Sticky']) {
       await _tap(tester, SnappingStation, mode);
@@ -175,98 +269,107 @@ void main() {
     }
   });
 
-  testWidgets('collapse restores a dragged position and animation completes', (
-    tester,
-  ) async {
-    await _open(tester);
-    await _dragTo(tester, CollapseStation, 0.6);
-    final controller = _controller(tester, CollapseStation);
-    final before = controller.layout!.startExtent;
-    expect(controller.layout!.effectiveFraction, closeTo(0.6, 0.001));
-    await _tap(tester, CollapseStation, 'Toggle');
-    expect(controller.value.collapsedPane, SplitterPane.start);
-    expect(controller.layout!.startExtent, 0);
-    _expectRenderedStart(tester, CollapseStation);
-    await _tap(tester, CollapseStation, 'Expand');
-    expect(controller.value.collapsedPane, isNull);
-    expect(controller.layout!.startExtent, closeTo(before, 0.01));
-    await _tap(tester, CollapseStation, '50%');
-    expect(controller.layout!.effectiveFraction, closeTo(0.5, 0.001));
-    _expectRenderedStart(tester, CollapseStation);
-  });
+  _showcaseTest(
+    'collapse restores a dragged position and animation completes',
+    (tester) async {
+      await _open(tester);
+      await _dragTo(tester, CollapseStation, 0.6);
+      final controller = _controller(tester, CollapseStation);
+      final before = controller.layout!.startExtent;
+      expect(controller.layout!.effectiveFraction, closeTo(0.6, 0.001));
+      await _tap(tester, CollapseStation, 'Toggle');
+      expect(controller.value.collapsedPane, SplitterPane.start);
+      expect(controller.layout!.startExtent, 0);
+      _expectRenderedStart(tester, CollapseStation);
+      await _tap(tester, CollapseStation, 'Expand');
+      expect(controller.value.collapsedPane, isNull);
+      expect(controller.layout!.startExtent, closeTo(before, 0.01));
+      await _tap(tester, CollapseStation, '50%');
+      expect(controller.layout!.effectiveFraction, closeTo(0.5, 0.001));
+      _expectRenderedStart(tester, CollapseStation);
+    },
+  );
 
-  testWidgets('keyboard bounds, semantics, RTL and double-tap reset agree', (
+  _showcaseTest('keyboard bounds, semantics, RTL and double-tap reset agree', (
     tester,
   ) async {
     await _open(tester);
     final semantics = tester.ensureSemantics();
-    addTearDown(semantics.dispose);
-    final handle = find.bySemanticsLabel('Demo panel divider');
-    final controller = _controller(tester, A11yStation);
-    // Offscreen controls intentionally have no semantics node. Scroll using
-    // the widget tree before finding the visible accessibility control.
-    await _show(tester, _splitter(A11yStation));
-    expect(handle, findsOneWidget);
-    await tester.tap(handle);
-    await tester.pump();
-    await _key(tester, LogicalKeyboardKey.arrowRight);
-    expect(controller.layout!.effectiveFraction, closeTo(0.52, 0.001));
-    final initialSemantics = tester.getSemantics(handle).getSemanticsData();
-    expect(initialSemantics.value, '52%');
-    expect(initialSemantics.flagsCollection.isSlider, isTrue);
-    expect(initialSemantics.hasAction(SemanticsAction.increase), isTrue);
-    expect(initialSemantics.hasAction(SemanticsAction.decrease), isTrue);
-    tester
-        .renderObject(handle)
-        .owner!
-        .semanticsOwner!
-        .performAction(
-          tester.getSemantics(handle).id,
-          SemanticsAction.increase,
-        );
-    await tester.pump();
-    await tester.pump();
-    expect(controller.layout!.effectiveFraction, closeTo(0.54, 0.001));
-    expect(tester.getSemantics(handle).getSemanticsData().value, '54%');
-    await _key(tester, LogicalKeyboardKey.pageDown);
-    expect(controller.layout!.effectiveFraction, closeTo(0.64, 0.001));
-    await _key(tester, LogicalKeyboardKey.home);
-    expect(controller.layout!.startExtent, closeTo(140, 0.01));
-    expect(
+    try {
+      final handle = find.bySemanticsLabel('Demo panel divider');
+      final controller = _controller(tester, A11yStation);
+      // Offscreen controls intentionally have no semantics node. Scroll using
+      // the widget tree before finding the visible accessibility control.
+      await _show(tester, _splitter(A11yStation));
+      expect(handle, findsOneWidget);
+      await tester.tap(handle);
+      // Finish this single focus tap's double-tap window. Flutter deliberately
+      // ignores taps at a different position while the first tap is pending;
+      // the keyboard moves the divider before the reset pair below.
+      await tester.pump(kDoubleTapTimeout);
+      await _key(tester, LogicalKeyboardKey.arrowRight);
+      expect(controller.layout!.effectiveFraction, closeTo(0.52, 0.001));
+      final initialSemantics = tester.getSemantics(handle).getSemanticsData();
+      expect(initialSemantics.value, '52%');
+      expect(initialSemantics.flagsCollection.isSlider, isTrue);
+      expect(initialSemantics.hasAction(SemanticsAction.increase), isTrue);
+      expect(initialSemantics.hasAction(SemanticsAction.decrease), isTrue);
       tester
-          .getSemantics(handle)
-          .getSemanticsData()
-          .hasAction(SemanticsAction.decrease),
-      isFalse,
-    );
-    await _key(tester, LogicalKeyboardKey.end);
-    expect(controller.layout!.endExtent, closeTo(140, 0.01));
-    expect(
-      tester
-          .getSemantics(handle)
-          .getSemanticsData()
-          .hasAction(SemanticsAction.increase),
-      isFalse,
-    );
+          .renderObject(handle)
+          .owner!
+          .semanticsOwner!
+          .performAction(
+            tester.getSemantics(handle).id,
+            SemanticsAction.increase,
+          );
+      await tester.pump();
+      await tester.pump();
+      expect(controller.layout!.effectiveFraction, closeTo(0.54, 0.001));
+      expect(tester.getSemantics(handle).getSemanticsData().value, '54%');
+      await _key(tester, LogicalKeyboardKey.pageDown);
+      expect(controller.layout!.effectiveFraction, closeTo(0.64, 0.001));
+      await _key(tester, LogicalKeyboardKey.home);
+      expect(controller.layout!.startExtent, closeTo(140, 0.01));
+      expect(
+        tester
+            .getSemantics(handle)
+            .getSemanticsData()
+            .hasAction(SemanticsAction.decrease),
+        isFalse,
+      );
+      await _key(tester, LogicalKeyboardKey.end);
+      expect(controller.layout!.endExtent, closeTo(140, 0.01));
+      expect(
+        tester
+            .getSemantics(handle)
+            .getSemanticsData()
+            .hasAction(SemanticsAction.increase),
+        isFalse,
+      );
 
-    await tester.tap(handle);
-    await tester.pump(kDoubleTapMinTime + const Duration(milliseconds: 1));
-    await tester.tap(handle);
-    await _finishTransitions(tester);
-    expect(controller.layout!.effectiveFraction, closeTo(0.5, 0.001));
-    await _tap(tester, A11yStation, 'RTL');
-    await _show(tester, _splitter(A11yStation));
-    expect(handle, findsOneWidget);
-    await tester.tap(handle);
-    await tester.pump();
-    await _key(tester, LogicalKeyboardKey.arrowRight);
-    expect(controller.layout!.effectiveFraction, closeTo(0.48, 0.001));
-    expect(tester.getSemantics(handle).getSemanticsData().value, '48%');
-    _expectRenderedStart(tester, A11yStation);
-    expect(tester.takeException(), isNull);
+      await tester.tap(handle);
+      await tester.pump(kDoubleTapMinTime + const Duration(milliseconds: 1));
+      await tester.tap(handle);
+      await _finishTransitions(tester);
+      expect(controller.layout!.effectiveFraction, closeTo(0.5, 0.001));
+      await _tap(tester, A11yStation, 'RTL');
+      await _show(tester, _splitter(A11yStation));
+      expect(handle, findsOneWidget);
+      await tester.tap(handle);
+      await tester.pump();
+      await _key(tester, LogicalKeyboardKey.arrowRight);
+      expect(controller.layout!.effectiveFraction, closeTo(0.48, 0.001));
+      expect(tester.getSemantics(handle).getSemanticsData().value, '48%');
+      _expectRenderedStart(tester, A11yStation);
+      expect(tester.takeException(), isNull);
+    } finally {
+      semantics.dispose();
+    }
   });
 
-  testWidgets('nested workspace dividers resize independently', (tester) async {
+  _showcaseTest('nested workspace dividers resize independently', (
+    tester,
+  ) async {
     await _open(tester);
     final outer = _splitter(IdeStation).first;
     final inner = _splitter(IdeStation).last;

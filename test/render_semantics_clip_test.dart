@@ -51,19 +51,27 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.bySemanticsLabel('start action'), findsOneWidget);
-      expect(find.bySemanticsLabel('end content'), findsOneWidget);
+      expect(find.semantics.byLabel('start action'), findsOne);
+      expect(find.semantics.byLabel('end content'), findsOne);
 
       controller.collapse(SplitterPane.start);
       await tester.pumpAndSettle();
 
       expect(controller.layout!.startExtent, 0);
-      expect(find.bySemanticsLabel('start action'), findsNothing);
-      expect(find.bySemanticsLabel('end content'), findsOneWidget);
+      // Query the exposed tree. Widget finders can still retrieve a detached
+      // cached semantics node after clipping drops it from its parent's tree.
+      expect(find.semantics.byLabel('start action'), findsNothing);
+      expect(find.semantics.byLabel('end content'), findsOne);
+      expect(
+        tester.semantics.simulatedAccessibilityTraversal().map(
+          (node) => node.label,
+        ),
+        isNot(contains('start action')),
+      );
 
       controller.expand();
       await tester.pumpAndSettle();
-      expect(find.bySemanticsLabel('start action'), findsOneWidget);
+      expect(find.semantics.byLabel('start action'), findsOne);
     } finally {
       semantics.dispose();
     }
