@@ -145,8 +145,11 @@ void main() {
               child: ResizableSplitter(
                 start: const SizedBox(),
                 end: const SizedBox(),
-                handleBuilder: (_, _) =>
-                    const Text('H', style: TextStyle(fontSize: 8)),
+                divider: SplitterDividerStyle(
+                  thickness: 8,
+                  builder: (_, _) =>
+                      const Text('H', style: TextStyle(fontSize: 8)),
+                ),
               ),
             ),
           ),
