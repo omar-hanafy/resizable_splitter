@@ -41,9 +41,9 @@ void main() {
                     child: const SizedBox(width: 100, height: 40),
                   ),
                 ),
-                end: const Semantics(
+                end: Semantics(
                   label: 'end content',
-                  child: SizedBox.expand(),
+                  child: const SizedBox.expand(),
                 ),
               ),
             ),

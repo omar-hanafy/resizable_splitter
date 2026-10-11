@@ -108,3 +108,145 @@ jobs:
 
       - name: Run pana (full score required)
         run: pana --exit-code-threshold 0 .
+
+  test-lower-bound:
+    name: Test minimum dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Flutter (minimum supported stable)
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          flutter-version: '3.47.7'
+
+      - name: Install example dependencies
+        working-directory: example
+        run: flutter pub get
+
+      - name: Resolve minimum dependencies
+        run: flutter pub downgrade --no-example
+
+      - name: Analyze minimum dependencies
+        run: flutter analyze --no-pub
+
+      - name: Test minimum dependencies
+        run: flutter test --no-pub
+
+  integration-macos:
+    name: Showcase on macOS
+    timeout-minutes: 25
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: example
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Flutter (minimum supported stable)
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          flutter-version: '3.47.7'
+
+      - name: Install example dependencies
+        run: flutter pub get
+
+      - name: Test showcase on macOS
+        run: flutter test --no-pub integration_test/showcase_test.dart -d macos --reporter expanded
+
+      - name: Build macOS release
+        run: flutter build macos --release --no-pub
+
+  integration-web-wasm:
+    name: Showcase on Chrome Wasm
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: example
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Flutter (minimum supported stable)
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          flutter-version: '3.47.7'
+
+      - name: Setup matching Chrome and ChromeDriver
+        id: chrome
+        uses: browser-actions/setup-chrome@48ad923757ca74d66703209fe939badbdf80f2f4 # v2.2.0
+        with:
+          chrome-version: stable
+          install-chromedriver: true
+
+      - name: Install example dependencies
+        run: flutter pub get
+
+      - name: Test showcase on Chrome Wasm
+        env:
+          CHROME_EXECUTABLE: ${{ steps.chrome.outputs.chrome-path }}
+          CHROME_VERSION: ${{ steps.chrome.outputs.chrome-version }}
+          CHROMEDRIVER_PATH: ${{ steps.chrome.outputs.chromedriver-path }}
+          CHROMEDRIVER_VERSION: ${{ steps.chrome.outputs.chromedriver-version }}
+        run: |
+          set -euo pipefail
+          "$CHROME_EXECUTABLE" --version
+          "$CHROMEDRIVER_PATH" --version
+          if [[ "${CHROME_VERSION%%.*}" != "${CHROMEDRIVER_VERSION%%.*}" ]]; then
+            echo 'Chrome and ChromeDriver must have matching major versions.'
+            exit 1
+          fi
+          driver_log="$RUNNER_TEMP/chromedriver.log"
+          "$CHROMEDRIVER_PATH" --port=4444 > "$driver_log" 2>&1 &
+          driver_pid=$!
+          cleanup() {
+            driver_status=$?
+            kill "$driver_pid" 2>/dev/null || true
+            wait "$driver_pid" 2>/dev/null || true
+            if [[ "$driver_status" -ne 0 ]]; then
+              cat "$driver_log"
+            fi
+            exit "$driver_status"
+          }
+          trap cleanup EXIT
+          python3 - <<'PYTHON'
+          import json
+          import time
+          import urllib.error
+          import urllib.request
+
+          deadline = time.monotonic() + 30
+          while time.monotonic() < deadline:
+              try:
+                  with urllib.request.urlopen('http://127.0.0.1:4444/status', timeout=1) as response:
+                      if json.load(response).get('value', {}).get('ready') is True:
+                          break
+              except (urllib.error.URLError, TimeoutError):
+                  pass
+              time.sleep(0.25)
+          else:
+              raise SystemExit('ChromeDriver did not become ready within 30 seconds.')
+          PYTHON
+          flutter drive \
+            --no-pub \
+            --wasm \
+            --driver=test_driver/integration_test.dart \
+            --target=integration_test/showcase_test.dart \
+            -d web-server \
+            --browser-name=chrome \
+            --driver-port=4444 \
+            --browser-dimension=1600x1024 \
+            --chrome-binary="$CHROME_EXECUTABLE" \
+            --headless
