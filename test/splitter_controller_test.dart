@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:resizable_splitter/resizable_splitter.dart';
 
@@ -9,20 +9,23 @@ void main() {
   tearDown(SplitterController.resetGlobalRouter);
 
   group('SplitterController', () {
-    test('stores the requested position and exposes the effective fraction', () {
-      final pinned = SplitterController(
-        initialPosition: const SplitterPosition.startPixels(280),
-      );
-      expect(pinned.value.position, const SplitterPosition.startPixels(280));
-      // A pixel request has no fraction until it is laid out: the cache seeds to
-      // 0 and the attached splitter fills it in on the first solve.
-      expect(pinned.effectiveFraction, 0);
+    test(
+      'stores the requested position and exposes the effective fraction',
+      () {
+        final pinned = SplitterController(
+          initialPosition: const SplitterPosition.startPixels(280),
+        );
+        expect(pinned.value.position, const SplitterPosition.startPixels(280));
+        // A pixel request has no fraction until it is laid out: the cache seeds to
+        // 0 and the attached splitter fills it in on the first solve.
+        expect(pinned.effectiveFraction, 0);
 
-      final fractional = SplitterController(
-        initialPosition: const SplitterPosition.fraction(0.3),
-      );
-      expect(fractional.effectiveFraction, 0.3);
-    });
+        final fractional = SplitterController(
+          initialPosition: const SplitterPosition.fraction(0.3),
+        );
+        expect(fractional.effectiveFraction, 0.3);
+      },
+    );
 
     test('updateRatio respects threshold and clamps to [0,1]', () {
       final controller = SplitterController();

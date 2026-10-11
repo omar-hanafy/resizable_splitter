@@ -7,7 +7,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:resizable_splitter/src/constants.dart';
@@ -1012,8 +1012,13 @@ class _ResizableSplitterState extends State<ResizableSplitter>
       onGeometryChanged: _handleResolvedGeometry,
       start: widget.start,
       end: widget.end,
-      divider: divider,
-      preview: IgnorePointer(child: ColoredBox(color: previewColor)),
+      // The default grip and preview are decorative and have no baseline.
+      // Exclude their proxy chains from dry baseline queries, while retaining
+      // a custom handle's baseline when neither pane provides one.
+      divider: handleBuilder == null ? IgnoreBaseline(child: divider) : divider,
+      preview: IgnoreBaseline(
+        child: IgnorePointer(child: ColoredBox(color: previewColor)),
+      ),
     );
   }
 }

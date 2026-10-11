@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:resizable_splitter/resizable_splitter.dart';
@@ -260,38 +260,39 @@ void main() {
       );
     });
 
-    testWidgets('interactiveExtent sets the grab target and overlaps the panes', (
-      tester,
-    ) async {
-      const thickness = 10.0;
-      const target = 60.0;
-      const slop = (target - thickness) / 2; // 25
-      await tester.pumpWidget(
-        host(
-          width: 400,
-          ResizableSplitter(
-            divider: const SplitterDividerStyle(
-              thickness: thickness,
-              interactiveExtent: target,
+    testWidgets(
+      'interactiveExtent sets the grab target and overlaps the panes',
+      (tester) async {
+        const thickness = 10.0;
+        const target = 60.0;
+        const slop = (target - thickness) / 2; // 25
+        await tester.pumpWidget(
+          host(
+            width: 400,
+            ResizableSplitter(
+              divider: const SplitterDividerStyle(
+                thickness: thickness,
+                interactiveExtent: target,
+              ),
+              startConstraints: const SplitterPaneConstraints(),
+              endConstraints: const SplitterPaneConstraints(),
+              semanticsLabel: 'handle',
+              start: Container(key: const Key('start')),
+              end: Container(key: const Key('end')),
             ),
-            startConstraints: const SplitterPaneConstraints(),
-            endConstraints: const SplitterPaneConstraints(),
-            semanticsLabel: 'handle',
-            start: Container(key: const Key('start')),
-            end: Container(key: const Key('end')),
           ),
-        ),
-      );
+        );
 
-      final startRect = tester.getRect(find.byKey(const Key('start')));
-      // The interactive target does not eat layout: the footprint still reserves
-      // only the visible thickness.
-      expect(startRect.width, closeTo((400 - thickness) / 2, 1e-6));
+        final startRect = tester.getRect(find.byKey(const Key('start')));
+        // The interactive target does not eat layout: the footprint still reserves
+        // only the visible thickness.
+        expect(startRect.width, closeTo((400 - thickness) / 2, 1e-6));
 
-      final handleRect = tester.getRect(find.bySemanticsLabel('handle'));
-      expect(handleRect.width, closeTo(target, 1e-6));
-      expect(handleRect.left, closeTo(startRect.right - slop, 1e-6));
-    });
+        final handleRect = tester.getRect(find.bySemanticsLabel('handle'));
+        expect(handleRect.width, closeTo(target, 1e-6));
+        expect(handleRect.left, closeTo(startRect.right - slop, 1e-6));
+      },
+    );
 
     testWidgets(
       'a non-resizable divider collapses the target to its thickness',

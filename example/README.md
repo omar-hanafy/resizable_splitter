@@ -31,6 +31,9 @@ actually draws), with a live readout and a band meter in between.
 
 ## Run it
 
+Requires Flutter 3.47.7 / Dart 3.13.5 or later. The app and the package use
+`package:material_ui/material_ui.dart` for Material widgets and themes.
+
 ```bash
 cd example
 flutter run -d chrome      # web (the primary target)
@@ -42,6 +45,7 @@ header links), so it runs on web, desktop, and mobile from one codebase.
 
 ```bash
 flutter test               # smoke tests across desktop / tablet / mobile widths
+flutter test integration_test/showcase_test.dart -d macos  # running desktop app
 flutter build web --wasm --base-href /resizable_splitter/   # what CI publishes
 ```
 

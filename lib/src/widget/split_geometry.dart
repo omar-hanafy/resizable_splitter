@@ -9,6 +9,7 @@ part of 'resizable_splitter.dart';
 class _ResolvedSplitterGeometry {
   const _ResolvedSplitterGeometry({
     required this.controller,
+    required this.config,
     required this.solver,
     required this.solution,
     required this.layout,
@@ -16,24 +17,22 @@ class _ResolvedSplitterGeometry {
   });
 
   final SplitterController controller;
+  final SplitterSolverConfig config;
   final SplitterSolver solver;
   final SplitterSolution solution;
   final SplitterLayout layout;
   final double dividerThickness;
 
-  // Equality drives the handle's rebuild coalescing (via the notifier's
-  // [prime]). Every consumer reads only the [solution] (the handle), the
-  // [solver] derived from it, or the [controller]/[layout] (the state), so two
-  // geometries that resolve to the same [solution] for the same controller are
-  // interchangeable. Comparing the resolved [solution] directly - now that it is
-  // a value type - is the single, honest equality, replacing the former habit of
-  // comparing a dozen raw layout inputs as a stand-in for "did the result
-  // change". Add a field that affects a consumer's output and it must join here.
+  // A handle resolves future pointer/keyboard positions and semantics previews
+  // through the solver. Its configuration therefore matters even when the
+  // current solution is equal: changing pixel snapping or DPR can change the
+  // next adjustment without moving the divider in this layout pass.
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is _ResolvedSplitterGeometry &&
           identical(other.controller, controller) &&
+          other.config == config &&
           other.solution == solution &&
           other.layout == layout &&
           other.dividerThickness == dividerThickness;
@@ -41,6 +40,7 @@ class _ResolvedSplitterGeometry {
   @override
   int get hashCode => Object.hash(
     identityHashCode(controller),
+    config,
     solution,
     layout,
     dividerThickness,

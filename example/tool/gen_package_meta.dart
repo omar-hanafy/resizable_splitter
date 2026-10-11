@@ -5,7 +5,7 @@ import 'dart:io';
 /// name, links, install command, and license track the package with zero manual
 /// edits. Bump the package version (or change a link) and the whole UI follows.
 ///
-/// Run before building or deploying (the deploy script does this for you):
+/// Run before building or deploying (the Pages workflow does this for you):
 ///
 ///   dart run tool/gen_package_meta.dart
 void main() {
@@ -57,8 +57,8 @@ void main() {
 // Regenerate with: dart run tool/gen_package_meta.dart
 //
 // Centralizing the showcase's metadata here means a package version bump or a
-// link change needs no edits in the UI - just rerun the generator (the deploy
-// script does this automatically before every build).
+// link change needs no edits in the UI - just rerun the generator (the Pages
+// workflow does this automatically before every web build).
 
 /// Metadata about the package the showcase demonstrates, generated from its
 /// pubspec and license so the displayed version, name, links, and license never

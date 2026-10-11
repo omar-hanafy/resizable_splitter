@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:resizable_splitter/resizable_splitter.dart';
@@ -52,68 +52,73 @@ void main() {
     expect(controller.layout!.collapsedPane, isNull);
   });
 
-  testWidgets('layoutListenable fires on resize while the request is unchanged', (
-    tester,
-  ) async {
-    final controller = SplitterController(
-      initialPosition: const SplitterPosition.startPixels(200),
-    );
-    final layouts = <SplitterLayout>[];
-    controller.layoutListenable.addListener(() {
-      final l = controller.layout;
-      if (l != null) layouts.add(l);
-    });
+  testWidgets(
+    'layoutListenable fires on resize while the request is unchanged',
+    (tester) async {
+      final controller = SplitterController(
+        initialPosition: const SplitterPosition.startPixels(200),
+      );
+      final layouts = <SplitterLayout>[];
+      controller.layoutListenable.addListener(() {
+        final l = controller.layout;
+        if (l != null) layouts.add(l);
+      });
 
-    var width = 600.0;
-    late StateSetter setOuter;
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: Center(
-            child: StatefulBuilder(
-              builder: (context, setState) {
-                setOuter = setState;
-                return SizedBox(
-                  width: width,
-                  height: 300,
-                  child: ResizableSplitter(
-                    controller: controller,
-                    start: const SizedBox(),
-                    end: const SizedBox(),
-                  ),
-                );
-              },
+      var width = 600.0;
+      late StateSetter setOuter;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: StatefulBuilder(
+                builder: (context, setState) {
+                  setOuter = setState;
+                  return SizedBox(
+                    width: width,
+                    height: 300,
+                    child: ResizableSplitter(
+                      controller: controller,
+                      start: const SizedBox(),
+                      end: const SizedBox(),
+                    ),
+                  );
+                },
+              ),
             ),
           ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
+      );
+      await tester.pumpAndSettle();
 
-    // available = 594; the 200px pin lands at 200/594.
-    expect(controller.value.position, const SplitterPosition.startPixels(200));
-    expect(controller.layout!.startExtent, closeTo(200, 1e-6));
-    expect(controller.layout!.effectiveFraction, closeTo(200 / 594, 1e-6));
+      // available = 594; the 200px pin lands at 200/594.
+      expect(
+        controller.value.position,
+        const SplitterPosition.startPixels(200),
+      );
+      expect(controller.layout!.startExtent, closeTo(200, 1e-6));
+      expect(controller.layout!.effectiveFraction, closeTo(200 / 594, 1e-6));
 
-    final requestBefore = controller.value;
-    final countBefore = layouts.length;
+      final requestBefore = controller.value;
+      final countBefore = layouts.length;
 
-    // Resize the container: the pixel request does NOT change, but the effective
-    // fraction does (the pane stays pinned at 200px of a smaller space).
-    setOuter(() => width = 400);
-    await tester.pumpAndSettle();
+      // Resize the container: the pixel request does NOT change, but the effective
+      // fraction does (the pane stays pinned at 200px of a smaller space).
+      setOuter(() => width = 400);
+      await tester.pumpAndSettle();
 
-    // The request is untouched...
-    expect(controller.value, requestBefore);
-    // ...yet the resolved layout shifted, and a notification was delivered.
-    expect(controller.layout!.startExtent, closeTo(200, 1e-6));
-    expect(controller.layout!.effectiveFraction, closeTo(200 / 394, 1e-6));
-    expect(
-      layouts.length,
-      greaterThan(countBefore),
-      reason: 'layoutListenable must fire when the resize shifts the fraction',
-    );
-  });
+      // The request is untouched...
+      expect(controller.value, requestBefore);
+      // ...yet the resolved layout shifted, and a notification was delivered.
+      expect(controller.layout!.startExtent, closeTo(200, 1e-6));
+      expect(controller.layout!.effectiveFraction, closeTo(200 / 394, 1e-6));
+      expect(
+        layouts.length,
+        greaterThan(countBefore),
+        reason:
+            'layoutListenable must fire when the resize shifts the fraction',
+      );
+    },
+  );
 
   // The ordering contract the future 2.1 RenderObject publish must preserve: a
   // resolved change notifies exactly once, after the frame that produced it

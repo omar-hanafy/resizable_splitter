@@ -37,27 +37,18 @@ class _RenderResizableSplitter extends RenderBox
         ContainerRenderObjectMixin<RenderBox, _SplitterParentData>,
         RenderBoxContainerDefaultsMixin<RenderBox, _SplitterParentData> {
   _RenderResizableSplitter({
-    required Axis axis,
-    required TextDirection textDirection,
-    required SplitterPosition position,
-    required SplitterPane? collapsedPane,
-    required double dividerThickness,
-    required double interactiveExtent,
-    required bool resizable,
-    required SplitterSolverConfig config,
-    required SplitterController controller,
+    required this._axis,
+    required this._textDirection,
+    required this._position,
+    required this._collapsedPane,
+    required this._dividerThickness,
+    required this._interactiveExtent,
+    required this._resizable,
+    required this._config,
+    required this._controller,
     required ValueListenable<double?> previewListenable,
     required this.onGeometryChanged,
-  }) : _axis = axis,
-       _textDirection = textDirection,
-       _position = position,
-       _collapsedPane = collapsedPane,
-       _dividerThickness = dividerThickness,
-       _interactiveExtent = interactiveExtent,
-       _resizable = resizable,
-       _config = config,
-       _controller = controller,
-       _previewListenable = previewListenable,
+  }) : _previewListenable = previewListenable,
        _previewFraction = previewListenable.value;
 
   Axis _axis;
@@ -635,6 +626,7 @@ class _RenderResizableSplitter extends RenderBox
 
     final geometry = _ResolvedSplitterGeometry(
       controller: _controller,
+      config: _config,
       solver: solver,
       solution: solution,
       layout: layout,
@@ -886,9 +878,8 @@ class _RenderResizableSplitter extends RenderBox
       _dividerThickness,
       mainExtent,
     );
-    final solution = _solverFor(
-      math.max(0.0, mainExtent - divider),
-    ).solve(_position);
+    final solution = _solverFor(math.max(0.0, mainExtent - divider))
+        .solve(_position);
     _crossIntrinsicMain = mainExtent;
     _crossIntrinsicSolutionCache = solution;
     return solution;
@@ -901,6 +892,127 @@ class _RenderResizableSplitter extends RenderBox
   }) {
     if (child == null || !_hasPaneMainExtent(mainExtent)) return 0.0;
     return getter(child, mainExtent);
+  }
+
+  @override
+  double? computeDryBaseline(
+    BoxConstraints constraints,
+    TextBaseline baseline,
+  ) {
+    final mainMax = _maxMain(constraints);
+    final mainBounded = mainMax.isFinite;
+    final renderSize = getDryLayout(constraints);
+    final dividerThickness = mainBounded
+        ? _clampedSplitterDividerThickness(_dividerThickness, mainMax)
+        : 0.0;
+    final available = mainBounded
+        ? math.max(0.0, mainMax - dividerThickness)
+        : 0.0;
+    final solver = mainBounded ? _solverFor(available) : null;
+    final solution = solver?.solve(_position);
+    final tightCross = mainBounded && _maxCross(constraints).isFinite
+        ? _cross(renderSize)
+        : null;
+    final startConstraints = mainBounded
+        ? _paneConstraints(
+            parent: constraints,
+            mainExtent: solution!.startExtent,
+            tightCrossExtent: tightCross,
+          )
+        : _unboundedPaneConstraints(SplitterPane.start, constraints);
+    final endConstraints = mainBounded
+        ? _paneConstraints(
+            parent: constraints,
+            mainExtent: solution!.endExtent,
+            tightCrossExtent: tightCross,
+          )
+        : _unboundedPaneConstraints(SplitterPane.end, constraints);
+    final startExtent =
+        solution?.startExtent ??
+        _main(
+          _childForSlot(_SplitterSlot.start)?.getDryLayout(startConstraints) ??
+              Size.zero,
+        );
+    final endExtent =
+        solution?.endExtent ??
+        _main(
+          _childForSlot(_SplitterSlot.end)?.getDryLayout(endConstraints) ??
+              Size.zero,
+        );
+    final gap = (available - startExtent - endExtent).clamp(0.0, available);
+    final slop = mainBounded
+        ? _splitterInteractiveSlop(
+            interactiveExtent: _interactiveExtent,
+            dividerThickness: dividerThickness,
+            resizable: _resizable,
+          )
+        : 0.0;
+
+    // Mirror the first-child actual-baseline walk, using speculative child
+    // constraints and offsets rather than reading or changing live geometry.
+    var child = firstChild;
+    while (child != null) {
+      final slot = (child.parentData! as _SplitterParentData).slot;
+      final childConstraints = switch (slot) {
+        _SplitterSlot.start => startConstraints,
+        _SplitterSlot.end => endConstraints,
+        _SplitterSlot.divider => _dividerConstraints(
+          mainExtent: dividerThickness + slop * 2,
+          crossExtent: mainBounded ? _cross(renderSize) : 0,
+        ),
+        _SplitterSlot.preview => _dividerConstraints(
+          mainExtent: dividerThickness,
+          crossExtent: mainBounded ? _cross(renderSize) : 0,
+        ),
+        null => BoxConstraints.tight(Size.zero),
+      };
+      final childBaseline = child.getDryBaseline(childConstraints, baseline);
+      if (childBaseline != null) {
+        final mainOffset = switch (slot) {
+          _SplitterSlot.start => _startMainOffset(
+            _main(renderSize),
+            startExtent,
+          ),
+          _SplitterSlot.end =>
+            mainBounded
+                ? _endMainOffset(
+                    startExtent: startExtent,
+                    dividerThickness: dividerThickness,
+                    gapExtent: gap,
+                  )
+                : (_horizontalRtl ? 0.0 : startExtent),
+          _SplitterSlot.divider =>
+            mainBounded
+                ? _dividerMainOffset(
+                    renderMain: _main(renderSize),
+                    startExtent: startExtent,
+                    dividerThickness: dividerThickness,
+                    interactiveSlop: slop,
+                  )
+                : 0.0,
+          _SplitterSlot.preview || null => 0.0,
+        };
+        final isPane = slot == _SplitterSlot.start || slot == _SplitterSlot.end;
+        final crossOffset = isPane && (!mainBounded || tightCross == null)
+            ? math.max(
+                0.0,
+                (_cross(renderSize) -
+                        _cross(child.getDryLayout(childConstraints))) /
+                    2,
+              )
+            : 0.0;
+        final offset = slot == _SplitterSlot.preview && solver != null
+            ? _previewOffsetFor(
+                solver: solver,
+                renderSize: renderSize,
+                dividerThickness: dividerThickness,
+              )
+            : _offsetFrom(main: mainOffset, cross: crossOffset);
+        return childBaseline + offset.dy;
+      }
+      child = childAfter(child);
+    }
+    return null;
   }
 
   @override
@@ -929,6 +1041,24 @@ class _RenderResizableSplitter extends RenderBox
     }
   }
 
+  @override
+  Rect? describeApproximatePaintClip(RenderObject child) {
+    final box = child as RenderBox;
+    final parentData = box.parentData! as _SplitterParentData;
+    final childRect = parentData.offset & box.size;
+    if (parentData.slot == _SplitterSlot.start ||
+        parentData.slot == _SplitterSlot.end) {
+      return childRect;
+    }
+    final bounds = Offset.zero & size;
+    final fullyInside =
+        childRect.left >= bounds.left &&
+        childRect.top >= bounds.top &&
+        childRect.right <= bounds.right &&
+        childRect.bottom <= bounds.bottom;
+    return fullyInside ? null : bounds;
+  }
+
   // Each pane is clipped to its own box so content cannot bleed across the
   // divider (replaces the old per-pane ClipRect widgets).
   void _paintPane(PaintingContext context, Offset offset, RenderBox? child) {
@@ -952,21 +1082,15 @@ class _RenderResizableSplitter extends RenderBox
   ) {
     if (child == null) return;
     final childOffset = (child.parentData! as _SplitterParentData).offset;
-    final childRect = childOffset & child.size;
-    final bounds = Offset.zero & size;
-    final fullyInside =
-        childRect.left >= bounds.left &&
-        childRect.top >= bounds.top &&
-        childRect.right <= bounds.right &&
-        childRect.bottom <= bounds.bottom;
-    if (fullyInside) {
+    final clip = describeApproximatePaintClip(child);
+    if (clip == null) {
       context.paintChild(child, offset + childOffset);
       return;
     }
     context.pushClipRect(
       needsCompositing,
       offset,
-      bounds,
+      clip,
       (context, clippedOffset) =>
           context.paintChild(child, clippedOffset + childOffset),
     );

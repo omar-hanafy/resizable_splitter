@@ -4,7 +4,6 @@ on:
   push:
     tags:
       - 'resizable_splitter-v*'
-  workflow_dispatch:
 
 permissions:
   contents: read

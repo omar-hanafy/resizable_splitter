@@ -116,5 +116,6 @@ class _ResizableSplitterRenderWidget extends MultiChildRenderObjectWidget {
   }
 }
 
-typedef _SplitterGeometryChanged =
-    void Function(_ResolvedSplitterGeometry? geometry);
+typedef _SplitterGeometryChanged = void Function(
+  _ResolvedSplitterGeometry? geometry,
+);

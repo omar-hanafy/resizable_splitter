@@ -1135,7 +1135,7 @@ const Color _shieldBaseColor = Color(0x01000000);
 ///
 ///  1. An opaque [Listener] blocks any *new* pointer from reaching a platform
 ///     view through Flutter's hit testing.
-///  2. While dragging it PAINTS a full-screen layer (see [_buildBarrier]). Only
+///  2. Throughout the press it PAINTS a full-screen layer. Only
 ///     this makes the in-flight drag safe: the captured pointer's hit-test path
 ///     was fixed at pointer-down, so the shield cannot intercept that pointer in
 ///     Flutter - instead the paint makes the platform view decline the OS hit
@@ -1198,7 +1198,10 @@ class _DragOverlay extends StatelessWidget {
               child: IgnorePointer(
                 child: isDragging
                     ? _buildBarrier(context)
-                    : const SizedBox.expand(),
+                    : const ColoredBox(
+                        key: _shieldBaseBarrierKey,
+                        color: _shieldBaseColor,
+                      ),
               ),
             ),
           ),

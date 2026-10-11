@@ -3,6 +3,31 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 3.0.0
+
+### Breaking
+
+- Requires Flutter 3.47.7 and Dart 3.13.5 or later.
+- Migrates Material theming to `material_ui ^1.6.0`. Apps must use
+  `package:material_ui/material_ui.dart` for their Material app and theme;
+  `ResizableSplitterThemeData` now extends that library's `ThemeExtension`.
+  See the README's 2.x migration guide. Splitter constructors, controller
+  methods, positions, and callbacks keep their existing signatures.
+
+### Changed
+
+- Updates runtime dependencies to `equatable ^3.0.0` and `meta ^1.19.0`.
+
+### Fixed
+
+- Keyboard and accessibility actions use updated pixel-snapping settings and
+  device pixel ratios even when a rebuild leaves the current pane sizes unchanged.
+- Content clipped out of collapsed panes no longer remains exposed to screen readers.
+- Splitters support dry baseline measurement in intrinsic, baseline-aligned layouts.
+- The platform-view shield paints from pointer-down, including the interval before
+  a competing tap or double-tap gesture lets the drag begin. Cosmetic drag barriers
+  still appear only during an accepted drag.
+
 ## 2.1.4
 
 ### Fixed

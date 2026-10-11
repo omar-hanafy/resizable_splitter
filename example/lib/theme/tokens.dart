@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Typeface family names. Bundled as variable fonts in `assets/fonts/`.
 abstract final class Fonts {

@@ -14,40 +14,36 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
+          persist-credentials: false
 
-      - name: Setup Flutter (stable)
-        uses: subosito/flutter-action@v2
+      - name: Setup Flutter (minimum supported stable)
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: stable
+          flutter-version: '3.47.7'
 
       - name: Version channel check
-        if: github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'dev')
+        if: github.base_ref == 'main' || github.base_ref == 'dev' || github.ref_name == 'main' || github.ref_name == 'dev'
+        env:
+          TARGET_BRANCH: ${{ github.base_ref || github.ref_name }}
         run: |
           set -euo pipefail
-          base_sha="${{ github.event.pull_request.base.sha }}"
-          head_sha="${{ github.event.pull_request.head.sha }}"
-          if git diff --name-only "$base_sha" "$head_sha" | grep -q '^pubspec.yaml$'; then
-            version=$(awk '/^version:/ {print $2}' pubspec.yaml)
-            if [[ "${{ github.base_ref }}" == "main" ]]; then
-              if [[ "$version" == *-* ]]; then
-                echo "Main requires a stable version (no pre-release suffix)."
-                exit 1
-              fi
-            else
-              if [[ "$version" != *-* ]]; then
-                echo "Dev requires a pre-release version suffix (e.g. -dev.1)."
-                exit 1
-              fi
-            fi
-          else
-            echo "pubspec.yaml not changed; skipping version channel check."
+          version=$(awk '/^version:/ {print $2; exit}' pubspec.yaml | tr -d "\"'")
+          stable_pattern='^[0-9]+\.[0-9]+\.[0-9]+(\+[0-9A-Za-z.-]+)?$'
+          prerelease_pattern='^[0-9]+\.[0-9]+\.[0-9]+-[0-9A-Za-z.-]+(\+[0-9A-Za-z.-]+)?$'
+          if [[ "$TARGET_BRANCH" == 'main' && ! "$version" =~ $stable_pattern ]]; then
+            echo "Main requires a stable semantic version, got $version."
+            exit 1
+          fi
+          if [[ "$TARGET_BRANCH" == 'dev' && ! "$version" =~ $prerelease_pattern ]]; then
+            echo "Dev requires a prerelease semantic version, got $version."
+            exit 1
           fi
 
       - name: Install dependencies
-        run: dart pub get
+        run: flutter pub get
 
       - name: Check formatting
         run: dart format --output=none --set-exit-if-changed .
@@ -58,21 +54,30 @@ jobs:
       - name: Test
         run: flutter test
 
-  test-beta:
-    name: Test on beta
+      - name: Install example dependencies
+        working-directory: example
+        run: flutter pub get
+
+      - name: Test example showcase
+        working-directory: example
+        run: flutter test
+
+  test-current-stable:
+    name: Test on current stable
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Flutter (beta)
-        uses: subosito/flutter-action@v2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          channel: beta
+          persist-credentials: false
+
+      - name: Setup Flutter (current stable)
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
 
       - name: Install dependencies
-        run: dart pub get
+        run: flutter pub get
 
       - name: Analyze
         run: flutter analyze
@@ -85,33 +90,163 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - name: Setup Flutter (stable)
-        uses: subosito/flutter-action@v2
+      - name: Setup Flutter (minimum supported stable)
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: stable
+          flutter-version: '3.47.7'
 
       - name: Install dependencies
-        run: dart pub get
+        run: flutter pub get
 
       - name: Install pana
-        run: dart pub global activate pana
+        run: dart pub global activate pana 0.23.19
 
       - name: Run pana (full score required)
+        run: pana --exit-code-threshold 0 .
+
+  test-lower-bound:
+    name: Test minimum dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Flutter (minimum supported stable)
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          flutter-version: '3.47.7'
+
+      - name: Install example dependencies
+        working-directory: example
+        run: flutter pub get
+
+      - name: Resolve minimum dependencies
+        run: flutter pub downgrade --no-example
+
+      - name: Analyze minimum dependencies
+        run: flutter analyze --no-pub
+
+      - name: Test minimum dependencies
+        run: flutter test --no-pub
+
+  integration-macos:
+    name: Showcase on macOS
+    timeout-minutes: 25
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: example
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Flutter (minimum supported stable)
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          flutter-version: '3.47.7'
+
+      - name: Install example dependencies
+        run: flutter pub get
+
+      - name: Test showcase on macOS
+        run: flutter test --no-pub integration_test/showcase_test.dart -d macos --reporter expanded
+
+      - name: Build macOS release
+        run: flutter build macos --release --no-pub
+
+  integration-web-wasm:
+    name: Showcase on Chrome Wasm
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: example
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Flutter (minimum supported stable)
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          flutter-version: '3.47.7'
+
+      - name: Setup matching Chrome and ChromeDriver
+        id: chrome
+        uses: browser-actions/setup-chrome@48ad923757ca74d66703209fe939badbdf80f2f4 # v2.2.0
+        with:
+          chrome-version: stable
+          install-chromedriver: true
+
+      - name: Install example dependencies
+        run: flutter pub get
+
+      - name: Test showcase on Chrome Wasm
+        env:
+          CHROME_EXECUTABLE: ${{ steps.chrome.outputs.chrome-path }}
+          CHROME_VERSION: ${{ steps.chrome.outputs.chrome-version }}
+          CHROMEDRIVER_PATH: ${{ steps.chrome.outputs.chromedriver-path }}
+          CHROMEDRIVER_VERSION: ${{ steps.chrome.outputs.chromedriver-version }}
         run: |
           set -euo pipefail
-          pana --json . 2>/dev/null | python3 -c "
-          import json, sys
-          data = json.load(sys.stdin)
-          sections = data.get('report', {}).get('sections', [])
-          granted = sum(s.get('grantedPoints', 0) for s in sections)
-          maximum = sum(s.get('maxPoints', 0) for s in sections)
-          status = 'PASS' if granted == maximum else 'FAIL'
-          print(f'{status}: pana score {granted}/{maximum}')
-          if granted != maximum:
-              for s in sections:
-                  if s.get('grantedPoints', 0) < s.get('maxPoints', 0):
-                      print(f\"  - {s.get('title', '?')}: {s.get('grantedPoints', 0)}/{s.get('maxPoints', 0)}\")
-              sys.exit(1)
-          "
+          "$CHROME_EXECUTABLE" --version
+          "$CHROMEDRIVER_PATH" --version
+          if [[ "${CHROME_VERSION%%.*}" != "${CHROMEDRIVER_VERSION%%.*}" ]]; then
+            echo 'Chrome and ChromeDriver must have matching major versions.'
+            exit 1
+          fi
+          driver_log="$RUNNER_TEMP/chromedriver.log"
+          "$CHROMEDRIVER_PATH" --port=4444 > "$driver_log" 2>&1 &
+          driver_pid=$!
+          cleanup() {
+            driver_status=$?
+            kill "$driver_pid" 2>/dev/null || true
+            wait "$driver_pid" 2>/dev/null || true
+            if [[ "$driver_status" -ne 0 ]]; then
+              cat "$driver_log"
+            fi
+            exit "$driver_status"
+          }
+          trap cleanup EXIT
+          python3 - <<'PYTHON'
+          import json
+          import time
+          import urllib.error
+          import urllib.request
+
+          deadline = time.monotonic() + 30
+          while time.monotonic() < deadline:
+              try:
+                  with urllib.request.urlopen('http://127.0.0.1:4444/status', timeout=1) as response:
+                      if json.load(response).get('value', {}).get('ready') is True:
+                          break
+              except (urllib.error.URLError, TimeoutError):
+                  pass
+              time.sleep(0.25)
+          else:
+              raise SystemExit('ChromeDriver did not become ready within 30 seconds.')
+          PYTHON
+          flutter drive \
+            --no-pub \
+            --wasm \
+            --driver=test_driver/integration_test.dart \
+            --target=integration_test/showcase_test.dart \
+            -d web-server \
+            --browser-name=chrome \
+            --driver-port=4444 \
+            --browser-dimension=1600x1024 \
+            --chrome-binary="$CHROME_EXECUTABLE" \
+            --headless
